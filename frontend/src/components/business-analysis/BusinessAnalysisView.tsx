@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Archive, ArrowLeft, ArrowUpRight, Bold, BookOpen, Check, Download, Eye, FilePlus2, FileText, FolderKanban, LayoutGrid, List, ListOrdered, LoaderCircle, MessageSquareMore, MoreHorizontal, Plus, Printer, RefreshCw, Save, Sparkles, Table2, Tags, X } from "lucide-react";
+import { Archive, ArrowLeft, ArrowUpRight, Bold, BookOpen, Check, Download, Eye, FilePlus2, FileText, FolderKanban, LayoutGrid, List, ListOrdered, LoaderCircle, MessageSquareMore, MoreHorizontal, Plus, Printer, RefreshCw, Save, Sparkles, Table2, Tags, Trash2, X } from "lucide-react";
 import { BA_MIN_COLUMN_WIDTHS, createBAProject, DEFAULT_BA_COLUMN_WIDTHS, EMPTY_BA_STATE, nextRequirementId, normalizeBAState, requirementsFromNotes } from "@/lib/business-analysis";
 import type { ArchivedMeeting } from "@/types/meeting";
 import type { BAProject, BARequirement, BARequirementTask, BAWorkspaceState, BADocument, RequirementCategory, MoscowPriority, VerificationStatus } from "@/types/business-analysis";
@@ -336,7 +336,13 @@ export function BusinessAnalysisView({ userId, meetings: initialMeetings = [], o
   const [grillSession, setGrillSession] = useState<GrillSession | null>(null);
   const [selectedTemplate, setSelectedTemplate] = useState(DOC_TEMPLATES[0]);
   const [documentTitle, setDocumentTitle] = useState("");
+  const [projectMenuOpen, setProjectMenuOpen] = useState(false);
+  const [deleteProjectOpen, setDeleteProjectOpen] = useState(false);
+  const [deleteProjectBusy, setDeleteProjectBusy] = useState(false);
+  const [deleteProjectError, setDeleteProjectError] = useState("");
   const resizeStart = useRef<{ index: number; startX: number; startWidth: number } | null>(null);
+  const projectMenuRef = useRef<HTMLDivElement>(null);
+  const projectMenuButtonRef = useRef<HTMLButtonElement>(null);
 
   const project = useMemo(() => state.projects.find((item) => item.id === activeId) || null, [state.projects, activeId]);
   const detailRequirement = project?.requirements.find((item) => item.id === detailRequirementId) || null;
@@ -402,6 +408,26 @@ export function BusinessAnalysisView({ userId, meetings: initialMeetings = [], o
   }, [detailRequirement]);
 
   useEffect(() => {
+    if (!projectMenuOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.target instanceof Node && !projectMenuRef.current?.contains(event.target)) setProjectMenuOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { setProjectMenuOpen(false); projectMenuButtonRef.current?.focus(); }
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => { document.removeEventListener("pointerdown", onPointerDown); document.removeEventListener("keydown", onKeyDown); };
+  }, [projectMenuOpen]);
+
+  useEffect(() => {
+    if (!deleteProjectOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape" && !deleteProjectBusy) setDeleteProjectOpen(false); };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [deleteProjectOpen, deleteProjectBusy]);
+
+  useEffect(() => {
     if (!grillSession) return;
     const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape" && !grillSession.loading) setGrillSession(null); };
     window.addEventListener("keydown", onKeyDown);
@@ -424,6 +450,26 @@ export function BusinessAnalysisView({ userId, meetings: initialMeetings = [], o
     setState((current) => ({ ...current, projects: [...current.projects, next] }));
     setActiveId(next.id);
     setTab("requirements");
+  };
+
+  const deleteActiveProject = async () => {
+    if (!project || deleteProjectBusy) return;
+    setDeleteProjectBusy(true);
+    setDeleteProjectError("");
+    try {
+      const response = await fetch("/api/business-analysis", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ projectId: project.id }) });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "The project could not be deleted. Try again.");
+      setState(normalizeBAState(body.state));
+      setActiveId("");
+      setTab("requirements");
+      setSaveState("saved");
+      setDeleteProjectOpen(false);
+    } catch (error) {
+      setDeleteProjectError(error instanceof Error ? error.message : "The project could not be deleted. Try again.");
+    } finally {
+      setDeleteProjectBusy(false);
+    }
   };
 
   const addRequirement = () => {
@@ -729,7 +775,8 @@ export function BusinessAnalysisView({ userId, meetings: initialMeetings = [], o
       </div>
       <div className="ba-no-print flex flex-wrap items-center gap-2">
         {!project && <button className={`${secondaryClass} min-h-8 bg-white px-2.5 py-1 text-[11px]`} onClick={addProject}><Plus size={14} />New project</button>}
-        <span className="mr-1 text-xs text-slate-700" role="status">{saveState === "saving" ? "Saving" : saveState === "error" ? "Save failed" : "Saved"}</span>
+        {project && <div ref={projectMenuRef} className="relative"><button ref={projectMenuButtonRef} type="button" aria-label="Project options" title="Project options" aria-haspopup="menu" aria-expanded={projectMenuOpen} className="inline-flex h-8 w-8 items-center justify-center border border-slate-300 bg-white text-[#003366] hover:border-[#003366] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#C9A84C]" onClick={() => setProjectMenuOpen((open) => !open)}><MoreHorizontal aria-hidden="true" size={16} /></button>{projectMenuOpen && <div role="menu" aria-label={`${project.name} options`} className="absolute right-0 top-full z-30 mt-1 min-w-40 border border-slate-200 bg-white p-1 shadow-md"><button type="button" role="menuitem" className="flex min-h-8 w-full items-center gap-2 px-2 text-left text-xs text-[#9B3030] hover:bg-red-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#C9A84C]" onClick={() => { setProjectMenuOpen(false); setDeleteProjectError(""); setDeleteProjectOpen(true); }}><Trash2 aria-hidden="true" size={13} />Delete project</button></div>}</div>}
+        {saveState !== "saved" && <span className="mr-1 text-xs text-slate-700" role="status">{saveState === "saving" ? "Saving" : "Save failed"}</span>}
         <button className={`${secondaryClass} min-h-8 bg-white px-2.5 py-1 text-[11px]`} onClick={saveNow}><Save size={14} />Save</button>
       </div>
     </header>
@@ -789,6 +836,8 @@ export function BusinessAnalysisView({ userId, meetings: initialMeetings = [], o
 
       {tab === "export" && <section><div className="mb-3"><h2 className="font-serif text-xl font-bold italic text-[#003366]">Export and review</h2><p className="mt-1 text-sm text-slate-700">Create files from the current project data.</p></div><div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3"><button className={`${secondaryClass} justify-start p-4`} onClick={async () => downloadBlob(await renderXlsx(project), `${fileName(project.name)}-rtm.xlsx`)}><Table2 size={18} /><span className="text-left"><strong className="block">Export RTM workbook</strong><span className="mt-1 block text-xs font-normal text-slate-700">Requirements, links, and verification statuses</span></span><Download className="ml-auto" size={15} /></button><button className={`${secondaryClass} justify-start p-4`} onClick={() => window.print()}><Printer size={18} /><span className="text-left"><strong className="block">Print project summary</strong><span className="mt-1 block text-xs font-normal text-slate-700">Open the browser print dialog for a PDF copy</span></span></button><button className={`${secondaryClass} justify-start p-4`} onClick={() => setTab("documents")}><FileText size={18} /><span className="text-left"><strong className="block">Project documents</strong><span className="mt-1 block text-xs font-normal text-slate-700">Edit and download a Word draft</span></span></button></div><div className="mt-5 border border-[#CBD5E1] bg-[#FFFCFB] p-4"><h3 className="font-semibold text-[#003366]">Traceability summary</h3><dl className="mt-3 grid grid-cols-1 gap-2 text-sm sm:grid-cols-3"><div><dt className="text-slate-700">Coverage</dt><dd className="font-semibold">{coverage}%</dd></div><div><dt className="text-slate-700">Passed verification</dt><dd className="font-semibold">{project.requirements.filter((item) => item.verification === "Passed").length} of {project.requirements.length}</dd></div><div><dt className="text-slate-700">Requirements without a story, test, or task</dt><dd className="font-semibold">{project.requirements.filter((item) => !item.userStory && !item.testCase && !item.tasks.length).length}</dd></div></dl></div></section>}
     </>}
+    {deleteProjectOpen && project && <div className="ba-no-print fixed inset-0 z-[80] flex items-center justify-center bg-[#001A33]/45 p-3 sm:p-6" onClick={() => { if (!deleteProjectBusy) setDeleteProjectOpen(false); }}><section role="alertdialog" aria-modal="true" aria-labelledby="ba-delete-project-title" aria-describedby="ba-delete-project-description" className="w-full max-w-md border border-slate-300 bg-[#FFFCFB] shadow-xl" onClick={(event) => event.stopPropagation()}><header className="border-b border-slate-200 px-4 py-3"><h2 id="ba-delete-project-title" className="font-serif text-lg font-bold italic text-[#003366]">Delete project?</h2><p id="ba-delete-project-description" className="mt-1 text-xs leading-5 text-slate-600">“{project.name}” and its requirements, notes, roadmap, documents, and local task links will be removed from this workspace. Tasks already saved to an external task list will remain there.</p></header><div className="space-y-3 p-4">{deleteProjectError && <p role="alert" className="text-xs text-[#B42318]">{deleteProjectError}</p>}<div className="flex justify-end gap-2"><button type="button" autoFocus className={secondaryClass} disabled={deleteProjectBusy} onClick={() => setDeleteProjectOpen(false)}>Cancel</button><button type="button" className="inline-flex min-h-9 items-center justify-center gap-2 border border-[#9B3030] bg-[#9B3030] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#7A2525] disabled:cursor-wait disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#C9A84C]" disabled={deleteProjectBusy} onClick={() => void deleteActiveProject()}>{deleteProjectBusy ? <LoaderCircle aria-hidden="true" size={14} className="animate-spin" /> : <Trash2 aria-hidden="true" size={14} />}{deleteProjectBusy ? "Deleting…" : "Delete project"}</button></div></div></section></div>}
+
     {detailRequirement && <div className="ba-no-print fixed inset-0 z-50 flex items-center justify-center bg-[#001A33]/40 p-3 sm:p-6" onClick={() => setDetailRequirementId("")}><section role="dialog" aria-modal="true" aria-labelledby="ba-requirement-detail-title" className="max-h-[min(760px,calc(100dvh-1.5rem))] w-full max-w-3xl overflow-y-auto border border-slate-300 bg-[#FFFCFB] shadow-xl" onClick={(event) => event.stopPropagation()}>
       <header className="flex items-start justify-between gap-4 border-b border-slate-200 px-4 py-3 sm:px-5"><div><p className="text-[9px] font-bold uppercase tracking-[0.14em] text-[#31577D]">{project?.name || "Business Analysis"}</p><h2 id="ba-requirement-detail-title" className="mt-1 font-serif text-xl font-bold italic text-[#003366]">{detailRequirement.id}</h2></div><button type="button" aria-label="Close requirement details" className="inline-flex h-8 w-8 shrink-0 items-center justify-center border border-slate-300 text-[#003366] hover:border-[#003366] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#C9A84C]" onClick={() => setDetailRequirementId("")}><X aria-hidden="true" size={15} /></button></header>
       <dl className="grid grid-cols-1 gap-px bg-slate-200 sm:grid-cols-2">

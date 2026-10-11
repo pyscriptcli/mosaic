@@ -22,6 +22,56 @@
   --font-bebas: var(--font-bebas), Impact, sans-serif;
 }
 
+:root {
+  --mosaic-motion-standard: 190ms;
+  --mosaic-motion-ease: cubic-bezier(0.2, 0.75, 0.25, 1);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  button,
+  a,
+  input,
+  select,
+  textarea,
+  summary,
+  [role="button"] {
+    transition-duration: var(--mosaic-motion-standard);
+    transition-timing-function: var(--mosaic-motion-ease);
+  }
+
+  [role="dialog"],
+  [role="alertdialog"] {
+    animation: mosaic-dialog-enter var(--mosaic-motion-standard) var(--mosaic-motion-ease) both;
+  }
+}
+
+@keyframes mosaic-dialog-enter {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 /* Sleek custom scrollbars */
 ::-webkit-scrollbar {
   width: 6px;

@@ -38,3 +38,33 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "Business Analysis could not save. Check that its Supabase table is installed." }, { status: 503 });
   }
 }
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const { user, denied } = await authorizeBARequest(req);
+    if (denied || !user) return denied;
+    let body: { projectId?: unknown };
+    try { body = await req.json() as { projectId?: unknown }; }
+    catch { return NextResponse.json({ error: "Choose a project to delete." }, { status: 400 }); }
+    const projectId = typeof body.projectId === "string" ? body.projectId.trim().slice(0, 120) : "";
+    if (!projectId) return NextResponse.json({ error: "Choose a project to delete." }, { status: 400 });
+
+    const storage = getBAStorage();
+    const { data, error: readError } = await storage.from(TABLE).select("state").eq("owner_user_id", String(user.id)).maybeSingle();
+    if (readError) throw readError;
+    const currentState = normalizeBAState(data?.state);
+    if (!currentState.projects.some((project) => project.id === projectId)) {
+      return NextResponse.json({ error: "This project is no longer in your workspace. Reload and try again." }, { status: 404 });
+    }
+
+    const state = { ...currentState, projects: currentState.projects.filter((project) => project.id !== projectId) };
+    const { error: writeError } = await storage.from(TABLE).upsert({
+      owner_user_id: String(user.id), owner_email: user.email.toLowerCase().trim(), state, updated_at: new Date().toISOString(),
+    }, { onConflict: "owner_user_id" });
+    if (writeError) throw writeError;
+    return NextResponse.json({ state });
+  } catch (error) {
+    console.error("[Business Analysis] Project delete failed:", error);
+    return NextResponse.json({ error: "The project could not be deleted. Try again." }, { status: 503 });
+  }
+}
