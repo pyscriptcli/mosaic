@@ -60,7 +60,8 @@ This preserves today's handoff through tomorrow. It is replaced only after two n
 
 - `/business-analysis` and `/ba` open the personal IT Projects workspace in the shared Mosaic shell. Dave and system admins have access by default; explicit page permissions can grant it to others.
 - Project records remain scoped per signed-in user in `mosaic_ba_workspaces`; the existing page-access checks and owner-scoped read/write routes are unchanged. New backlog, architecture, process, and deployment arrays normalize safely for older saved projects.
-- Project tabs are Dashboard (timeline), Product Backlog, Sprint Backlog, RTM, System Design and Architecture, End to End Process, Deployment, and Reports. Product Backlog, Sprint Backlog, and RTM each support list and card views.
+- Project tabs are Dashboard (timeline), Product Backlog, Sprint Backlog, RTM, System Design and Architecture, End to End Process, Deployment, and Reports. Every tab supports List and Cards, with each tab retaining its view choice while the project is open. Full-width stacked cards and compact editable tables follow the RTM design deployed from 423c4b6.
+- Product Backlog and RTM edit the same requirement records. RTM retains rich-text story, test, criteria and impact editing, generation and classification actions, local tasks, verification, details, deletion confirmation, and saved table widths. Dashboard dates and deliverables and Reports drafts remain editable in both views.
 - Reports retains project workbook export, browser print, and editable Word document drafts. Apply `supabase/business_analysis.sql` when setting up workspace storage.
 
 ### Authentication and user connections
