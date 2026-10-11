@@ -33,11 +33,11 @@ export async function POST(request: NextRequest) {
   try {
     const user = getUserFromRequest(request);
     if (!getTokenFromRequest(request) || !user?.email) {
-      return NextResponse.json({ error: "Sign in before requesting a DELTA explanation." }, { status: 401 });
+      return NextResponse.json({ error: "Sign in before requesting a contract explanation." }, { status: 401 });
     }
     const access = resolveAccess(user.email, await loadAdminConfig());
     if (!access.allowedPages.some((page) => page === "delta" || page === "project" || page === "tasks")) {
-      return NextResponse.json({ error: "Your account does not have access to DELTA review." }, { status: 403 });
+      return NextResponse.json({ error: "Your account does not have access to contract review." }, { status: 403 });
     }
     const input = await request.json();
     const section = text(input.section, 240);
@@ -67,7 +67,7 @@ export async function POST(request: NextRequest) {
         const explanation = String(result.data.choices?.[0]?.message?.content || "").trim();
         if (explanation) return NextResponse.json({ explanation, provider: "Groq" }, { headers: { "Cache-Control": "no-store" } });
       } catch (error) {
-        console.warn("[DELTA] Groq explanation failed; trying DeepSeek:", error instanceof Error ? error.message : "unknown error");
+        console.warn("[Contract review] Groq explanation failed; trying DeepSeek:", error instanceof Error ? error.message : "unknown error");
       }
     }
 

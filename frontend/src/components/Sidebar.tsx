@@ -318,16 +318,7 @@ export function Sidebar({
                 Workspace
               </span>
             </div>
-          ) : (
-            <div className="py-2 flex justify-center border-b border-[#31577D]/80">
-              <div 
-                title={user?.workspaceName || "Mosaic Workspace"}
-                className="w-5 h-5 rounded-none bg-[#174778] border border-[#C9A84C]/50 flex items-center justify-center text-[10px] font-bold text-[#FFBF00]"
-              >
-                {(user?.workspaceName || "M")[0].toUpperCase()}
-              </div>
-            </div>
-          )}
+          ) : null}
 
           {/* User Account Details */}
           <div className="p-3">

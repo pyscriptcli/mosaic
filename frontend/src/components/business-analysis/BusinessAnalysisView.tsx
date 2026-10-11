@@ -6,8 +6,9 @@ import { BA_MIN_COLUMN_WIDTHS, createBAProject, DEFAULT_BA_COLUMN_WIDTHS, EMPTY_
 import type { ArchivedMeeting } from "@/types/meeting";
 import type { BAProject, BARequirement, BARequirementTask, BAWorkspaceState, BADocument, RequirementCategory, MoscowPriority, VerificationStatus } from "@/types/business-analysis";
 
-type Tab = "requirements" | "elicitation" | "roadmap" | "documents" | "export";
+type Tab = "dashboard" | "requirements" | "elicitation" | "roadmap" | "documents" | "export";
 const TABS: Array<{ id: Tab; label: string }> = [
+  { id: "dashboard", label: "Dashboard" },
   { id: "requirements", label: "Requirements" },
   { id: "elicitation", label: "Elicitation" },
   { id: "roadmap", label: "Roadmap" },
@@ -782,18 +783,18 @@ export function BusinessAnalysisView({ userId, meetings: initialMeetings = [], o
     </header>
 
     {!project ? state.projects.length === 0 ? <section className="border border-dashed border-slate-300 bg-white px-5 py-12 text-center"><FolderKanban aria-hidden="true" className="mx-auto h-6 w-6 text-[#31577D]" /><h2 className="mt-3 text-base font-semibold text-[#003366]">Create your first BA project</h2><p className="mx-auto mt-1 max-w-md text-sm text-slate-600">Keep requirements, discovery notes, and delivery documents together in one workspace.</p></section> : <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {state.projects.map((item) => <button key={item.id} type="button" onClick={() => { setActiveId(item.id); setTab("requirements"); }} className="group min-h-40 border border-slate-200 bg-white p-4 text-left transition-colors hover:border-[#C9A84C] hover:bg-[#FFFCFB] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#003366]"><span className="flex h-full flex-col"><span className="flex items-start justify-between gap-3"><span className="flex h-9 w-9 items-center justify-center border border-[#C9A84C]/60 bg-[#FBF7E9] text-[#003366]"><FolderKanban aria-hidden="true" className="h-4 w-4" /></span><ArrowUpRight aria-hidden="true" className="h-4 w-4 text-slate-400 transition-colors group-hover:text-[#003366]" /></span><span className="mt-4 text-base font-semibold text-[#003366]">{item.name}</span><span className="mt-1 text-xs text-slate-500">{item.requirements.length} requirement{item.requirements.length === 1 ? "" : "s"} · {item.documents.length} document{item.documents.length === 1 ? "" : "s"}</span><span className="mt-auto pt-4 text-[10px] font-semibold uppercase tracking-wide text-[#31577D]">Open workspace</span></span></button>)}
+        {state.projects.map((item) => <button key={item.id} type="button" onClick={() => { setActiveId(item.id); setTab("dashboard"); }} className="group min-h-40 border border-slate-200 bg-white p-4 text-left transition-colors hover:border-[#C9A84C] hover:bg-[#FFFCFB] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#003366]"><span className="flex h-full flex-col"><span className="flex items-start justify-between gap-3"><span className="flex h-9 w-9 items-center justify-center border border-[#C9A84C]/60 bg-[#FBF7E9] text-[#003366]"><FolderKanban aria-hidden="true" className="h-4 w-4" /></span><ArrowUpRight aria-hidden="true" className="h-4 w-4 text-slate-400 transition-colors group-hover:text-[#003366]" /></span><span className="mt-4 text-base font-semibold text-[#003366]">{item.name}</span><span className="mt-1 text-xs text-slate-500">{item.requirements.length} requirement{item.requirements.length === 1 ? "" : "s"} · {item.documents.length} document{item.documents.length === 1 ? "" : "s"}</span><span className="mt-auto pt-4 text-[10px] font-semibold uppercase tracking-wide text-[#31577D]">Open workspace</span></span></button>)}
     </section> : <>
-      <div className="grid grid-cols-2 gap-px border border-[#CBD5E1] bg-[#CBD5E1] md:grid-cols-4">
+      <nav className="ba-no-print flex overflow-x-auto border-b border-[#31577D]" aria-label="Business Analysis sections" role="tablist">
+        {TABS.map((item) => <button key={item.id} type="button" role="tab" aria-selected={tab === item.id} onClick={() => setTab(item.id)} className={`min-h-9 shrink-0 border-b-2 px-3 text-sm font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#C9A84C] ${tab === item.id ? "border-[#C9A84C] bg-[#FFFCFB] text-[#003366]" : "border-transparent text-slate-700 hover:bg-[#F1F5F9]"}`}>{item.label}</button>)}
+      </nav>
+
+      {tab === "dashboard" && <section aria-label="Project dashboard" className="grid grid-cols-2 gap-px border border-[#CBD5E1] bg-[#CBD5E1] md:grid-cols-4">
         <div className="bg-[#FFFCFB] px-3 py-2"><div className="text-xs font-semibold text-slate-700">Requirements</div><div className="mt-0.5 font-serif text-lg font-bold text-[#003366]">{filteredRequirements.length}</div></div>
         <div className="bg-[#FFFCFB] px-3 py-2"><div className="text-xs font-semibold text-slate-700">Traceability coverage</div><div className="mt-0.5 font-serif text-lg font-bold text-[#003366]">{coverage}%</div></div>
         <div className="bg-[#FFFCFB] px-3 py-2"><div className="text-xs font-semibold text-slate-700">Passed / not tested</div><div className="mt-0.5 font-serif text-lg font-bold text-[#003366]">{filteredRequirements.filter((item) => item.verification === "Passed").length} / {filteredRequirements.filter((item) => item.verification === "Not Tested").length}</div></div>
         <div className="bg-[#FFFCFB] px-3 py-2"><div className="text-xs font-semibold text-slate-700">Unprioritized</div><div className="mt-0.5 font-serif text-lg font-bold text-[#003366]">{unprioritized}</div></div>
-      </div>
-
-      <nav className="ba-no-print flex overflow-x-auto border-b border-[#31577D]" aria-label="Business Analysis sections" role="tablist">
-        {TABS.map((item) => <button key={item.id} type="button" role="tab" aria-selected={tab === item.id} onClick={() => setTab(item.id)} className={`min-h-9 shrink-0 border-b-2 px-3 text-sm font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#C9A84C] ${tab === item.id ? "border-[#C9A84C] bg-[#FFFCFB] text-[#003366]" : "border-transparent text-slate-700 hover:bg-[#F1F5F9]"}`}>{item.label}</button>)}
-      </nav>
+      </section>}
 
       {tab === "requirements" && <section>
         <div className="mb-2 flex flex-wrap items-center gap-2">

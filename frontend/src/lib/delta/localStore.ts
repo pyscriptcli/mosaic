@@ -101,18 +101,32 @@ async function requestFolderPermission(handle: FileSystemDirectoryHandle) {
   const current = await permissionHandle.queryPermission?.({ mode: "readwrite" });
   if (current === "granted") return;
   const requested = await permissionHandle.requestPermission?.({ mode: "readwrite" });
-  if (requested !== "granted") throw new Error("Allow DELTA to access the Documents folder to save or reopen reviews.");
+  if (requested !== "granted") throw new Error("Allow access to the Documents folder to save or reopen contract reviews.");
 }
 
 async function reviewsDirectory(parent: FileSystemDirectoryHandle, create: boolean) {
-  return parent.getDirectoryHandle("DELTA Reviews", { create });
+  const getIfPresent = async (name: string) => {
+    try {
+      return await parent.getDirectoryHandle(name);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "NotFoundError") return null;
+      throw error;
+    }
+  };
+  const currentFolder = await getIfPresent("Contract Reviews");
+  if (currentFolder) return currentFolder;
+  // Keep access to reviews created before the folder was renamed.
+  const legacyFolder = await getIfPresent("DELTA Reviews");
+  if (legacyFolder) return legacyFolder;
+  if (!create) throw new Error("No contract review folder was found.");
+  return parent.getDirectoryHandle("Contract Reviews", { create: true });
 }
 
 export async function chooseReviewFolder() {
   const picker = (window as DirectoryWindow).showDirectoryPicker;
   if (picker) {
     const documents = await picker({ id: "project-echo-delta-documents", mode: "readwrite", startIn: "documents" });
-    if (documents.name.toLowerCase() !== "documents") throw new Error("Choose the Documents folder. DELTA will create its review folder there.");
+    if (documents.name.toLowerCase() !== "documents") throw new Error("Choose the Documents folder. A contract review folder will be created there.");
     await requestFolderPermission(documents);
     const folder = await reviewsDirectory(documents, true);
     await saveDirectoryHandle(documents, "documents");
@@ -123,7 +137,7 @@ export async function chooseReviewFolder() {
   if (privateStorage) {
     try {
       const root = await privateStorage.call(navigator.storage);
-      const folder = await root.getDirectoryHandle("DELTA Reviews", { create: true });
+      const folder = await reviewsDirectory(root, true);
       await saveDirectoryHandle(root, "browser");
       return { folder: folder.name, mode: "browser" as const };
     } catch {
@@ -132,7 +146,7 @@ export async function chooseReviewFolder() {
   }
 
   await saveStorageMode("indexeddb");
-  return { folder: "DELTA Reviews", mode: "indexeddb" as const };
+  return { folder: "Contract Reviews", mode: "indexeddb" as const };
 }
 
 async function authorizedReviewsDirectory() {

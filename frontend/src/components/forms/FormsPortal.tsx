@@ -49,7 +49,7 @@ export const APP_PAGE_LIST: Array<{ id: AppPage; label: string; desc: string }> 
   { id: "meetings", label: "Meetings", desc: "Archived meetings & transcripts" },
   { id: "minutes", label: "Notetaker", desc: "Studio, live recording & minutes synthesis" },
   { id: "forms", label: "Forms", desc: "Submit, track & approve company requests" },
-  { id: "delta", label: "DELTA Review", desc: "Compare lease drafts and export a local review register" },
+  { id: "delta", label: "Contract Review", desc: "Compare lease drafts and export a local review register" },
   { id: "business-analysis", label: "Business Analysis", desc: "Personal IT requirements, notes, and delivery planning" },
 ];
 const DEFAULT_ACCESS_PAGE_LIST = APP_PAGE_LIST.filter((page) => page.id !== "business-analysis");
