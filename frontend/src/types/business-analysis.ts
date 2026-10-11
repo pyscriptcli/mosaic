@@ -19,6 +19,12 @@ export interface BARequirement {
   createdAt: string;
   updatedAt: string;
   statement: string;
+  featureName: string;
+  complexity: string;
+  implementationStatus: string;
+  technicalFeature: string;
+  testCaseId: string;
+  mappingStatus: string;
   businessImpact: string;
   category: RequirementCategory;
   priority: MoscowPriority | "";
@@ -27,6 +33,11 @@ export interface BARequirement {
   testCase: string;
   verification: VerificationStatus;
   tasks: BARequirementTask[];
+}
+
+export interface BAWorkItem {
+  id: string;
+  [field: string]: string;
 }
 
 export interface BAPhase {
@@ -50,6 +61,10 @@ export interface BAProject {
   description: string;
   discoveryNotes: string;
   requirements: BARequirement[];
+  sprintBacklog: BAWorkItem[];
+  systemDesign: BAWorkItem[];
+  endToEndProcess: BAWorkItem[];
+  deployments: BAWorkItem[];
   phases: BAPhase[];
   documents: BADocument[];
   createdAt: string;

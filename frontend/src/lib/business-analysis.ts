@@ -16,7 +16,7 @@ export const EMPTY_BA_STATE: BAWorkspaceState = { projects: [], tableColumnWidth
 export function createBAProject(name = "New BA Project"): BAProject {
   const now = new Date().toISOString();
   return {
-    id: crypto.randomUUID(), name, description: "", discoveryNotes: "", requirements: [],
+    id: crypto.randomUUID(), name, description: "", discoveryNotes: "", requirements: [], sprintBacklog: [], systemDesign: [], endToEndProcess: [], deployments: [],
     phases: BA_PHASES.map((phase) => ({
       name: phase.name,
       startDate: "",
@@ -39,6 +39,12 @@ export function normalizeBAState(value: unknown): BAWorkspaceState {
   const categories = ["Functional", "Non-Functional", "Technical", "Compliance", "Business"];
   const priorities = ["Must Have", "Should Have", "Could Have", "Won't Have"];
   const statuses = ["Passed", "In Dev", "Not Tested", "Blocked"];
+  const records = (value: unknown, fields: string[]) => Array.isArray(value) ? value.slice(0, 1000).flatMap((entry, index) => {
+    if (!entry || typeof entry !== "object") return [];
+    const record = entry as Record<string, unknown>;
+    const id = text(record.id, 80) || `row-${index + 1}`;
+    return [{ id, ...Object.fromEntries(fields.map((field) => [field, text(record[field], 5000)])) }];
+  }) : [];
     const normalizedAt = new Date().toISOString();
   const projects = source.flatMap((raw) => {
     if (!raw || typeof raw !== "object") return [];
@@ -64,7 +70,7 @@ export function normalizeBAState(value: unknown): BAWorkspaceState {
       const legacyMilestone = text(req.milestone, 300);
       if (!tasks.length && legacyMilestone) tasks.push({ id: `${text(req.id, 40)}-legacy-task`, title: legacyMilestone, done: false });
       return [{
-        id: text(req.id, 40), createdAt, updatedAt: text(req.updatedAt, 40) || createdAt, statement: text(req.statement, 5000), businessImpact: text(req.businessImpact, 3000),
+        id: text(req.id, 40), createdAt, updatedAt: text(req.updatedAt, 40) || createdAt, statement: text(req.statement, 5000), featureName: text(req.featureName, 500), complexity: text(req.complexity, 100), implementationStatus: text(req.implementationStatus, 100) || "Not Started", technicalFeature: text(req.technicalFeature, 1000), testCaseId: text(req.testCaseId, 200), mappingStatus: text(req.mappingStatus, 100) || "Unmapped", businessImpact: text(req.businessImpact, 3000),
         category: categories.includes(String(req.category)) ? req.category as BAProject["requirements"][number]["category"] : "Business",
         priority: req.priority === "" ? "" : priorities.includes(String(req.priority)) ? req.priority as BAProject["requirements"][number]["priority"] : "Must Have",
         userStory: text(req.userStory, 5000), acceptanceCriteria: text(req.acceptanceCriteria, 10000),
@@ -93,6 +99,10 @@ export function normalizeBAState(value: unknown): BAWorkspaceState {
     return [{
       id: text(item.id, 40), name: text(item.name, 200), description: text(item.description, 5000),
       discoveryNotes: text(item.discoveryNotes, 100_000), requirements, phases, documents,
+      sprintBacklog: records(item.sprintBacklog, ["taskName", "module", "priority", "status", "estimatedHours", "actualHours", "blockers"]),
+      systemDesign: records(item.systemDesign, ["component", "function", "technology", "dataSource", "integrationPoint", "dependencies"]),
+      endToEndProcess: records(item.endToEndProcess, ["step", "phase", "userAction", "systemLogic", "output", "tool"]),
+      deployments: records(item.deployments, ["step", "phase", "actionItem", "environment", "owner", "rollbackPlan", "status"]),
       createdAt: text(item.createdAt, 40), updatedAt: text(item.updatedAt, 40),
     }];
   });
@@ -117,7 +127,7 @@ export function requirementsFromNotes(notes: string, existing: BAProject["requir
     const statement = match[2].trim();
     const index = next.findIndex((requirement) => requirement.id.toUpperCase() === id);
     if (index >= 0) next[index] = { ...next[index], statement, updatedAt: now };
-    else next.push({ id, createdAt: now, updatedAt: now, statement, businessImpact: "", category: "Business", priority: "", userStory: "", acceptanceCriteria: "", testCase: "", verification: "Not Tested", tasks: [] });
+    else next.push({ id, createdAt: now, updatedAt: now, statement, featureName: "", complexity: "", implementationStatus: "Not Started", technicalFeature: "", testCaseId: "", mappingStatus: "Unmapped", businessImpact: "", category: "Business", priority: "", userStory: "", acceptanceCriteria: "", testCase: "", verification: "Not Tested", tasks: [] });
   }
   return next;
 }

@@ -13,8 +13,8 @@ export async function GET(req: NextRequest) {
     if (error) throw error;
     return NextResponse.json({ state: normalizeBAState(data?.state) }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    console.error("[Business Analysis] Load failed:", error);
-    return NextResponse.json({ error: "Business Analysis could not load. Check that its Supabase table is installed." }, { status: 503 });
+    console.error("[IT Projects] Load failed:", error);
+    return NextResponse.json({ error: "IT Projects could not load. Check that its workspace storage is installed." }, { status: 503 });
   }
 }
 
@@ -34,8 +34,8 @@ export async function PUT(req: NextRequest) {
     if (error) throw error;
     return NextResponse.json({ saved: true });
   } catch (error) {
-    console.error("[Business Analysis] Save failed:", error);
-    return NextResponse.json({ error: "Business Analysis could not save. Check that its Supabase table is installed." }, { status: 503 });
+    console.error("[IT Projects] Save failed:", error);
+    return NextResponse.json({ error: "IT Projects could not save. Check that its workspace storage is installed." }, { status: 503 });
   }
 }
 
@@ -64,7 +64,7 @@ export async function DELETE(req: NextRequest) {
     if (writeError) throw writeError;
     return NextResponse.json({ state });
   } catch (error) {
-    console.error("[Business Analysis] Project delete failed:", error);
+    console.error("[IT Projects] Project delete failed:", error);
     return NextResponse.json({ error: "The project could not be deleted. Try again." }, { status: 503 });
   }
 }

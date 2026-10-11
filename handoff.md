@@ -56,14 +56,12 @@ This preserves today's handoff through tomorrow. It is replaced only after two n
 
 ## What is implemented
 
-### Business Analysis Workbench
+### IT Projects workspace
 
-- `/business-analysis` and `/ba` open a personal IT BA workspace in the shared Mosaic shell. Dave and system admins have access by default; explicit page permissions can grant it to others.
-- Requirements, elicitation notes, six delivery phases, and editable pre/post documents are stored per signed-in user in `mosaic_ba_workspaces`. Apply `supabase/business_analysis.sql`; server routes use the service key and enforce page access plus owner-scoped reads/writes.
-- Notetaker import loads saved records through the existing `/api/meetings` path. Story generation uses the configured Ask Echo model policy. Excel RTM, Word documents, and browser print are available; external stakeholder links are deferred.
-- Cards are the default RTM view. User stories, acceptance criteria, and test cases support bold, bulleted, and numbered Markdown formatting; generated content stays concise.
-- Requirements support multiple local tasks. Each task can also be saved to a user-accessible ClickUp list, with the local task retained and linked to its ClickUp copy; ClickUp access uses the signed-in user's OAuth token.
-- Business requirements can be generated from their row details or refined through a one-question-at-a-time Grill me session; the user reviews the draft before applying it.
+- `/business-analysis` and `/ba` open the personal IT Projects workspace in the shared Mosaic shell. Dave and system admins have access by default; explicit page permissions can grant it to others.
+- Project records remain scoped per signed-in user in `mosaic_ba_workspaces`; the existing page-access checks and owner-scoped read/write routes are unchanged. New backlog, architecture, process, and deployment arrays normalize safely for older saved projects.
+- Project tabs are Dashboard (timeline), Product Backlog, Sprint Backlog, RTM, System Design and Architecture, End to End Process, Deployment, and Reports. Product Backlog, Sprint Backlog, and RTM each support list and card views.
+- Reports retains project workbook export, browser print, and editable Word document drafts. Apply `supabase/business_analysis.sql` when setting up workspace storage.
 
 ### Authentication and user connections
 

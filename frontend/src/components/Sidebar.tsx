@@ -97,7 +97,7 @@ export function Sidebar({
       icon: LayoutGrid,
       badge: null
     },
-    { id: "business-analysis" as NavView, label: "Business Analysis", icon: BriefcaseBusiness, badge: null },
+    { id: "business-analysis" as NavView, label: "IT Projects", icon: BriefcaseBusiness, badge: null },
     {
       id: "project" as NavView,
       label: "Projects",
