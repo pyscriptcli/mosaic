@@ -225,6 +225,17 @@ export function categoryPayload(value: unknown): Categories {
   };
 }
 
+export function categoriesFromTask(task?: RawClickUpTask | null): Categories {
+  const categories = categoryPayload({});
+  for (const field of task?.custom_fields || []) {
+    const key = (Object.keys(CATEGORY_MATCHERS) as CategoryKey[]).find((candidate) =>
+      CATEGORY_MATCHERS[candidate](normalizeFieldName(field.name || "")),
+    );
+    if (key) categories[key] = extractText(field.value);
+  }
+  return categories;
+}
+
 export async function categoryFields(token: string) {
   const response = await fetchClickUp(`https://api.clickup.com/api/v2/list/${DAILY_LOG_LIST_ID}/field`, {
     headers: { Authorization: token }, cache: "no-store",

@@ -42,7 +42,6 @@ import { ContractsWorkspace } from "@/components/ContractsWorkspace";
 import { MeetingsView } from "@/components/MeetingsView";
 import TasksPageView from "@/components/TasksPageView";
 import type { ClickUpTask } from "@/components/TasksView";
-import { NotebookView } from "@/components/NotebookView";
 import { MarketInsightsView } from "@/components/MarketInsightsView";
 import { DemandsView } from "@/components/DemandsView";
 import { BusinessAnalysisView } from "@/components/business-analysis/BusinessAnalysisView";
@@ -440,7 +439,7 @@ export default function Home() {
   const [allowedPages, setAllowedPages] = useState<NavView[]>(warmGovernance?.allowedPages || []);
   const [governanceStatus, setGovernanceStatus] = useState<"loading" | "ready" | "error">(warmGovernance ? "ready" : "loading");
   const [sidebarOrder, setSidebarOrder] = useState<NavView[]>([
-    "dashboard", "business-analysis", "project", "tasks", "notebook", "reports", "market-insights", "demands", "meetings", "minutes", "forms", "delta",
+    "dashboard", "business-analysis", "project", "notebook", "reports", "market-insights", "demands", "meetings", "minutes", "forms", "delta",
   ]);
   const [isAdminUser, setIsAdminUser] = useState(warmGovernance?.isAdmin || false);
   const [askEchoEnabled, setAskEchoEnabled] = useState(warmGovernance?.askEchoEnabled || false);
@@ -553,6 +552,7 @@ export default function Home() {
     if (isAdminUser || authUser?.email?.toLowerCase().trim() === "admin@primephilippines.com") return true;
     if (view === "project") return allowedPages.includes("project") || allowedPages.includes("tasks");
     if (view === "delta") return allowedPages.includes("delta") || allowedPages.includes("project") || allowedPages.includes("tasks");
+    if (view === "notebook") return allowedPages.includes("notebook") || allowedPages.includes("tasks");
     return allowedPages.includes(view);
   };
 
@@ -1388,10 +1388,14 @@ export default function Home() {
             {currentView === "delta" && <ContractsWorkspace />}
 
             {/* VIEW: TASKS (CLICKUP PORTAL) */}
-            {currentView === "tasks" && (
+            {(currentView === "tasks" || currentView === "notebook") && (
               <TasksPageView
+                key={currentView}
                 userId={authUser?.id ? String(authUser.id) : undefined}
                 currentUserName={authUser?.username}
+                currentView={currentView}
+                canAccessTasks={isPageAllowed("tasks")}
+                canAccessNotebook={isPageAllowed("notebook")}
                 onNavigateToMeetings={() => setCurrentView("meetings")}
                 onSelectMeeting={(meetingTitle) => {
                   const match = archivedMeetings.find((m) =>
@@ -1403,11 +1407,6 @@ export default function Home() {
                 focusedTaskId={focusedTaskId}
                 onClearFocusedTask={() => setFocusedTaskId(null)}
               />
-            )}
-
-            {/* VIEW: CLICKUP DAILY LOG NOTEBOOK */}
-            {currentView === "notebook" && (
-              <NotebookView currentUserName={authUser?.username} userId={authUser?.id ? String(authUser.id) : undefined} />
             )}
 
             {currentView === "reports" && (

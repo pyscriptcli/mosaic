@@ -4,6 +4,7 @@ import { getTokenFromRequest, getUserFromRequest } from "@/lib/auth";
 import {
   DAILY_LOG_LIST_ID, createTask, dateFromTask, ensureDailyTask, fetchAllTasks,
   fetchClickUp, formatDailyName, isValidDate, monthFromTaskName, taskOwner,
+  categoryPayload, categoriesFromTask, writeCategories, completeDailyTaskOnTimeIfPopulated,
   type RawClickUpTask,
 } from "@/lib/notebookClickup";
 
@@ -114,7 +115,7 @@ export async function GET(req: NextRequest) {
     const children = day ? tasks.filter((task) => String(task.parent) === String(day.id)).map(serializeDayTask) : [];
     return NextResponse.json({
       date, dayTask: day ? { id: String(day.id), name: day.name || formatDailyName(date), url: day.url || `https://app.clickup.com/t/${day.id}` } : null,
-      tasks: children, notes: note?.description || "", noteTask: note,
+      tasks: children, notes: note?.description || "", noteTask: note, activity: categoriesFromTask(day),
       completeStatus, openStatus,
       personalList: personalList ? { id: personalList.id, name: personalList.name } : null, notesError,
     });
@@ -154,6 +155,20 @@ export async function POST(req: NextRequest) {
     }
 
     const { tasks, day } = await getKpiContext(token, body.date, req);
+    if (action === "activity") {
+      const categories = categoryPayload(body.categories);
+      const context = day
+        ? { daily: day }
+        : await ensureDailyTask(token, body.date, { id: String(user.id), name: user.username });
+      await writeCategories(token, String(context.daily.id), categories);
+      const statusResult = await completeDailyTaskOnTimeIfPopulated(token, String(context.daily.id), context.daily.status?.status || "to do", categories);
+      return NextResponse.json({
+        success: true,
+        dayTask: { id: String(context.daily.id), name: context.daily.name || formatDailyName(body.date), url: context.daily.url || "https://app.clickup.com/t/" + context.daily.id },
+        activity: categories,
+        ...statusResult,
+      });
+    }
     if (action === "create") {
       const title = String(body.name || "").trim();
       if (!title) return NextResponse.json({ error: "Enter a task name." }, { status: 400 });

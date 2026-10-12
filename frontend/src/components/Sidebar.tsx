@@ -12,7 +12,6 @@ import {
   ChevronRight,
   ChevronLeft,
   LogOut,
-  SquareCheck,
   Settings,
   NotebookTabs,
   ClipboardCheck,
@@ -61,7 +60,6 @@ export function Sidebar({
     personal: true,
     workspaces: true,
     monitoring: true,
-    knowledge: true,
     tools: true,
     meetings: true,
   });
@@ -110,12 +108,6 @@ export function Sidebar({
       icon: FileText,
       badge: null
     },
-    {
-      id: "tasks" as NavView,
-      label: "Tasks",
-      icon: SquareCheck,
-      badge: null
-    },
     { id: "demands" as NavView, label: "Demands", icon: ClipboardCheck, badge: null },
     { id: "reports" as NavView, label: "Reports", icon: ChartNoAxesColumnIncreasing, badge: null },
     {
@@ -149,6 +141,7 @@ export function Sidebar({
     return (orderIndex.get(a.id) ?? fallback) - (orderIndex.get(b.id) ?? fallback);
   }).filter((item) => Boolean(
     allowedPages?.includes(item.id) ||
+    (item.id === "notebook" && allowedPages?.includes("tasks")) ||
     (item.id === "project" && allowedPages?.includes("tasks")) ||
     (item.id === "delta" && (allowedPages?.includes("project") || allowedPages?.includes("tasks")))
   ));
@@ -156,9 +149,8 @@ export function Sidebar({
   const navById = new Map(navItems.map((item) => [item.id, item]));
   const sidebarGroups = [
     { id: "personal" as const, label: "Personal Workspace", itemIds: ["business-analysis"] as NavView[] },
-    { id: "workspaces" as const, label: "Workspaces", itemIds: ["dashboard", "project", "delta", "tasks"] as NavView[] },
+    { id: "workspaces" as const, label: "Workspaces", itemIds: ["dashboard", "project", "delta", "notebook"] as NavView[] },
     { id: "monitoring" as const, label: "Monitoring", itemIds: ["demands", "market-insights", "reports"] as NavView[] },
-    { id: "knowledge" as const, label: "Knowledge", itemIds: ["notebook"] as NavView[] },
   ].map((group) => ({
     ...group,
     items: group.itemIds
@@ -172,7 +164,7 @@ export function Sidebar({
 
   const renderNavItem = (item: (typeof navItems)[number], nested = false) => {
     const Icon = item.icon;
-    const isActive = currentView === item.id;
+    const isActive = currentView === item.id || (item.id === "notebook" && currentView === "tasks");
     return (
       <button
         key={item.id}

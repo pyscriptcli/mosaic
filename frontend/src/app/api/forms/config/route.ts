@@ -37,7 +37,7 @@ const DEFAULT_CONFIG: FormsConfigData = {
   mappings: REPOSITORY_FORM_MAPPINGS,
   pagePermissions: [],
   defaultPageAccess: ["forms", "market-insights", "delta", "reports"],
-  sidebarOrder: ["dashboard", "project", "tasks", "notebook", "reports", "market-insights", "demands", "meetings", "minutes", "forms", "delta"],
+  sidebarOrder: ["dashboard", "project", "notebook", "reports", "market-insights", "demands", "meetings", "minutes", "forms", "delta"],
   emailTemplates: [],
   allowedSignInDomains: ["primephilippines.com"],
   aiPolicy: DEFAULT_AI_POLICY,

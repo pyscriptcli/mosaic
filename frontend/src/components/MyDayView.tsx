@@ -3,18 +3,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, Bell, BellOff, CalendarDays, Check, CheckCircle2, ChevronLeft, ChevronRight, Clock3, ExternalLink, LoaderCircle, Plus, RefreshCw, Save, Trash2, X } from "lucide-react";
 import { getStoredClickUpListId, getStoredClickUpToken } from "@/lib/api";
-import { NotebookView } from "@/components/NotebookView";
 
 type DayTask = {
   id: string; name: string; description: string; status: string; completed: boolean;
   priority: "urgent" | "high" | "normal" | "low"; dueDate: string; url: string;
 };
+type DailyActivity = { client: string; admin: string; adhoc: string; meetings: string };
 type DayPayload = {
   date: string; dayTask: { id: string; name: string; url: string } | null; tasks: DayTask[];
-  notes: string; noteTask: { id: string; name: string; url: string } | null;
+  notes: string; noteTask: { id: string; name: string; url: string } | null; activity: DailyActivity;
   personalList: { id: string; name: string } | null; completeStatus: string; openStatus: string; notesError?: string;
 };
-type Props = { userId?: string; currentUserName?: string };
+type Props = { userId?: string; currentUserName?: string; showDailyActivity?: boolean; initialDate?: string; onDateChange?: (date: string) => void };
 
 const todayIso = () => {
   const date = new Date();
@@ -27,6 +27,13 @@ const moveDate = (value: string, days: number) => {
 };
 const dateLabel = (value: string) => new Date(`${value}T12:00:00`).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
 const REMINDER_KEY = "project_echo_my_day_reminders";
+const ACTIVITY_FIELDS: Array<{ key: keyof DailyActivity; label: string }> = [
+  { key: "client", label: "Client" },
+  { key: "admin", label: "Admin" },
+  { key: "adhoc", label: "Ad hoc" },
+  { key: "meetings", label: "Meetings" },
+];
+const EMPTY_ACTIVITY: DailyActivity = { client: "", admin: "", adhoc: "", meetings: "" };
 
 function requestHeaders(personalList?: { id: string; name: string } | null) {
   const headers = new Headers({ "Content-Type": "application/json" });
@@ -41,9 +48,8 @@ function requestHeaders(personalList?: { id: string; name: string } | null) {
   return headers;
 }
 
-export default function MyDayView({ userId, currentUserName }: Props) {
-  const [date, setDate] = useState(todayIso);
-  const [workspaceTab, setWorkspaceTab] = useState<"my-day" | "activity">("my-day");
+export default function MyDayView({ userId, currentUserName, showDailyActivity = true, initialDate, onDateChange }: Props) {
+  const [date, setDate] = useState(() => initialDate || todayIso());
   const [payload, setPayload] = useState<DayPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -58,6 +64,9 @@ export default function MyDayView({ userId, currentUserName }: Props) {
   const [noteDraft, setNoteDraft] = useState("");
   const [noteSave, setNoteSave] = useState<"saved" | "pending" | "saving" | "error">("saved");
   const [noteError, setNoteError] = useState("");
+  const [activityDraft, setActivityDraft] = useState<DailyActivity>(EMPTY_ACTIVITY);
+  const [activitySave, setActivitySave] = useState<"saved" | "pending" | "saving" | "error">("saved");
+  const [activityError, setActivityError] = useState("");
   const [remindersEnabled, setRemindersEnabled] = useState(false);
   const [reminderMinutes, setReminderMinutes] = useState(30);
   const [snoozedUntil, setSnoozedUntil] = useState(0);
@@ -67,7 +76,11 @@ export default function MyDayView({ userId, currentUserName }: Props) {
   const [personalList, setPersonalList] = useState<DayPayload["personalList"]>(null);
   const lastReminderAt = useRef(0);
   const notesTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const activityTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const notesReady = useRef(false);
+  const activityReady = useRef(false);
+
+  useEffect(() => { onDateChange?.(date); }, [date, onDateChange]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -96,6 +109,7 @@ export default function MyDayView({ userId, currentUserName }: Props) {
   }, []);
 
   const loadDay = useCallback(async (background = false) => {
+    if (!background) activityReady.current = false;
     if (background) setRefreshing(true); else setLoading(true);
     setError("");
     try {
@@ -107,6 +121,10 @@ export default function MyDayView({ userId, currentUserName }: Props) {
       setNoteDraft(body.notes || "");
       setNoteSave("saved");
       setNoteError(body.notesError || "");
+      setActivityDraft(body.activity || EMPTY_ACTIVITY);
+      setActivitySave("saved");
+      setActivityError("");
+      activityReady.current = true;
       notesReady.current = true;
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "My Day could not be loaded.");
@@ -150,6 +168,31 @@ export default function MyDayView({ userId, currentUserName }: Props) {
     }, 700);
     return () => { if (notesTimer.current) clearTimeout(notesTimer.current); };
   }, [noteDraft, payload?.notes, send]);
+
+  const saveActivity = useCallback(async () => {
+    setActivitySave("saving");
+    setActivityError("");
+    try {
+      const result = await send({ action: "activity", categories: activityDraft });
+      setPayload((current) => current ? {
+        ...current,
+        activity: activityDraft,
+        dayTask: result.dayTask || current.dayTask,
+      } : current);
+      setActivitySave("saved");
+    } catch (saveError) {
+      setActivitySave("error");
+      setActivityError(saveError instanceof Error ? saveError.message : "Daily activity could not be saved.");
+    }
+  }, [activityDraft, send]);
+
+  useEffect(() => {
+    if (!activityReady.current || !payload || JSON.stringify(activityDraft) === JSON.stringify(payload.activity || EMPTY_ACTIVITY)) return;
+    if (activityTimer.current) clearTimeout(activityTimer.current);
+    setActivitySave("pending");
+    activityTimer.current = setTimeout(() => { void saveActivity(); }, 850);
+    return () => { if (activityTimer.current) clearTimeout(activityTimer.current); };
+  }, [activityDraft, payload, saveActivity]);
 
   const tasks = payload?.tasks || [];
   const remaining = tasks.filter((task) => !task.completed).length;
@@ -233,9 +276,9 @@ export default function MyDayView({ userId, currentUserName }: Props) {
     <div className="mx-auto max-w-[1440px] space-y-5 pb-8">
       <header className="flex flex-col gap-4 border-b border-slate-200 pb-4 md:flex-row md:items-end md:justify-between">
         <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Tasks · Daily workspace</p>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Notebook · Daily workspace</p>
           <h1 className="mt-1 font-serif text-3xl italic text-[#003366]">My Day</h1>
-          <p className="mt-1 text-sm text-slate-500">Plan today, capture notes, and keep the daily log in sync.</p>
+          <p className="mt-1 text-sm text-slate-500">Plan tasks, record daily activity, and keep notes together.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <label className="flex h-10 items-center gap-2 border border-slate-300 bg-[#FFFCFB] px-3 text-xs text-slate-600">
@@ -254,11 +297,6 @@ export default function MyDayView({ userId, currentUserName }: Props) {
         </div>
       </header>
 
-      <div role="tablist" aria-label="My Day workspace" className="flex border-b border-slate-200">
-        {([{ id: "my-day", label: "Today" }, { id: "activity", label: "Daily activity" }] as const).map((item) => <button key={item.id} type="button" role="tab" aria-selected={workspaceTab === item.id} onClick={() => setWorkspaceTab(item.id)} className={`min-h-11 border-b-2 px-4 text-xs font-semibold uppercase tracking-wide ${workspaceTab === item.id ? "border-[#C9A84C] text-[#003366]" : "border-transparent text-slate-500 hover:text-[#003366]"}`}>{item.label}</button>)}
-      </div>
-
-      {workspaceTab === "activity" ? <NotebookView key={date} currentUserName={currentUserName} userId={userId} initialDate={date} /> : <>
       <div className="flex flex-wrap items-center justify-between gap-3 border border-slate-200 bg-[#FFFCFB] p-2">
         <div className="flex items-center gap-1">
           <button type="button" onClick={() => setDate(moveDate(date, -1))} aria-label="Previous day" className="grid h-10 w-10 place-items-center border border-slate-200 text-slate-600 hover:text-[#003366]"><ChevronLeft size={17} /></button>
@@ -343,6 +381,44 @@ export default function MyDayView({ userId, currentUserName }: Props) {
                   </div>)}
                 </div>}
           </div>
+          {showDailyActivity && <section className="border border-slate-200 bg-[#FFFCFB]">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-4 py-3">
+              <div>
+                <h2 className="font-serif text-lg italic text-[#003366]">Daily activity</h2>
+                <p className="mt-1 text-xs text-slate-500">Saved to this day’s KPI Monitoring record and shown in Notebook.</p>
+              </div>
+              <span role="status" className="text-[10px] font-semibold text-slate-500">{activitySave === "saved" ? "Saved" : activitySave === "saving" ? "Saving…" : activitySave === "pending" ? "Autosave pending" : "Save failed"}</span>
+            </div>
+            <div className="grid grid-cols-1 gap-3 p-4 md:grid-cols-2">
+              {ACTIVITY_FIELDS.map((field) => (
+                <label key={field.key} className="block min-w-0">
+                  <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-[#003366]">{field.label}</span>
+                  <textarea
+                    value={activityDraft[field.key]}
+                    onChange={(event) => setActivityDraft((current) => ({ ...current, [field.key]: event.target.value }))}
+                    placeholder={"Log " + field.label.toLowerCase() + " work"}
+                    rows={3}
+                    className="w-full resize-y border border-slate-200 bg-[#FFFCFB] px-3 py-2 text-sm leading-relaxed text-slate-700 outline-none focus:border-[#C9A84C]"
+                    aria-label={field.label + " activity"}
+                  />
+                </label>
+              ))}
+            </div>
+            <div className="flex items-center justify-end border-t border-slate-200 px-4 py-3">
+              <button
+                type="button"
+                onClick={() => {
+                  if (activityTimer.current) clearTimeout(activityTimer.current);
+                  void saveActivity();
+                }}
+                disabled={activitySave === "saving"}
+                className="inline-flex min-h-10 items-center gap-2 border border-[#003366] px-3 text-xs font-semibold text-[#003366] hover:bg-[#003366] hover:text-white disabled:opacity-50"
+              >
+                <Save size={13} />Save now
+              </button>
+            </div>
+            {activityError && <p role="alert" className="border-t border-red-200 bg-red-50 px-4 py-2 text-xs text-red-800">{activityError}</p>}
+          </section>}
         </section>
 
         <aside className="space-y-4 xl:col-span-4">
@@ -357,9 +433,9 @@ export default function MyDayView({ userId, currentUserName }: Props) {
             </div>
           </section>
           <section className="border border-slate-200 bg-[#FFFCFB] p-5">
-            <h2 className="font-serif text-lg italic text-[#003366]">Daily activity source</h2>
-            <p className="mt-2 text-xs leading-relaxed text-slate-500">Tasks on this day are subtasks of the dated KPI Monitoring record, so they appear in the Notebook daily activity.</p>
-            {payload?.dayTask ? <a href={payload.dayTask.url} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-2 border border-[#003366] px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[#003366] hover:bg-[#003366] hover:text-white">Open daily log <ExternalLink size={13} /></a> : <p className="mt-3 text-[11px] text-slate-500">The dated KPI record is created with the first task.</p>}
+            <h2 className="font-serif text-lg italic text-[#003366]">KPI Monitoring record</h2>
+            <p className="mt-2 text-xs leading-relaxed text-slate-500">Activity fields and task subtasks are saved on the same dated record used by Notebook.</p>
+            {payload?.dayTask ? <a href={payload.dayTask.url} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-2 border border-[#003366] px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[#003366] hover:bg-[#003366] hover:text-white">Open daily log <ExternalLink size={13} /></a> : <p className="mt-3 text-[11px] text-slate-500">The dated KPI record is created when you save a task or activity.</p>}
           </section>
           <section className="border border-slate-200 bg-[#FFFCFB] p-5">
             <h2 className="font-serif text-lg italic text-[#003366]">Reminders</h2>
@@ -367,8 +443,6 @@ export default function MyDayView({ userId, currentUserName }: Props) {
           </section>
         </aside>
       </div>
-
-      </>}
 
       {reminderOpen && <div className="fixed inset-0 z-[100] grid place-items-center bg-[#003366]/35 p-4" role="presentation">
         <section role="dialog" aria-modal="true" aria-labelledby="my-day-reminder-title" className="w-full max-w-lg border border-slate-300 bg-[#FFFCFB] p-5 shadow-xl">

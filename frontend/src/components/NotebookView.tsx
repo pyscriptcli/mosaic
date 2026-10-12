@@ -138,9 +138,17 @@ function MemberAvatar({ member }: { member: NotebookMember }) {
   );
 }
 
-export function NotebookView({ currentUserName, userId, initialDate }: { currentUserName?: string; userId?: string; initialDate?: string }) {
+export function NotebookView({ currentUserName, userId, initialDate, initialTab = "today", hideViewTabs = false, hidePageTitle = false, onOpenDay }: {
+  currentUserName?: string;
+  userId?: string;
+  initialDate?: string;
+  initialTab?: "today" | "week" | "insights";
+  hideViewTabs?: boolean;
+  hidePageTitle?: boolean;
+  onOpenDay?: (date: string) => void;
+}) {
   const today = localIso(new Date());
-  const [activeTab, setActiveTab] = useState<"today" | "week" | "insights">("today");
+  const [activeTab, setActiveTab] = useState<"today" | "week" | "insights">(initialTab);
   const [selectedDate, setSelectedDate] = useState(initialDate || today);
   const [selectedMemberId, setSelectedMemberId] = useState("");
   const [insightMemberId, setInsightMemberId] = useState("all");
@@ -476,12 +484,12 @@ export function NotebookView({ currentUserName, userId, initialDate }: { current
   return (
     <div className="space-y-5 animate-in fade-in duration-200">
       <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-4 pb-4 border-b border-gray-200/90">
-        <div>
+        {!hidePageTitle && <div>
           <div className="flex items-center gap-2.5">
             <h1 className="text-2xl font-serif font-bold text-[#003366] italic">Notebook</h1>
           </div>
           <p className="text-sm text-gray-500 mt-1">Daily activity and team logging completeness from the KPI Monitoring list.</p>
-        </div>
+        </div>}
         <div className="flex items-center gap-2 flex-wrap">
           {activeTab !== "insights" && payload && payload.members.length > 0 && (
             <select
@@ -505,7 +513,7 @@ export function NotebookView({ currentUserName, userId, initialDate }: { current
       </div>
 
       <div className="bg-[#FFFCFB] border border-gray-200 shadow-2xs p-2 flex items-center justify-between gap-3 flex-wrap">
-        <div className="inline-flex border border-gray-200 bg-[#FFFCFB]" role="tablist" aria-label="Notebook views">
+        {!hideViewTabs && <div className="inline-flex border border-gray-200 bg-[#FFFCFB]" role="tablist" aria-label="Notebook views">
           {([
             ["today", "Today"],
             ["week", "Week"],
@@ -524,7 +532,7 @@ export function NotebookView({ currentUserName, userId, initialDate }: { current
               {label}
             </button>
           ))}
-        </div>
+        </div>}
 
         {activeTab === "insights" ? (
           <div className="flex items-center gap-2 flex-wrap">
@@ -746,7 +754,10 @@ export function NotebookView({ currentUserName, userId, initialDate }: { current
                 <button
                   type="button"
                   key={date}
-                  onClick={() => { setSelectedDate(date); setActiveTab("today"); }}
+                  onClick={() => {
+                    if (hideViewTabs && onOpenDay) onOpenDay(date);
+                    else { setSelectedDate(date); setActiveTab("today"); }
+                  }}
                   className={`self-start w-full text-left border p-4 transition-colors ${isWeekend ? "xl:col-span-1 bg-[#1B1D1E] text-[#FFFCFB] border-[#1B1D1E] hover:border-[#C9AB4C]" : "xl:col-span-2 bg-[#FFFCFB] hover:border-[#C9AB4C]"} ${date === selectedDate ? "border-[#C9AB4C] shadow-[inset_0_2px_0_#C9AB4C]" : isWeekend ? "" : "border-gray-200"}`}
                 >
                   <span className={`block text-xs uppercase tracking-wider font-bold ${isWeekend ? "text-white/70" : "text-gray-500"}`}>{formatDate(date, { weekday: "short" })}</span>
