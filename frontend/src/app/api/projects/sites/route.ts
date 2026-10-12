@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getTokenFromRequest } from "@/lib/auth";
 import { requireProjectAdmin, requireSubprojectEditor } from "@/lib/project-permissions";
 import { clickUpCalendarFetch } from "@/lib/clickupCalendarApi";
-import { projectSiteFields, siteRecordDescription, siteRecordMarker, sitesForSubproject } from "@/lib/projectSites";
+import { calculateSiteAmount, projectSiteFields, siteRecordDescription, siteRecordMarker, sitesForSubproject } from "@/lib/projectSites";
 
 type ClickUpField = {
   id: string;
@@ -26,6 +26,16 @@ const SITE_FIELD_ALIASES: Record<string, string[]> = {
   "p/s": ["p/s", "p/s site"],
   "monthly rate": ["monthly rate", "monthly rent"],
 };
+
+function taskFieldTextValue(task: ClickUpTask, fields: ClickUpField[], fieldName: string) {
+  const field = findField(fields, fieldName);
+  const raw = field && task.custom_fields?.find((item) => String(item.id) === field.id)?.value;
+  if (raw !== undefined && raw !== null && raw !== "") return String(raw);
+
+  const description = task.description || task.text_content || "";
+  const escaped = fieldName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return description.match(new RegExp(`^${escaped}:[ \\t]*([^\\r\\n]*)$`, "mi"))?.[1]?.trim() || "";
+}
 
 function findField(fields: ClickUpField[], name: string) {
   const matches = SITE_FIELD_ALIASES[name.toLocaleLowerCase()] || [name.toLocaleLowerCase()];
@@ -126,7 +136,7 @@ export async function GET(request: NextRequest) {
         status: textValue("Status", task),
         monthlyRate: textValue("Monthly Rate", task),
         pfStructure: textValue("PF Structure", task),
-        amount: textValue("Amount", task),
+        amount: calculateSiteAmount(textValue("Monthly Rate", task), textValue("PF Structure", task)) || textValue("Amount", task),
         taskUrl: task?.id ? `https://app.clickup.com/t/${task.id}` : null,
       };
     });
@@ -141,7 +151,6 @@ const editableSiteFields: Record<string, string> = {
   status: "Status",
   monthlyRate: "Monthly Rate",
   pfStructure: "PF Structure",
-  amount: "Amount",
 };
 
 export async function PATCH(request: NextRequest) {
@@ -177,15 +186,27 @@ export async function PATCH(request: NextRequest) {
     const fields = (fieldsPayload.fields || []) as ClickUpField[];
     const field = findField(fields, fieldName);
     if (!field?.id) return NextResponse.json({ error: `The ${fieldName} field is not available in this subproject.` }, { status: 404 });
+    const updates: Array<{ fieldId: string; fieldName: string; value: string }> = [{ fieldId: field.id, fieldName, value: value.trim() }];
+    let amount: string | null = null;
+    if (key === "monthlyRate" || key === "pfStructure") {
+      const amountField = findField(fields, "Amount");
+      if (!amountField?.id) return NextResponse.json({ error: "The Amount field is not available in this subproject." }, { status: 404 });
+      const monthlyRate = key === "monthlyRate" ? value.trim() : taskFieldTextValue(task, fields, "Monthly Rate");
+      const pfStructure = key === "pfStructure" ? value.trim() : taskFieldTextValue(task, fields, "PF Structure");
+      amount = calculateSiteAmount(monthlyRate, pfStructure);
+      updates.push({ fieldId: amountField.id, fieldName: "Amount", value: amount || "" });
+    }
 
-    const response = await clickUpCalendarFetch(token, `https://api.clickup.com/api/v2/task/${encodeURIComponent(taskId)}/field/${field.id}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ value: value.trim() }),
-    }, [`/list/${listId}/task`, `/task/${taskId}`]);
-    const result = await response.json().catch(() => ({}));
-    if (!response.ok) return NextResponse.json({ error: result.err || result.error || `Unable to save ${fieldName}.` }, { status: response.status });
-    return NextResponse.json({ success: true, taskId, field: key, value: value.trim() }, { headers: { "Cache-Control": "no-store" } });
+    for (const update of updates) {
+      const response = await clickUpCalendarFetch(token, `https://api.clickup.com/api/v2/task/${encodeURIComponent(taskId)}/field/${update.fieldId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ value: update.value }),
+      }, [`/list/${listId}/task`, `/task/${taskId}`]);
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) return NextResponse.json({ error: result.err || result.error || `Unable to save ${update.fieldName}.` }, { status: response.status });
+    }
+    return NextResponse.json({ success: true, taskId, field: key, value: value.trim(), amount }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to save site details." }, { status: 502 });
   }

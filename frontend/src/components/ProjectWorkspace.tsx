@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { DeltaReview, DeltaReviewList } from "@/components/DeltaReview";
 import type { SavedDeltaReview } from "@/lib/delta/localStore";
-import { sitesForSubproject } from "@/lib/projectSites";
+import { calculateSiteAmount, sitesForSubproject } from "@/lib/projectSites";
 import { getBrowserPageCache, readBrowserPageCache, refreshBrowserPageQuery, writeBrowserPageCache } from "@/lib/browserPageCache";
 import {
   ArrowLeft,
@@ -874,7 +874,14 @@ function SubprojectSites({ folderId, listId, listName, canEdit, canManageAllSite
 
   const updateSiteField = (site: SiteRow, field: EditableSiteField, value: string) => {
     if (!canEdit) return;
-    setSiteRows((rows) => rows.map((row) => row.taskId === site.taskId ? { ...row, [field]: value } : row));
+    setSiteRows((rows) => rows.map((row) => {
+      if (row.taskId !== site.taskId) return row;
+      const updated = { ...row, [field]: value };
+      if (field === "monthlyRate" || field === "pfStructure") {
+        updated.amount = calculateSiteAmount(updated.monthlyRate, updated.pfStructure) || "";
+      }
+      return updated;
+    }));
     if (!site.taskId) {
       setSaveState({ kind: "error", message: "Set up the site tasks before editing these fields." });
       return;
@@ -964,6 +971,7 @@ function SubprojectSites({ folderId, listId, listName, canEdit, canManageAllSite
       <div>
         <h2 className="text-sm font-semibold text-[#003366]">Sites</h2>
         <p className="mt-0.5 text-[10px] text-slate-500">{sites.length} site records{loading ? " · refreshing from ClickUp" : ""} · fields not included in the source are left blank.</p>
+        <p className="mt-0.5 text-[10px] text-slate-500">Amount calculates as Monthly Rate × PF months. Enter PF Structure as a month count, such as 2.</p>
         {saveState.message && <p className={`mt-1 text-[10px] ${saveState.kind === "error" ? "text-red-700" : saveState.kind === "saving" ? "text-amber-700" : "text-slate-500"}`} aria-live="polite">{saveState.message}</p>}
       </div>
       <div className="flex flex-wrap gap-2">
@@ -999,7 +1007,8 @@ function SubprojectSites({ folderId, listId, listName, canEdit, canManageAllSite
           value={site[field] || ""}
           placeholder=""
           maxLength={2_000}
-          readOnly={!canEdit}
+          readOnly={!canEdit || field === "amount"}
+          title={field === "amount" ? "Calculated from Monthly Rate × PF months" : undefined}
           disabled={!site.taskId}
           onChange={(event) => updateSiteField(site, field, event.currentTarget.value)}
           onBlur={() => flushSiteField(site, field)}

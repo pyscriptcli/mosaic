@@ -20,6 +20,23 @@ export const projectSiteFields = [
   { key: "amount", name: "Amount" },
 ] as const;
 
+export function calculateSiteAmount(monthlyRate: string | undefined, pfStructure: string | undefined) {
+  if (!monthlyRate?.trim() || !pfStructure?.trim() || /%/.test(pfStructure)) return null;
+
+  const normalizedRate = monthlyRate.trim()
+    .replace(/^php\s*/i, "")
+    .replace(/\s*(?:per\s+month|\/\s*(?:month|mo\.?)|monthly)$/i, "")
+    .replace(/[₱,\s]/g, "");
+  const rate = /^\d+(?:\.\d+)?$/.test(normalizedRate) ? Number(normalizedRate) : NaN;
+  const normalizedStructure = pfStructure.trim().replace(/\s+(?:rent|pf)$/i, "");
+  const monthsMatch = normalizedStructure.match(/^(\d+(?:\.\d+)?)\s*(?:x|months?|mos?\.?|mo\.?)?$/i);
+  const months = monthsMatch ? Number(monthsMatch[1]) : NaN;
+  if (!Number.isFinite(rate) || !Number.isFinite(months) || rate < 0 || months < 0) return null;
+
+  const amount = Math.round((rate * months + Number.EPSILON) * 100) / 100;
+  return `₱${amount.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 export function sitesForSubproject(listName: string) {
   const normalizedName = listName.toLocaleLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
   return projectSites.filter((site) => {
