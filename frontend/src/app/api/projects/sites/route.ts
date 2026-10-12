@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTokenFromRequest } from "@/lib/auth";
+import { requireProjectAdmin, requireSubprojectEditor } from "@/lib/project-permissions";
 import { clickUpCalendarFetch } from "@/lib/clickupCalendarApi";
 import { projectSiteFields, siteRecordDescription, siteRecordMarker, sitesForSubproject } from "@/lib/projectSites";
 
@@ -157,6 +158,8 @@ export async function PATCH(request: NextRequest) {
     if (folderId !== SOURCE_FOLDER_ID || !/^\d+$/.test(listId) || !/^[A-Za-z0-9_-]+$/.test(taskId) || !fieldName) {
       return NextResponse.json({ error: "A valid site and editable field are required." }, { status: 400 });
     }
+    const access = await requireSubprojectEditor(request, folderId, listId);
+    if (!access.ok) return access.response;
     if (value.length > 2_000) return NextResponse.json({ error: "Keep site details under 2,000 characters." }, { status: 400 });
 
     const lists = await clickUpJson(token, `https://api.clickup.com/api/v2/folder/${folderId}/list`);
@@ -192,13 +195,14 @@ export const maxDuration = 300;
 
 export async function POST(request: NextRequest) {
   try {
-    const token = getSitesToken(request);
-    if (!token) return NextResponse.json({ error: "Sign in with ClickUp to create site tasks." }, { status: 401 });
     const body = await request.json().catch(() => ({}));
     const folderId = String(body.folderId || "");
     if (!/^\d+$/.test(folderId)) return NextResponse.json({ error: "A valid project folder is required." }, { status: 400 });
     if (folderId !== SOURCE_FOLDER_ID) return NextResponse.json({ error: "Sites storage can only be set up in the source project folder." }, { status: 403 });
     if (body.mode !== "all") return NextResponse.json({ error: "Choose all subprojects for site task setup." }, { status: 400 });
+    const access = await requireProjectAdmin(request);
+    if (!access.ok) return access.response;
+    const { token } = access;
 
     const folderLists = await clickUpJson(token, `https://api.clickup.com/api/v2/folder/${folderId}/list`);
     const subprojects = (folderLists.lists || []) as Array<{ id?: string | number; name?: string }>;

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getTokenFromRequest } from "@/lib/auth";
+import { requireSubprojectAdmin } from "@/lib/project-permissions";
 import { AdminConfigError, loadAdminConfig, saveAdminConfig } from "@/lib/admin-config/store";
 import { clearClickUpCalendarCache, clickUpCalendarFetch } from "@/lib/clickupCalendarApi";
 import { recordProjectActivity } from "@/lib/projectActivity";
@@ -9,8 +9,6 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 export async function PUT(req: NextRequest) {
-  const token = getTokenFromRequest(req);
-  if (!token) return NextResponse.json({ error: "Sign in with ClickUp to update project assignees." }, { status: 401 });
   try {
     const body = await req.json();
     const listId = String(body.listId || "");
@@ -18,6 +16,9 @@ export async function PUT(req: NextRequest) {
     const listName = String(body.listName || "Subproject");
     const assigneeIds: string[] = Array.isArray(body.assigneeIds) ? Array.from(new Set<string>(body.assigneeIds.map(String).filter((id: string) => /^\d+$/.test(id)))).slice(0, 1) : [];
     if (!/^\d+$/.test(listId) || !/^\d+$/.test(folderId)) return NextResponse.json({ error: "Choose a valid project and subproject." }, { status: 400 });
+    const access = await requireSubprojectAdmin(req, folderId, listId);
+    if (!access.ok) return access.response;
+    const { token } = access;
     const leadId = Number(assigneeIds[0]);
     const taskIds: string[] = [];
     let assignedCount = 0;

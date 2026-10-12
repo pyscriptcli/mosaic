@@ -7,6 +7,7 @@ import { loadAdminConfig, saveAdminConfig } from "@/lib/admin-config/store";
 import { recordProjectActivity } from "@/lib/projectActivity";
 import { after } from "next/server";
 import { recordTelemetry } from "@/lib/telemetry";
+import { getSubprojectAccess, getVerifiedClickUpUser, isSubprojectAdmin, requireManagedTaskEditor, requireSubprojectEditor } from "@/lib/project-permissions";
 import { clickUpScope, hasFreshClickUpTaskSnapshot, invalidateClickUpSync, queueClickUpSync, readClickUpTaskSnapshot } from "@/lib/clickupReadStore";
 import { processClickUpSyncQueue, registerClickUpListWebhook } from "@/lib/clickupSync";
 
@@ -280,6 +281,11 @@ export async function GET(req: NextRequest) {
         ? projectConfig.projectDefaultAssignees as Record<string, string[]>
         : {};
       const defaultAssignees = Object.fromEntries(Object.entries(storedAssignees).map(([listId, ids]) => [listId, Array.isArray(ids) ? ids.slice(0, 1) : []]));
+      const currentUser = await getVerifiedClickUpUser(projectToken).catch(() => null);
+      const accessByListId = Object.fromEntries(rawLists.map((list) => {
+        const listId = String(list.id);
+        return [listId, getSubprojectAccess(currentUser, listId, { projectDefaultAssignees: defaultAssignees })];
+      }));
       return NextResponse.json({
         folder: {
           id: folderId,
@@ -291,6 +297,9 @@ export async function GET(req: NextRequest) {
         tasks: [],
         members,
         defaultAssignees,
+        currentUserId: currentUser?.id || "",
+        isProjectAdmin: isSubprojectAdmin(currentUser),
+        accessByListId,
       }, { headers: { "Cache-Control": "no-store" } });
     }
 
@@ -809,6 +818,8 @@ export async function POST(req: NextRequest) {
       const actionPlan = String(body.actionPlan || "").trim();
       if (!projectToken) return NextResponse.json({ error: "Sign in with ClickUp to save this action plan." }, { status: 401 });
       if (!/^\d+$/.test(folderId) || !/^\d+$/.test(subprojectListId)) return NextResponse.json({ error: "A valid project and subproject are required." }, { status: 400 });
+      const access = await requireSubprojectEditor(req, folderId, subprojectListId);
+      if (!access.ok) return access.response;
       if (!/^[A-Za-z0-9_-]+$/.test(taskId)) return NextResponse.json({ error: "Choose a pending task for this action plan." }, { status: 400 });
       if (actionPlan.length > 2_000) return NextResponse.json({ error: "Keep the action plan under 2,000 characters." }, { status: 400 });
       const listUrl = `https://api.clickup.com/api/v2/list/${subprojectListId}`;
@@ -836,8 +847,17 @@ export async function POST(req: NextRequest) {
     }
     if (action === "project-task-update" || action === "project-task-create") {
       if (!projectToken) return NextResponse.json({ error: "Sign in with ClickUp to update this calendar." }, { status: 401 });
+      const folderId = String(body.folderId || "");
+      const subprojectListId = String(body.listId || "");
+      const access = await requireSubprojectEditor(req, folderId, subprojectListId);
+      if (!access.ok) return access.response;
       if (action === "project-task-update") {
-        if (!body.taskId) return NextResponse.json({ error: "Task ID is required." }, { status: 400 });
+        const taskId = String(body.taskId || "");
+        if (!/^[A-Za-z0-9_-]+$/.test(taskId)) return NextResponse.json({ error: "A valid task ID is required." }, { status: 400 });
+        const taskResponse = await clickUpCalendarFetch(projectToken, `https://api.clickup.com/api/v2/task/${encodeURIComponent(taskId)}`, undefined, undefined, { skipCache: true });
+        const currentTask = await taskResponse.json().catch(() => ({})) as ClickUpProjectTask;
+        if (!taskResponse.ok) return NextResponse.json({ error: "Unable to verify this task." }, { status: taskResponse.status });
+        if (String(currentTask.list?.id || "") !== subprojectListId) return NextResponse.json({ error: "This task does not belong to the selected subproject." }, { status: 403 });
         const payload: Record<string, unknown> = {};
         if (body.dueDate !== undefined) { payload.due_date = body.dueDate ? new Date(body.dueDate).getTime() : null; payload.due_date_time = false; }
         if (body.startDate !== undefined) { payload.start_date = body.startDate ? new Date(body.startDate).getTime() : null; payload.start_date_time = false; }
@@ -859,7 +879,7 @@ export async function POST(req: NextRequest) {
           };
         }
         if (payload.status === "") return NextResponse.json({ error: "Task status cannot be empty." }, { status: 400 });
-        const response = await clickUpCalendarFetch(projectToken, `https://api.clickup.com/api/v2/task/${encodeURIComponent(String(body.taskId))}`, {
+        const response = await clickUpCalendarFetch(projectToken, `https://api.clickup.com/api/v2/task/${encodeURIComponent(taskId)}`, {
           method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
         }, body.listId && /^\d+$/.test(String(body.listId)) ? [`/list/${String(body.listId)}/task`] : undefined);
         const result = await response.json().catch(() => ({}));
@@ -913,7 +933,7 @@ export async function POST(req: NextRequest) {
         }
         return NextResponse.json({ success: true, task: result });
       }
-      if (!body.listId || !String(body.name || "").trim()) return NextResponse.json({ error: "A list and task name are required." }, { status: 400 });
+      if (!/^\d+$/.test(subprojectListId) || !String(body.name || "").trim()) return NextResponse.json({ error: "A valid subproject and task name are required." }, { status: 400 });
       const payload: Record<string, unknown> = { name: String(body.name).trim(), status: body.status || "to do" };
       if (body.description) payload.description = String(body.description);
       if (body.priority) payload.priority = priorityToNumber(body.priority);
@@ -1106,6 +1126,9 @@ export async function PUT(req: NextRequest) {
       );
     }
 
+    const taskAccess = await requireManagedTaskEditor(req, String(body.taskId));
+    if (!taskAccess.ok) return taskAccess.response;
+
     const payload: Record<string, any> = {};
     if (body.status !== undefined) payload.status = body.status;
     if (body.name !== undefined) payload.name = body.name;
@@ -1173,6 +1196,9 @@ export async function DELETE(req: NextRequest) {
         { status: 400 }
       );
     }
+
+    const taskAccess = await requireManagedTaskEditor(req, taskId);
+    if (!taskAccess.ok) return taskAccess.response;
 
     const delRes = await fetch(`https://api.clickup.com/api/v2/task/${taskId}`, {
       method: "DELETE",
