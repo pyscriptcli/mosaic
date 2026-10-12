@@ -5,8 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { Stepper, Stage } from "@/components/Stepper";
 import { StudioPanel } from "@/components/StudioPanel";
 import { StudioRecoveryBanner } from "@/components/StudioRecoveryBanner";
-import { FloatingRecordingPill } from "@/components/FloatingRecordingPill";
-import { useStudioRecorder } from "@/hooks/useStudioRecorder";
+import { useStudioRecorderContext } from "@/components/StudioRecorderProvider";
 import type { StudioNote, StudioDisplayMode } from "@/types/studio";
 import { clearSession } from "@/lib/studioStorage";
 import { 
@@ -270,7 +269,7 @@ export default function Home() {
     if (!activeBrowserUser) void checkAuth();
   }, []);
 
-  const studioRecorder = useStudioRecorder();
+  const studioRecorder = useStudioRecorderContext();
 
   const handleSignOut = async () => {
     if (studioRecorder.status === "recording" || studioRecorder.status === "paused") {
@@ -2680,20 +2679,6 @@ export default function Home() {
           setIsUniversalEchoOpen(false);
         }}
       />}
-
-      {/* Floating Minimized Recording Pill when navigating outside the active studio workspace */}
-      {!(currentView === "minutes" && stage === "Input" && sourceTab === "record") && (
-        <FloatingRecordingPill
-          recorder={studioRecorder}
-          onExpand={() => {
-            setCurrentView("minutes");
-            setStage("Input");
-            setSourceTab("record");
-            setIsStudioOpen(true);
-            setStudioMode("fullscreen");
-          }}
-        />
-      )}
 
     </div>
   );

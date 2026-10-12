@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
+import { StudioRecorderProvider } from "@/components/StudioRecorderProvider";
 
 const cormorant = localFont({
   src: "../../public/fonts/cormorant-garamond-italic-latin.woff2",
@@ -47,7 +48,7 @@ export default function RootLayout({
       className={`${cormorant.variable} ${montserrat.variable} ${bebas.variable} h-full w-full`}
     >
       <body className="h-full w-full bg-bg-primary font-sans antialiased text-[#181D1E] overflow-hidden">
-        {children}
+        <StudioRecorderProvider>{children}</StudioRecorderProvider>
       </body>
     </html>
   );
