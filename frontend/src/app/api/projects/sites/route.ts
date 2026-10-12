@@ -176,6 +176,9 @@ export async function PATCH(request: NextRequest) {
     const access = await requireSubprojectEditor(request, folderId, listId);
     if (!access.ok) return access.response;
     if (value.length > 2_000) return NextResponse.json({ error: "Keep site details under 2,000 characters." }, { status: 400 });
+    if ((key === "monthlyRate" || key === "pfStructure") && value !== "" && !/^(?:\d+(?:\.\d*)?|\.\d+)$/.test(value)) {
+      return NextResponse.json({ error: `${fieldName} must be a number.` }, { status: 400 });
+    }
 
     const lists = await clickUpJson(token, `https://api.clickup.com/api/v2/folder/${folderId}/list`);
     const selectedList = (lists.lists || []).find((list: { id?: string | number }) => String(list.id) === listId);

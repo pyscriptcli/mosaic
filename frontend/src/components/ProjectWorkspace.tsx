@@ -786,7 +786,7 @@ function SubprojectWorkspace({ folderId, folderUrl, list, tasks, members, defaul
   </section>;
 }
 
-const siteColumns = ["Site No", "Site Name", "P/S", "Lessor", "Status", "Monthly Rate", "PF Structure", "Amount"] as const;
+const siteColumns = ["Site No", "Site Name", "P/S", "Lessor", "Status", "Monthly Rate (Php)", "PF Structure (months)", "Amount (Php)"] as const;
 type SiteRow = ReturnType<typeof sitesForSubproject>[number] & {
   taskId?: string | null;
   lessor?: string;
@@ -799,10 +799,25 @@ type EditableSiteField = "lessor" | "status" | "monthlyRate" | "pfStructure" | "
 const editableSiteFieldLabels: Record<EditableSiteField, string> = {
   lessor: "Lessor",
   status: "Status",
-  monthlyRate: "Monthly Rate",
-  pfStructure: "PF Structure",
-  amount: "Amount",
+  monthlyRate: "Monthly Rate (Php)",
+  pfStructure: "PF Structure (months)",
+  amount: "Amount (Php)",
 };
+
+function numericSiteValue(value: string | undefined, field: "php" | "months") {
+  if (!value) return "";
+  let normalized = value.trim().replace(/,/g, "");
+  if (field === "php") {
+    normalized = normalized
+      .replace(/^(?:php|₱)\s*/i, "")
+      .replace(/\s*(?:per\s+month|\/\s*(?:month|mo\.?)|monthly)$/i, "");
+  } else {
+    normalized = normalized
+      .replace(/\s+(?:rent|pf)$/i, "")
+      .replace(/\s*(?:x|months?|mos?\.?|mo\.?)$/i, "");
+  }
+  return /^(?:\d+(?:\.\d*)?|\.\d+)$/.test(normalized) ? normalized : "";
+}
 
 function SubprojectSites({ folderId, listId, listName, canEdit, canManageAllSites }: { folderId: string; listId: string; listName: string; canEdit: boolean; canManageAllSites: boolean }) {
   const [syncing, setSyncing] = useState(false);
@@ -821,7 +836,7 @@ function SubprojectSites({ folderId, listId, listName, canEdit, canManageAllSite
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
-      document.querySelectorAll<HTMLTextAreaElement>(".site-cell-editor").forEach((textarea) => {
+      document.querySelectorAll<HTMLTextAreaElement>("textarea.site-cell-editor").forEach((textarea) => {
         textarea.style.height = "auto";
         textarea.style.height = `${Math.max(textarea.scrollHeight, 28)}px`;
       });
@@ -1002,19 +1017,30 @@ function SubprojectSites({ folderId, listId, listName, canEdit, canManageAllSite
       <td className="whitespace-normal break-words [overflow-wrap:anywhere] border border-slate-200/60 px-3 py-2.5 text-slate-800" title={site.siteName}>{site.siteName}</td>
       <td className={`whitespace-normal break-words border border-slate-200/60 px-3 py-2.5 font-semibold ${site.priority.toLowerCase() === "priority" ? "text-[#14532D]" : site.priority.toLowerCase() === "secondary" ? "text-[#854D0E]" : "text-slate-600"}`}>{site.priority}</td>
       {(["lessor", "status", "monthlyRate", "pfStructure", "amount"] as const).map((field) => <td key={field} className="border border-slate-200/60 px-2 py-1.5">
-        <textarea
+        {field === "lessor" || field === "status" ? <textarea
           aria-label={`${editableSiteFieldLabels[field]} for site ${site.siteNo}`}
           value={site[field] || ""}
-          placeholder=""
           maxLength={2_000}
-          readOnly={!canEdit || field === "amount"}
-          title={field === "amount" ? "Calculated from Monthly Rate × PF months" : undefined}
+          readOnly={!canEdit}
           disabled={!site.taskId}
           onChange={(event) => updateSiteField(site, field, event.currentTarget.value)}
           onBlur={() => flushSiteField(site, field)}
           rows={1}
           className="site-cell-editor block min-h-7 w-full resize-none overflow-hidden whitespace-pre-wrap break-words [overflow-wrap:anywhere] border border-transparent bg-transparent px-1.5 py-1 text-xs leading-5 text-slate-700 hover:border-slate-200/70 focus:border-[#C9A33B] focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#C9A33B] read-only:cursor-default read-only:hover:border-transparent disabled:cursor-not-allowed disabled:text-slate-500"
-        />
+        /> : <input
+          type="number"
+          min="0"
+          step="any"
+          inputMode="decimal"
+          aria-label={`${editableSiteFieldLabels[field]} for site ${site.siteNo}`}
+          value={field === "pfStructure" ? numericSiteValue(site[field], "months") : numericSiteValue(site[field], "php")}
+          readOnly={!canEdit || field === "amount"}
+          title={field === "amount" ? "Calculated from Monthly Rate (Php) × PF months" : undefined}
+          disabled={!site.taskId}
+          onChange={(event) => updateSiteField(site, field, event.currentTarget.value)}
+          onBlur={() => flushSiteField(site, field)}
+          className="block min-h-7 w-full min-w-0 border border-transparent bg-transparent px-1.5 py-1 text-xs leading-5 tabular-nums text-slate-700 hover:border-slate-200/70 focus:border-[#C9A33B] focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#C9A33B] read-only:cursor-default read-only:hover:border-transparent disabled:cursor-not-allowed disabled:text-slate-500"
+        />}
       </td>)}
     </tr>)}</tbody></table></div> : <div className="px-4 py-8 text-center"><h3 className="text-sm font-semibold text-[#003366]">No site records mapped to this subproject</h3><p className="mt-1 text-xs text-slate-500">The imported file currently covers Commonwealth, Katipunan, North Harbour, Mandaluyong D. Guevara, and Buendia Filmore.</p></div>}
   </section>;

@@ -34,7 +34,7 @@ export function calculateSiteAmount(monthlyRate: string | undefined, pfStructure
   if (!Number.isFinite(rate) || !Number.isFinite(months) || rate < 0 || months < 0) return null;
 
   const amount = Math.round((rate * months + Number.EPSILON) * 100) / 100;
-  return `₱${amount.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return amount.toFixed(2);
 }
 
 export function sitesForSubproject(listName: string) {
