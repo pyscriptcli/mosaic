@@ -324,7 +324,7 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
     localStorage.setItem(REMINDER_KEY, JSON.stringify({ enabled: remindersEnabled, intervalSeconds }));
     const desktop = (window as Window & { mosaicDesktop?: { scheduleReminder: (input: { enabled: boolean; intervalSeconds: number; taskNames: string[] }) => void } }).mosaicDesktop;
     if (userId) desktop?.scheduleReminder({ enabled: remindersEnabled, intervalSeconds, taskNames: tasks.filter((task) => !task.completed).map((task) => task.name).slice(0, 8) });
-  }, [settingsReady, remindersEnabled, reminderHours, reminderMinutes, reminderSeconds, tasks]);
+  }, [settingsReady, remindersEnabled, reminderHours, reminderMinutes, reminderSeconds, tasks, userId]);
 
   const saveTask = async (event: React.FormEvent) => {
     event.preventDefault();
