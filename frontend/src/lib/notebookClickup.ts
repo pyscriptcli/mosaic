@@ -1,6 +1,9 @@
 import { NextRequest } from "next/server";
 import { getTokenFromRequest } from "@/lib/auth";
 import { clickUpFetch as fetch } from "@/lib/clickupCalendarApi";
+import { clickUpScope } from "@/lib/clickupReadStore";
+import { randomUUID } from "node:crypto";
+import { readStagedMosaicRecords, scheduleMosaicWriteSync, stageMosaicWrite } from "@/lib/mosaicWriteStore";
 
 export const DAILY_LOG_LIST_ID = "901418075633";
 
@@ -15,6 +18,7 @@ export type CategoryKey = keyof typeof CATEGORY_MATCHERS;
 
 export interface RawClickUpTask {
   id: string;
+  list?: { id?: string | number; name?: string };
   name?: string;
   parent?: string;
   url?: string;
@@ -252,8 +256,17 @@ export async function categoryFields(token: string) {
   return mapped;
 }
 
-export async function writeCategories(token: string, taskId: string, categories: Categories) {
+export async function writeCategories(token: string, taskId: string, categories: Categories, ownerUserId?: string) {
   const fields = await categoryFields(token);
+  if (ownerUserId) {
+    await Promise.all((Object.keys(fields) as CategoryKey[]).map((key) => stageMosaicWrite({
+      token, ownerUserId, domain: "notebook", recordId: taskId, listId: DAILY_LOG_LIST_ID,
+      recordData: { id: taskId, categories } as never, operation: "update", method: "POST",
+      resourcePath: `/task/${taskId}/field/${fields[key]}`, requestBody: { value: categories[key] },
+    })));
+    scheduleMosaicWriteSync();
+    return;
+  }
   await Promise.all((Object.keys(fields) as CategoryKey[]).map(async (key) => {
     const response = await fetchClickUp(`https://api.clickup.com/api/v2/task/${taskId}/field/${fields[key]}`, {
       method: "POST",
@@ -284,13 +297,19 @@ async function getCompletedOnTimeStatus(token: string) {
   return completedOnTimeStatusCache.status;
 }
 
-export async function completeDailyTaskOnTimeIfPopulated(token: string, taskId: string, currentStatus: string, categories: Categories) {
+export async function completeDailyTaskOnTimeIfPopulated(token: string, taskId: string, currentStatus: string, categories: Categories, ownerUserId?: string) {
   const hasInput = Object.values(categories).some((value) => value.trim().length > 0);
   const normalizedStatus = normalizeFieldName(currentStatus);
   if (!hasInput || (normalizedStatus !== "to do" && normalizedStatus !== "todo")) return { updated: false };
 
   const completedStatus = await getCompletedOnTimeStatus(token);
   if (!completedStatus) return { updated: false, warning: "The KPI Monitoring list has no Completed On-Time status configured." };
+
+  if (ownerUserId) {
+    await stageMosaicWrite({ token, ownerUserId, domain: "notebook", recordId: taskId, listId: DAILY_LOG_LIST_ID, recordData: { id: taskId, status: completedStatus, categories } as never, operation: "update", method: "PUT", resourcePath: `/task/${taskId}`, requestBody: { status: completedStatus } });
+    scheduleMosaicWriteSync();
+    return { updated: true, pendingSync: true };
+  }
 
   const response = await fetchClickUp(`https://api.clickup.com/api/v2/task/${taskId}`, {
     method: "PUT",
@@ -301,7 +320,14 @@ export async function completeDailyTaskOnTimeIfPopulated(token: string, taskId: 
   return { updated: true };
 }
 
-export async function createTask(token: string, payload: Record<string, unknown>) {
+export async function createTask(token: string, payload: Record<string, unknown>, ownerUserId?: string, listId = DAILY_LOG_LIST_ID) {
+  if (ownerUserId) {
+    const id = randomUUID();
+    const record = { id, name: String(payload.name || "Daily Log task"), description: String(payload.description || ""), parent: String(payload.parent || ""), status: { status: String(payload.status || "to do") }, assignees: Array.isArray(payload.assignees) ? payload.assignees.map((member) => ({ id: String(member) })) : [] };
+    await stageMosaicWrite({ token, ownerUserId, domain: "notebook", recordId: id, listId, recordData: record as never, operation: "create", method: "POST", resourcePath: `/list/${listId}/task`, requestBody: payload as never });
+    scheduleMosaicWriteSync();
+    return record as RawClickUpTask;
+  }
   const response = await fetchClickUp(`https://api.clickup.com/api/v2/list/${DAILY_LOG_LIST_ID}/task`, {
     method: "POST", headers: clickUpHeaders(token), body: JSON.stringify(payload),
   });
@@ -312,8 +338,18 @@ export async function createTask(token: string, payload: Record<string, unknown>
   return await response.json() as RawClickUpTask;
 }
 
-export async function ensureDailyTask(token: string, date: string, member: NotebookMemberInput) {
-  const rawTasks = await fetchAllTasks(token);
+export async function ensureDailyTask(token: string, date: string, member: NotebookMemberInput, ownerUserId?: string) {
+  const fetchedTasks = await fetchAllTasks(token);
+  const stagedRows = await readStagedMosaicRecords(clickUpScope(token), "notebook", DAILY_LOG_LIST_ID);
+  const stagedIds = new Map(stagedRows.map((row) => [String(row.record_id), String(row.clickup_id || row.record_id)]));
+  const taskMap = new Map(fetchedTasks.map((task) => [String(task.id), task]));
+  for (const row of stagedRows) {
+    const id = String(row.clickup_id || row.record_id);
+    if (row.is_deleted) { taskMap.delete(id); taskMap.delete(String(row.record_id)); continue; }
+    const data = row.record_data && typeof row.record_data === "object" ? row.record_data as Record<string, unknown> : {};
+    taskMap.set(id, { ...(taskMap.get(id) || {}), ...data, ...(typeof data.parent === "string" && data.parent ? { parent: stagedIds.get(data.parent) || data.parent } : {}), id } as RawClickUpTask);
+  }
+  const rawTasks = [...taskMap.values()];
   const byId = new Map(rawTasks.map((task) => [String(task.id), task]));
   const month = date.slice(0, 7);
   let parent = rawTasks.find((task) =>
@@ -324,7 +360,7 @@ export async function ensureDailyTask(token: string, date: string, member: Noteb
     parent = await createTask(token, {
       name: formatParentName(date, member),
       assignees: numericMemberId ? [numericMemberId] : [],
-    });
+    }, ownerUserId);
     byId.set(String(parent.id), parent);
   }
 
@@ -335,7 +371,7 @@ export async function ensureDailyTask(token: string, date: string, member: Noteb
       name: formatDailyName(date),
       parent: parent.id,
       assignees: numericMemberId ? [numericMemberId] : [],
-    });
+    }, ownerUserId);
   }
   return { daily, createdParent: !rawTasks.some((task) => task.id === parent!.id) };
 }

@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getTokenFromRequest } from "@/lib/auth";
+import { getTokenFromRequest, getUserFromRequest } from "@/lib/auth";
 import { clickUpFetch as fetch } from "@/lib/clickupCalendarApi";
+import { scheduleMosaicWriteSync, stageMosaicWrite } from "@/lib/mosaicWriteStore";
+
+export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   try {
@@ -47,106 +50,39 @@ export async function POST(req: NextRequest) {
     }
 
     const taskData = await taskRes.json();
-    const teamId = taskData.team_id;
     const currentListId = sourceListId || taskData.list?.id;
-
-    // 2. Relocate task: Try ClickUp API v3 home_list first
-    let moveSuccess = false;
-
-    if (teamId) {
-      try {
-        const v3Res = await fetch(
-          `https://api.clickup.com/api/v3/workspaces/${teamId}/tasks/${meetingId}/home_list/${destinationListId}`,
-          {
-            method: "PUT",
-            headers,
-            body: JSON.stringify({ move_custom_fields: true }),
-          }
-        );
-        if (v3Res.ok) {
-          moveSuccess = true;
-        }
-      } catch (v3Err) {
-        console.warn("[MoveMeeting] ClickUp v3 home_list failed, falling back to v2:", v3Err);
-      }
+    const userId = String(getUserFromRequest(req)?.id || "");
+    if (!userId) return NextResponse.json({ error: "Your ClickUp profile is required to move this archive." }, { status: 401 });
+    const projected = {
+      id: meetingId,
+      clickup_list_id: String(destinationListId),
+      clickup_list_name: destinationListName || (isConfidential ? "Personal List" : "Mosaic Meetings"),
+      clickup_space_id: destinationSpaceId || (isConfidential ? "__personal__" : ""),
+      clickup_space_name: destinationSpaceName || (isConfidential ? "Personal List" : "Workspace"),
+      is_confidential: Boolean(isConfidential),
+    };
+    await stageMosaicWrite({ token, ownerUserId: userId, domain: "meetings", recordId: String(meetingId), listId: String(destinationListId), recordData: projected, operation: "update", method: "POST", resourcePath: `/list/${destinationListId}/task/${meetingId}`, requestBody: {} });
+    if (currentListId && String(currentListId) !== String(destinationListId)) {
+      await stageMosaicWrite({ token, ownerUserId: userId, domain: "meetings", recordId: String(meetingId), listId: String(destinationListId), recordData: projected, operation: "update", method: "DELETE", resourcePath: `/list/${currentListId}/task/${meetingId}` });
     }
-
-    // Fallback: ClickUp API v2 Add to List + Remove from Old List
-    if (!moveSuccess) {
-      const addRes = await fetch(
-        `https://api.clickup.com/api/v2/list/${destinationListId}/task/${meetingId}`,
-        {
-          method: "POST",
-          headers,
-        }
-      );
-
-      if (!addRes.ok && addRes.status !== 400) {
-        const errText = await addRes.text().catch(() => "");
-        return NextResponse.json(
-          { error: `Failed to add task to destination list (${addRes.status}): ${errText}` },
-          { status: addRes.status }
-        );
-      }
-
-      if (currentListId && String(currentListId) !== String(destinationListId)) {
-        await fetch(
-          `https://api.clickup.com/api/v2/list/${currentListId}/task/${meetingId}`,
-          {
-            method: "DELETE",
-            headers,
-          }
-        ).catch(() => null);
-      }
-      moveSuccess = true;
-    }
-
-    // 3. Update confidentiality tag
-    try {
-      if (isConfidential) {
-        await fetch(`https://api.clickup.com/api/v2/task/${meetingId}/tag/private`, {
-          method: "POST",
-          headers,
-        }).catch(() => null);
-      } else {
-        await fetch(`https://api.clickup.com/api/v2/task/${meetingId}/tag/private`, {
-          method: "DELETE",
-          headers,
-        }).catch(() => null);
-      }
-    } catch (tagErr) {
-      console.warn("[MoveMeeting] Tag update failed:", tagErr);
-    }
-
-    // 4. Post audit comment
+    await stageMosaicWrite({ token, ownerUserId: userId, domain: "meetings", recordId: String(meetingId), listId: String(destinationListId), recordData: projected, operation: "update", method: isConfidential ? "POST" : "DELETE", resourcePath: "/task/" + meetingId + "/tag/private" });
     const auditComment = isConfidential
       ? `Mosaic archive relocated to Personal/Private List: ${destinationListName || "Personal List"}.`
       : `Mosaic archive relocated to ${destinationSpaceName || "Space"} › ${destinationListName || "List"}.`;
-
-    await fetch(`https://api.clickup.com/api/v2/task/${meetingId}/comment`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        comment_text: auditComment,
-        notify_all: false,
-      }),
-    }).catch(() => null);
+    await stageMosaicWrite({ token, ownerUserId: userId, domain: "meetings", recordId: String(meetingId), listId: String(destinationListId), recordData: projected, operation: "update", method: "POST", resourcePath: `/task/${meetingId}/comment`, requestBody: { comment_text: auditComment, notify_all: false } });
+    scheduleMosaicWriteSync();
 
     return NextResponse.json({
       status: "success",
       message: "Meeting archive relocated successfully.",
       meeting: {
-        id: meetingId,
-        clickup_list_id: String(destinationListId),
-        clickup_list_name: destinationListName || (isConfidential ? "Personal List" : "Mosaic Meetings"),
-        clickup_space_id: destinationSpaceId || (isConfidential ? "__personal__" : ""),
-        clickup_space_name: destinationSpaceName || (isConfidential ? "Personal List" : "Workspace"),
-        is_confidential: Boolean(isConfidential),
+        ...projected,
       },
+      pendingSync: true,
     });
-  } catch (error: any) {
+  } catch (error) {
     return NextResponse.json(
-      { error: error.message || "Failed to move meeting archive." },
+      { error: error instanceof Error ? error.message : "Failed to move meeting archive." },
       { status: 500 }
     );
   }

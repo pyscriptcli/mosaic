@@ -6,6 +6,8 @@ import {
   FormType,
 } from "@/types/forms/rfp";
 import { clickUpFetch as fetch } from "@/lib/clickupCalendarApi";
+import { randomUUID } from "node:crypto";
+import { stageMosaicWrite } from "@/lib/mosaicWriteStore";
 
 const CLICKUP_API_BASE = "https://api.clickup.com/api/v2";
 
@@ -271,6 +273,14 @@ export async function createClickUpTask(
     }
   }
 
+  const ownerUserId = String(data.__ownerUserId || "");
+  if (ownerUserId) {
+    const id = randomUUID();
+    const recordData = Object.fromEntries(Object.entries(data).filter(([key]) => !key.startsWith("__")));
+    await stageMosaicWrite({ token, ownerUserId, domain: "forms", recordId: id, listId, recordData: { ...recordData, id, name: taskName, description: desc } as never, operation: "create", method: "POST", resourcePath: `/list/${listId}/task`, requestBody: body as never });
+    return { id, name: taskName, url: "", isMock: false, pendingSync: true } as ClickUpTaskResponse;
+  }
+
   // 1. Create task with initial status "for approval"
   const createRes = await fetch(`${CLICKUP_API_BASE}/list/${listId}/task`, {
     method: "POST",
@@ -365,6 +375,13 @@ export async function updateClickUpTask(
       updateBody.due_date = dueDateMs;
       updateBody.due_date_time = false;
     }
+  }
+
+  const ownerUserId = String(data.__ownerUserId || "");
+  if (ownerUserId) {
+    const recordData = Object.fromEntries(Object.entries(data).filter(([key]) => !key.startsWith("__")));
+    await stageMosaicWrite({ token, ownerUserId, domain: "forms", recordId: taskId, listId, recordData: { ...recordData, id: taskId, name: taskName, description: desc } as never, operation: "update", method: "PUT", resourcePath: `/task/${taskId}`, requestBody: updateBody as never });
+    return { id: taskId, name: taskName, url: "", isMock: false, pendingSync: true } as ClickUpTaskResponse;
   }
 
   const updateRes = await fetch(`${CLICKUP_API_BASE}/task/${taskId}`, {

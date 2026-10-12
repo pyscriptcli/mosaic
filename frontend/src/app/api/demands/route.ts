@@ -1,8 +1,11 @@
 import { after, NextRequest, NextResponse } from "next/server";
 import { getTokenFromRequest } from "@/lib/auth";
-import { clickUpCalendarFetch, clickUpFetch as fetch } from "@/lib/clickupCalendarApi";
+import { getUserFromRequest } from "@/lib/auth";
+import { randomUUID } from "node:crypto";
+import { clickUpCalendarFetch } from "@/lib/clickupCalendarApi";
 import { clickUpScope, invalidateClickUpSync, queueClickUpSync, readClickUpTaskSnapshot } from "@/lib/clickupReadStore";
 import { processClickUpSyncQueue, registerClickUpListWebhook } from "@/lib/clickupSync";
+import { readStagedMosaicRecords, stageMosaicWrite, scheduleMosaicWriteSync } from "@/lib/mosaicWriteStore";
 import { DEMANDS_CLICKUP_LIST_ID, formatDemandClickUpTitle } from "@/lib/demands/clickupSync";
 import type { DemandLocationRequirement, DemandPriority, DemandRecord, DemandType } from "@/types/demands";
 
@@ -128,6 +131,19 @@ function getUserToken(request: NextRequest) {
   return getTokenFromRequest(request);
 }
 
+async function mergeStagedDemands(token: string, remote: DemandRecord[]) {
+  const staged = await readStagedMosaicRecords(clickUpScope(token), "demands", DEMANDS_CLICKUP_LIST_ID);
+  const records = new Map(remote.map((demand) => [String(demand.clickUpTaskId || demand.id), demand]));
+  for (const row of staged) {
+    const remoteId = String(row.clickup_id || row.record_id);
+    if (row.is_deleted) { records.delete(remoteId); records.delete(String(row.record_id)); continue; }
+    const data = isRecord(row.record_data) ? row.record_data : {};
+    const demand = normalizeDemand(data);
+    if (demand) records.set(remoteId, { ...demand, id: remoteId, clickUpTaskId: remoteId, clickUpUrl: text(data.clickUpUrl) });
+  }
+  return [...records.values()];
+}
+
 export async function GET(request: NextRequest) {
   const token = getUserToken(request);
   if (!token) return NextResponse.json({ error: "Sign in to load demands." }, { status: 401 });
@@ -149,8 +165,8 @@ export async function GET(request: NextRequest) {
     const accessCheck = await clickUpCalendarFetch(token, `https://api.clickup.com/api/v2/list/${DEMANDS_CLICKUP_LIST_ID}`, undefined, undefined, { skipCache: true });
     if (!accessCheck.ok) return NextResponse.json({ error: "This account cannot access the demands list." }, { status: accessCheck.status });
     const snapshot = forceRefresh ? null : await readClickUpTaskSnapshot(clickUpScope(token), DEMANDS_CLICKUP_LIST_ID);
-    if (snapshot) return NextResponse.json({ demands: snapshot.tasks.map((task) => parseTask(task as ClickUpTask)).filter((demand): demand is DemandRecord => demand !== null), syncedAt: snapshot.syncedAt, source: "synced" });
-    return NextResponse.json({ demands: await listDemands(token, forceRefresh) });
+    if (snapshot) return NextResponse.json({ demands: await mergeStagedDemands(token, snapshot.tasks.map((task) => parseTask(task as ClickUpTask)).filter((demand): demand is DemandRecord => demand !== null)), syncedAt: snapshot.syncedAt, source: "synced" });
+    return NextResponse.json({ demands: await mergeStagedDemands(token, await listDemands(token, forceRefresh)) });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unable to load demands." },
@@ -172,23 +188,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Add at least one target location." }, { status: 400 });
     }
 
-    const taskResponse = await fetch(
-      `https://api.clickup.com/api/v2/list/${DEMANDS_CLICKUP_LIST_ID}/task`,
-      {
-        method: "POST",
-        headers: { Authorization: token, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: formatDemandClickUpTitle({ ...draft, id: "new" }),
-          description: JSON.stringify({ echoDemand: draft }, null, 2),
-          tags: ["demand", draft.type.toLowerCase(), draft.status.toLowerCase()],
-        }),
-      },
-    );
-    if (!taskResponse.ok) throw new Error("Unable to save a demand right now.");
-
-    const task: ClickUpTask = await taskResponse.json();
-    const saved = parseTask(task) ?? { ...draft, id: task.id, clickUpTaskId: task.id, clickUpUrl: task.url };
-    return NextResponse.json({ success: true, created: [saved] });
+    const userId = String(getUserFromRequest(request)?.id || "");
+    if (!userId) return NextResponse.json({ error: "Your ClickUp profile is required to save demands." }, { status: 401 });
+    const localId = randomUUID();
+    const requestBody = { name: formatDemandClickUpTitle({ ...draft, id: localId }), description: JSON.stringify({ echoDemand: draft }, null, 2), tags: ["demand", draft.type.toLowerCase(), draft.status.toLowerCase()] };
+    await stageMosaicWrite({ token, ownerUserId: userId, domain: "demands", recordId: localId, listId: DEMANDS_CLICKUP_LIST_ID, recordData: { ...draft, id: localId, clickUpTaskId: localId } as never, operation: "create", method: "POST", resourcePath: `/list/${DEMANDS_CLICKUP_LIST_ID}/task`, requestBody });
+    scheduleMosaicWriteSync();
+    return NextResponse.json({ success: true, created: [{ ...draft, id: localId, clickUpTaskId: localId }], pendingSync: true }, { status: 202 });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unable to save demands." },
@@ -210,19 +216,16 @@ export async function PATCH(request: NextRequest) {
     const demand = normalizeDemand(body);
     if (!demand) return NextResponse.json({ error: "Check the demand details and try again." }, { status: 400 });
 
-    const response = await fetch(`https://api.clickup.com/api/v2/task/${encodeURIComponent(text(body.id))}`, {
-      method: "PUT",
-      headers: { Authorization: token, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: formatDemandClickUpTitle({ ...demand, id: text(body.id) }),
-        description: JSON.stringify({ echoDemand: demand }, null, 2),
-      }),
-    });
-    if (!response.ok) throw new Error("Unable to update this demand right now.");
-
-    const task: ClickUpTask = await response.json();
-    const updated = parseTask(task) ?? { ...demand, id: text(body.id), clickUpTaskId: text(body.id), clickUpUrl: task.url };
-    return NextResponse.json({ success: true, demand: updated });
+    const userId = String(getUserFromRequest(request)?.id || "");
+    if (!userId) return NextResponse.json({ error: "Your ClickUp profile is required to update demands." }, { status: 401 });
+    const staged = await readStagedMosaicRecords(clickUpScope(token), "demands", DEMANDS_CLICKUP_LIST_ID);
+    const current = staged.find((row) => String(row.record_id) === text(body.id) || String(row.clickup_id) === text(body.id));
+    const recordId = String(current?.record_id || body.id);
+    const remoteId = String(current?.clickup_id || body.id);
+    const requestBody = { name: formatDemandClickUpTitle({ ...demand, id: remoteId }), description: JSON.stringify({ echoDemand: demand }, null, 2) };
+    await stageMosaicWrite({ token, ownerUserId: userId, domain: "demands", recordId, listId: DEMANDS_CLICKUP_LIST_ID, recordData: { ...demand, id: recordId, clickUpTaskId: remoteId } as never, operation: "update", method: "PUT", resourcePath: `/task/${remoteId}`, requestBody });
+    scheduleMosaicWriteSync();
+    return NextResponse.json({ success: true, demand: { ...demand, id: recordId, clickUpTaskId: remoteId }, pendingSync: true }, { status: 202 });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unable to update this demand." },

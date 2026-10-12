@@ -178,6 +178,7 @@ export interface ClickUpTaskResponse {
   custom_id?: string;
   status?: { status: string; color: string };
   isMock?: boolean;
+  pendingSync?: boolean;
 }
 
 export interface SubmissionResponse {

@@ -11,6 +11,7 @@ import { getUserFromRequest } from "@/lib/auth";
 import { createClient } from "@supabase/supabase-js";
 import { createFormRequestId } from "@/lib/forms/requestId";
 import { requireFeature } from "@/lib/access-control-server";
+import { scheduleMosaicWriteSync, uploadStagedMosaicMedia } from "@/lib/mosaicWriteStore";
 
 export const maxDuration = 60;
 
@@ -45,6 +46,8 @@ export async function POST(req: NextRequest) {
       });
     }
     const sessionUser = getUserFromRequest(req);
+    if (!sessionUser?.id) return NextResponse.json({ success: false, message: "Your signed-in profile is required to submit this form." }, { status: 401 });
+    data.__ownerUserId = sessionUser?.id ? String(sessionUser.id) : "";
     if (sessionUser?.email) {
       data.requestedByName = sessionUser.username || data.requestedByName;
       data.requestedByEmail = sessionUser.email;
@@ -81,18 +84,23 @@ export async function POST(req: NextRequest) {
       const entityName = formType === "po" ? (data.vendorName || "Vendor") : (data.payee || "Payee");
       const sanitizedName = entityName.replace(/[^a-zA-Z0-9_-]/g, "_");
 
+      const stagedMedia: File[] = [];
+      const pendingSync = Boolean(taskResult.pendingSync);
+
       // 1. Upload high-res visual preview image of the form (appears in ClickUp right sidebar)
       const previewImageBlob = formData.get("previewImage") as File | null;
       if (previewImageBlob) {
         const previewFilename = `${typeLabel}_${sanitizedName}_Preview.png`;
-        await uploadAttachmentToTask(taskId, previewImageBlob, previewFilename, { token });
+        if (pendingSync) stagedMedia.push(new File([previewImageBlob], previewFilename, { type: previewImageBlob.type }));
+        else await uploadAttachmentToTask(taskId, previewImageBlob, previewFilename, { token });
       }
 
       // 2. Upload official generated PDF document
       const pdfBlob = formData.get("pdf") as File | null;
       if (pdfBlob) {
         const pdfFilename = `${typeLabel}_${sanitizedName}_${data.date || "document"}.pdf`;
-        await uploadAttachmentToTask(taskId, pdfBlob, pdfFilename, { token });
+        if (pendingSync) stagedMedia.push(new File([pdfBlob], pdfFilename, { type: pdfBlob.type }));
+        else await uploadAttachmentToTask(taskId, pdfBlob, pdfFilename, { token });
       }
 
       // 3. Upload all supporting documents
@@ -100,10 +108,12 @@ export async function POST(req: NextRequest) {
       if (supportingFiles && supportingFiles.length > 0) {
         for (const file of supportingFiles) {
           if (file && file.size > 0) {
-            await uploadAttachmentToTask(taskId, file, file.name, { token });
+            if (pendingSync) stagedMedia.push(file);
+            else await uploadAttachmentToTask(taskId, file, file.name, { token });
           }
         }
       }
+      if (pendingSync) scheduleMosaicWriteSync(() => uploadStagedMosaicMedia(token, "forms", taskId, stagedMedia));
 
       // 4. Dispatch Outlook email notification to Approver if applicable
       if (formType === "rfp" && (data.approverEmail || data.approverName || data.approvedByName)) {
@@ -166,11 +176,12 @@ export async function POST(req: NextRequest) {
       formRequestId: data.formRequestId,
       taskUrl: taskResult.url,
       isMock: taskResult.isMock || false,
-      message: isRevision
-        ? `${docName} revised and updated in ClickUp successfully!`
-        : `${docName} submitted and created in ClickUp successfully!`,
+      pendingSync: Boolean(taskResult.pendingSync),
+      message: taskResult.pendingSync
+        ? `${docName} was saved and will sync in the background.`
+        : isRevision ? `${docName} revised and updated in ClickUp successfully!` : `${docName} submitted and created in ClickUp successfully!`,
       taskData: taskResult,
-    });
+    }, { status: taskResult.pendingSync ? 202 : 200 });
   } catch (error: any) {
     console.error("Error in /api/rfp/submit:", error);
     return NextResponse.json(

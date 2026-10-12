@@ -3,6 +3,9 @@ import { createClient } from "@supabase/supabase-js";
 import { getTokenFromRequest, getUserFromRequest } from "@/lib/auth";
 import { parseDiscussionItems } from "@/lib/meetingArchive";
 import { clickUpFetch as fetch } from "@/lib/clickupCalendarApi";
+import { scheduleMosaicWriteSync, stageMosaicWrite } from "@/lib/mosaicWriteStore";
+
+export const maxDuration = 60;
 
 function meetingDescription(meeting: any) {
   const details = [
@@ -449,49 +452,33 @@ export async function POST(req: NextRequest) {
     const token = getTokenFromRequest(req);
     if (!token) return NextResponse.json({ error: "ClickUp authentication required" }, { status: 401 });
     if (!meeting?.id) return NextResponse.json({ error: "Meeting archive is missing its ClickUp task ID." }, { status: 400 });
-
-    const headers = { Authorization: token, "Content-Type": "application/json" };
-    const update = await fetch(`https://api.clickup.com/api/v2/task/${meeting.id}`, {
-      method: "PUT",
-      headers,
-      body: JSON.stringify({
-        name: `${meeting.date || new Date().toISOString().slice(0, 10)} — ${meeting.title || "Mosaic Meeting"}`,
-        description: meetingDescription(meeting)
-      }),
-    });
-    if (!update.ok) return NextResponse.json({ error: `Unable to update meeting in ClickUp (${update.status}): ${await update.text()}` }, { status: update.status });
-
-    const audit = await fetch(`https://api.clickup.com/api/v2/task/${meeting.id}/comment`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ comment_text: `Mosaic archive updated: ${changeSummary(body.previousMeeting, meeting)}.`, notify_all: false }),
-    });
-    if (!audit.ok) console.warn("ClickUp audit comment failed:", await audit.text());
+    const userId = String(getUserFromRequest(req)?.id || "");
+    if (!userId) return NextResponse.json({ error: "Your ClickUp profile is required to update this archive." }, { status: 401 });
 
     const url = process.env.SUPABASE_URL || "";
-    const key = process.env.SUPABASE_KEY || "";
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || "";
 
-    if (url && key) {
-      try {
-        const supabase = createClient(url, key);
-        const payload = {
-          meeting_id: meeting.meeting_id || meeting.id,
-          client_name: meeting.title || "Executive Meeting",
-          meeting_date: meeting.date,
-          meeting_type: meeting.meeting_type || "Internal",
-          location: meeting.location || "",
-          summary_md: meeting.summary || "",
-          transcript_md: (meeting.transcript || "").substring(0, 5000),
-          table_items: meeting.items || [],
-        };
-
-        await supabase.from("meeting_archives").upsert(payload, { onConflict: "meeting_id" });
-      } catch (supErr) {
-        console.warn("Supabase upsert non-blocking error:", supErr);
-      }
-    }
-
-    return NextResponse.json({ status: "success", meeting });
+    if (!url || !key) return NextResponse.json({ error: "Meeting storage is unavailable. Try again." }, { status: 503 });
+    const supabase = createClient(url, key);
+    const payload = {
+      meeting_id: meeting.meeting_id || meeting.id,
+      client_name: meeting.title || "Executive Meeting",
+      meeting_date: meeting.date,
+      meeting_type: meeting.meeting_type || "Internal",
+      location: meeting.location || "",
+      summary_md: meeting.summary || "",
+      transcript_md: (meeting.transcript || "").substring(0, 5000),
+      table_items: meeting.items || [],
+    };
+    const { error: archiveError } = await supabase.from("meeting_archives").upsert(payload, { onConflict: "meeting_id" });
+    if (archiveError) throw new Error("Could not save the meeting in Supabase.");
+    const taskPayload = {
+      name: `${meeting.date || new Date().toISOString().slice(0, 10)} — ${meeting.title || "Mosaic Meeting"}`,
+      description: meetingDescription(meeting),
+    };
+    await stageMosaicWrite({ token, ownerUserId: userId, domain: "meetings", recordId: String(meeting.id), recordData: meeting as never, operation: "update", method: "PUT", resourcePath: `/task/${String(meeting.id)}`, requestBody: taskPayload });
+    scheduleMosaicWriteSync();
+    return NextResponse.json({ status: "success", meeting, pendingSync: true }, { status: 202 });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
@@ -515,33 +502,21 @@ export async function DELETE(req: NextRequest) {
     if (!meetingId) {
       return NextResponse.json({ error: "Meeting ID is required for deletion." }, { status: 400 });
     }
-
-    const delRes = await fetch(`https://api.clickup.com/api/v2/task/${meetingId}`, {
-      method: "DELETE",
-      headers: { Authorization: token },
-    });
-
-    if (!delRes.ok && delRes.status !== 404) {
-      const errText = await delRes.text().catch(() => "");
-      return NextResponse.json(
-        { error: `Unable to delete meeting in ClickUp (${delRes.status}): ${errText}` },
-        { status: delRes.status }
-      );
-    }
+    const userId = String(getUserFromRequest(req)?.id || "");
+    if (!userId) return NextResponse.json({ error: "Your ClickUp profile is required to delete this archive." }, { status: 401 });
 
     const url = process.env.SUPABASE_URL || "";
-    const key = process.env.SUPABASE_KEY || "";
-    if (url && key) {
-      try {
-        const supabase = createClient(url, key);
-        await supabase.from("meeting_archives").delete().eq("meeting_id", meetingId);
-      } catch (supErr) {
-        console.warn("Supabase meeting delete non-blocking error:", supErr);
-      }
-    }
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || "";
+    if (!url || !key) return NextResponse.json({ error: "Meeting storage is unavailable. Try again." }, { status: 503 });
+    const supabase = createClient(url, key);
+    const { error: deleteError } = await supabase.from("meeting_archives").delete().eq("meeting_id", meetingId);
+    if (deleteError) throw new Error("Could not delete the meeting from Supabase.");
+    await stageMosaicWrite({ token, ownerUserId: userId, domain: "meetings", recordId: meetingId, recordData: {}, operation: "delete", method: "DELETE", resourcePath: `/task/${meetingId}` });
+    scheduleMosaicWriteSync();
 
     return NextResponse.json({
       status: "success",
+      pendingSync: true,
       message: "Meeting archive deleted successfully.",
       meetingId
     });

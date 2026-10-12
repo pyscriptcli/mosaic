@@ -16,6 +16,11 @@ import {
   taskOwner,
   writeCategories,
 } from "@/lib/notebookClickup";
+import { getUserFromRequest } from "@/lib/auth";
+import { clickUpScope } from "@/lib/clickupReadStore";
+import { readStagedMosaicRecords, scheduleMosaicWriteSync, stageMosaicWrite } from "@/lib/mosaicWriteStore";
+
+export const maxDuration = 60;
 
 export async function GET(req: NextRequest) {
   const token = requestToken(req);
@@ -24,7 +29,17 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const rawTasks = await fetchAllTasks(token);
+    const remoteTasks = await fetchAllTasks(token);
+    const stagedRows = await readStagedMosaicRecords(clickUpScope(token), "notebook", DAILY_LOG_LIST_ID);
+    const stagedIdMap = new Map(stagedRows.map((row) => [String(row.record_id), String(row.clickup_id || row.record_id)]));
+    const taskMap = new Map(remoteTasks.map((task) => [String(task.id), task]));
+    for (const row of stagedRows) {
+      const id = String(row.clickup_id || row.record_id);
+      if (row.is_deleted) { taskMap.delete(id); taskMap.delete(String(row.record_id)); continue; }
+      const data = row.record_data && typeof row.record_data === "object" ? row.record_data as Record<string, unknown> : {};
+      taskMap.set(id, { ...(taskMap.get(id) || {}), ...data, ...(typeof data.parent === "string" && data.parent ? { parent: stagedIdMap.get(data.parent) || data.parent } : {}), id } as typeof remoteTasks[number]);
+    }
+    const rawTasks = [...taskMap.values()];
     const byId = new Map(rawTasks.map((task) => [String(task.id), task]));
     const members = new Map<string, ReturnType<typeof taskOwner>>();
     const memberMonths = new Map<string, Set<string>>();
@@ -64,7 +79,7 @@ export async function GET(req: NextRequest) {
         id: String(child.id), name: child.name || "Untitled task", status: child.status?.status || "to do",
         completed: child.status?.type === "closed" || /^(complete|completed|closed|done)$/i.test(child.status?.status || ""),
         dueDate: child.due_date ? new Date(Number(child.due_date)).toISOString().slice(0, 10) : "",
-        url: child.url || `https://app.clickup.com/t/${child.id}`,
+        url: child.url || "",
       }));
       return [{
         id: String(task.id),
@@ -104,10 +119,12 @@ export async function POST(req: NextRequest) {
     if (!isValidDate(body.date) || !body.member?.id || !body.member?.name) {
       return NextResponse.json({ error: "A valid work date and team member are required." }, { status: 400 });
     }
+    const userId = String(getUserFromRequest(req)?.id || "");
+    if (!userId) return NextResponse.json({ error: "Your ClickUp profile is required to save the Daily Log." }, { status: 401 });
     const categories = categoryPayload(body.categories);
-    const { daily, createdParent } = await ensureDailyTask(token, body.date, { id: String(body.member.id), name: String(body.member.name) });
-    await writeCategories(token, String(daily.id), categories);
-    const statusResult = await completeDailyTaskOnTimeIfPopulated(token, String(daily.id), daily.status?.status || "to do", categories);
+    const { daily, createdParent } = await ensureDailyTask(token, body.date, { id: String(body.member.id), name: String(body.member.name) }, userId);
+    await writeCategories(token, String(daily.id), categories, userId);
+    const statusResult = await completeDailyTaskOnTimeIfPopulated(token, String(daily.id), daily.status?.status || "to do", categories, userId);
     return NextResponse.json({ success: true, taskId: daily.id, url: daily.url || "", createdParent, ...statusResult });
   } catch (error) {
     console.error("Notebook create failed:", error);
@@ -121,9 +138,11 @@ export async function PATCH(req: NextRequest) {
   try {
     const body = await req.json();
     if (!body.taskId) return NextResponse.json({ error: "A Daily Log task is required." }, { status: 400 });
+    const userId = String(getUserFromRequest(req)?.id || "");
+    if (!userId) return NextResponse.json({ error: "Your ClickUp profile is required to save the Daily Log." }, { status: 401 });
     const categories = categoryPayload(body.categories);
-    await writeCategories(token, String(body.taskId), categories);
-    const statusResult = await completeDailyTaskOnTimeIfPopulated(token, String(body.taskId), String(body.currentStatus || ""), categories);
+    await writeCategories(token, String(body.taskId), categories, userId);
+    const statusResult = await completeDailyTaskOnTimeIfPopulated(token, String(body.taskId), String(body.currentStatus || ""), categories, userId);
     return NextResponse.json({ success: true, ...statusResult });
   } catch (error) {
     console.error("Notebook update failed:", error);
@@ -137,9 +156,11 @@ export async function DELETE(req: NextRequest) {
   const taskId = req.nextUrl.searchParams.get("taskId");
   if (!taskId) return NextResponse.json({ error: "A Daily Log task is required." }, { status: 400 });
   try {
-    const response = await fetch(`https://api.clickup.com/api/v2/task/${taskId}`, { method: "DELETE", headers: { Authorization: token } });
-    if (!response.ok) throw new Error("ClickUp could not delete the Daily Log record.");
-    return NextResponse.json({ success: true });
+    const userId = String(getUserFromRequest(req)?.id || "");
+    if (!userId) return NextResponse.json({ error: "Your ClickUp profile is required to delete the Daily Log." }, { status: 401 });
+    await stageMosaicWrite({ token, ownerUserId: userId, domain: "notebook", recordId: taskId, listId: DAILY_LOG_LIST_ID, recordData: {}, operation: "delete", method: "DELETE", resourcePath: `/task/${taskId}` });
+    scheduleMosaicWriteSync();
+    return NextResponse.json({ success: true, pendingSync: true }, { status: 202 });
   } catch (error) {
     console.error("Notebook delete failed:", error);
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to delete the Daily Log." }, { status: 502 });

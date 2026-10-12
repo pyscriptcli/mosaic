@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTokenFromRequest } from "@/lib/auth";
 import { authorizeBARequest } from "@/lib/business-analysis-server";
-import { clickUpCalendarFetch, clickUpFetch } from "@/lib/clickupCalendarApi";
+import { clickUpFetch } from "@/lib/clickupCalendarApi";
+import { getUserFromRequest } from "@/lib/auth";
+import { randomUUID } from "node:crypto";
+import { scheduleMosaicWriteSync, stageMosaicWrite } from "@/lib/mosaicWriteStore";
+
+export const maxDuration = 60;
 
 type ClickUpList = { id: string; name: string; teamName: string; spaceName: string; folderName: string };
 
@@ -62,12 +67,13 @@ export async function POST(req: NextRequest) {
     const list = await listResponse.json().catch(() => ({})) as { id?: string | number; name?: string; err?: string };
     if (!listResponse.ok || String(list.id || "") !== listId) return NextResponse.json({ error: list.err || "That ClickUp list is not available to your account." }, { status: listResponse.status || 404 });
     const description = [`Mosaic requirement: ${requirementId}`, requirement ? `Requirement: ${requirement}` : "", `Local task reference: ${localTaskId}`].filter(Boolean).join("\n\n");
-    const createResponse = await clickUpCalendarFetch(token, `https://api.clickup.com/api/v2/list/${encodeURIComponent(listId)}/task`, {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: taskName, description, notify_all: false }),
-    }, [`/list/${listId}/task`]);
-    const task = await createResponse.json().catch(() => ({})) as { id?: string | number; url?: string; err?: string; error?: string };
-    if (!createResponse.ok || !task.id) return NextResponse.json({ error: task.err || task.error || "Could not save this task to ClickUp." }, { status: createResponse.status || 502 });
-    return NextResponse.json({ clickUpTask: { id: String(task.id), url: String(task.url || ""), listId, listName: String(list.name || "") } });
+    const userId = String(getUserFromRequest(req)?.id || "");
+    if (!userId) return NextResponse.json({ error: "Your ClickUp profile is required to save this task." }, { status: 401 });
+    const taskId = randomUUID();
+    const requestBody = { name: taskName, description, notify_all: false };
+    await stageMosaicWrite({ token, ownerUserId: userId, domain: "ba_tasks", recordId: taskId, listId, recordData: { id: taskId, name: taskName, description, url: "", requirementId, localTaskId } as never, operation: "create", method: "POST", resourcePath: `/list/${listId}/task`, requestBody });
+    scheduleMosaicWriteSync();
+    return NextResponse.json({ clickUpTask: { id: taskId, url: "", listId, listName: String(list.name || "") }, pendingSync: true }, { status: 202 });
   } catch {
     return NextResponse.json({ error: "Could not save this task to ClickUp." }, { status: 503 });
   }

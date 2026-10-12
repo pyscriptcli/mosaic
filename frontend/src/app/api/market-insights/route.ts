@@ -1,11 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { clickUpFetch as fetch } from "@/lib/clickupCalendarApi";
 import { getTokenFromRequest } from "@/lib/auth";
+import { randomUUID } from "node:crypto";
+import { getUserFromRequest } from "@/lib/auth";
+import { clickUpScope } from "@/lib/clickupReadStore";
+import { readStagedMosaicRecords, stageMosaicWrite, scheduleMosaicWriteSync } from "@/lib/mosaicWriteStore";
+
+export const maxDuration = 60;
 
 const MARKET_INSIGHTS_LIST_ID = "901420987429";
 type Sector = "industrial" | "retail";
 
 type Article = { sector: Sector; date: string; company: string; event: string; implications: string; source: string };
+type InsightTask = { id?: string | number; url?: string; text_content?: string; description?: string; markdown_description?: string };
+type ArticleRecord = Article & { id: string; url: string };
 
 function tokenFor(req: NextRequest) {
   return getTokenFromRequest(req);
@@ -24,7 +32,7 @@ function descriptionFor(article: Article) {
   return JSON.stringify({ echoMarketInsight: article }, null, 2);
 }
 
-function parseTask(task: any) {
+function parseTask(task: InsightTask): ArticleRecord | null {
   const text = task.text_content || task.description || task.markdown_description || "";
   try {
     const parsed = JSON.parse(text);
@@ -46,14 +54,31 @@ function parseTask(task: any) {
 async function listTasks(token: string) {
   const response = await fetch(`https://api.clickup.com/api/v2/list/${MARKET_INSIGHTS_LIST_ID}/task?include_closed=true&include_markdown_description=true&page=0`, { headers: { Authorization: token }, cache: "no-store" });
   if (!response.ok) throw new Error("Unable to read the Market Insights archive from ClickUp.");
-  const body = await response.json();
-  return (body.tasks || []).map(parseTask).filter(Boolean);
+  const body = await response.json() as { tasks?: InsightTask[] };
+  return (body.tasks || []).map(parseTask).filter((article): article is ArticleRecord => article !== null);
 }
+
+async function listArticles(token: string) {
+  const remote = await listTasks(token);
+  const staged = await readStagedMosaicRecords(clickUpScope(token), "market_insights", MARKET_INSIGHTS_LIST_ID);
+  const articles = new Map<string, ArticleRecord>();
+  for (const article of remote) articles.set(article.id, article);
+  for (const row of staged) {
+    const remoteId = String(row.clickup_id || row.record_id);
+    if (row.is_deleted) { articles.delete(remoteId); articles.delete(String(row.record_id)); continue; }
+    const data = row.record_data && typeof row.record_data === "object" ? row.record_data as Record<string, unknown> : {};
+    const article = articleFrom(data);
+    if (article) articles.set(remoteId, { id: remoteId, url: String(data.url || (row.clickup_id ? `https://app.clickup.com/t/${row.clickup_id}` : "")), ...article });
+  }
+  return [...articles.values()];
+}
+
+function ownerId(req: NextRequest) { return String(getUserFromRequest(req)?.id || ""); }
 
 export async function GET(req: NextRequest) {
   const token = tokenFor(req);
   if (!token) return NextResponse.json({ error: "ClickUp authentication required." }, { status: 401 });
-  try { return NextResponse.json({ listId: MARKET_INSIGHTS_LIST_ID, articles: await listTasks(token) }); }
+  try { return NextResponse.json({ listId: MARKET_INSIGHTS_LIST_ID, articles: await listArticles(token) }); }
   catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to load Market Insights." }, { status: 502 }); }
 }
 
@@ -65,24 +90,32 @@ export async function POST(req: NextRequest) {
     if (Array.isArray(body.articles)) {
       const incoming = (body.articles as unknown[]).map(articleFrom).filter((article): article is Article => Boolean(article));
       if (!incoming.length) return NextResponse.json({ error: "No valid article records were supplied." }, { status: 400 });
-      const existing = await listTasks(token);
-      const known = new Set(existing.map((item: any) => `${item.date}|${item.company}`.toLowerCase()));
-      const created = [];
+      const existing = await listArticles(token);
+      const known = new Set(existing.map((item) => `${item?.date}|${item?.company}`.toLowerCase()));
+      const created: Array<{ id: string; } & Article> = [];
       for (const article of incoming) {
         const key = `${article.date}|${article.company}`.toLowerCase();
         if (known.has(key)) continue;
-        const response = await fetch(`https://api.clickup.com/api/v2/list/${MARKET_INSIGHTS_LIST_ID}/task`, { method: "POST", headers: { Authorization: token, "Content-Type": "application/json" }, body: JSON.stringify({ name: `${article.date} · ${article.company}`, description: descriptionFor(article), tags: ["market-insight", article.sector] }) });
-        if (!response.ok) throw new Error(`ClickUp could not create ${article.company}.`);
-        created.push(parseTask(await response.json()));
+        const localId = randomUUID();
+        const userId = ownerId(req);
+        if (!userId) return NextResponse.json({ error: "Your ClickUp profile is required to save insights." }, { status: 401 });
+        const requestBody = { name: `${article.date} · ${article.company}`, description: descriptionFor(article), tags: ["market-insight", article.sector] };
+        await stageMosaicWrite({ token, ownerUserId: userId, domain: "market_insights", recordId: localId, listId: MARKET_INSIGHTS_LIST_ID, recordData: { id: localId, ...article } as never, operation: "create", method: "POST", resourcePath: `/list/${MARKET_INSIGHTS_LIST_ID}/task`, requestBody });
+        created.push({ id: localId, ...article });
         known.add(key);
       }
-      return NextResponse.json({ success: true, created, skipped: incoming.length - created.length });
+      if (created.length) scheduleMosaicWriteSync();
+      return NextResponse.json({ success: true, created, skipped: incoming.length - created.length, pendingSync: true }, { status: created.length ? 202 : 200 });
     }
     const article = articleFrom(body);
     if (!article) return NextResponse.json({ error: "Sector, date, company, and event are required." }, { status: 400 });
-    const response = await fetch(`https://api.clickup.com/api/v2/list/${MARKET_INSIGHTS_LIST_ID}/task`, { method: "POST", headers: { Authorization: token, "Content-Type": "application/json" }, body: JSON.stringify({ name: `${article.date} · ${article.company}`, description: descriptionFor(article), tags: ["market-insight", article.sector] }) });
-    if (!response.ok) throw new Error("ClickUp could not create this market insight.");
-    return NextResponse.json({ success: true, article: parseTask(await response.json()) });
+    const localId = randomUUID();
+    const userId = ownerId(req);
+    if (!userId) return NextResponse.json({ error: "Your ClickUp profile is required to save insights." }, { status: 401 });
+    const requestBody = { name: `${article.date} · ${article.company}`, description: descriptionFor(article), tags: ["market-insight", article.sector] };
+    await stageMosaicWrite({ token, ownerUserId: userId, domain: "market_insights", recordId: localId, listId: MARKET_INSIGHTS_LIST_ID, recordData: { id: localId, ...article } as never, operation: "create", method: "POST", resourcePath: `/list/${MARKET_INSIGHTS_LIST_ID}/task`, requestBody });
+    scheduleMosaicWriteSync();
+    return NextResponse.json({ success: true, article: { id: localId, ...article }, pendingSync: true }, { status: 202 });
   } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to save Market Insight." }, { status: 502 }); }
 }
 
@@ -90,9 +123,14 @@ export async function PATCH(req: NextRequest) {
   const token = tokenFor(req);
   if (!token) return NextResponse.json({ error: "ClickUp authentication required." }, { status: 401 });
   try {
-    const body = await req.json(); const article = articleFrom(body); if (!body.id || !article) return NextResponse.json({ error: "A complete article record is required." }, { status: 400 });
-    const response = await fetch(`https://api.clickup.com/api/v2/task/${body.id}`, { method: "PUT", headers: { Authorization: token, "Content-Type": "application/json" }, body: JSON.stringify({ name: `${article.date} · ${article.company}`, description: descriptionFor(article) }) });
-    if (!response.ok) throw new Error("ClickUp could not update this market insight.");
-    return NextResponse.json({ success: true, article: parseTask(await response.json()) });
+    const body = await req.json() as { id?: unknown; [key: string]: unknown }; const article = articleFrom(body); if (!body.id || !article) return NextResponse.json({ error: "A complete article record is required." }, { status: 400 });
+    const userId = ownerId(req);
+    if (!userId) return NextResponse.json({ error: "Your ClickUp profile is required to update insights." }, { status: 401 });
+    const staged = await readStagedMosaicRecords(clickUpScope(token), "market_insights", MARKET_INSIGHTS_LIST_ID);
+    const current = staged.find((row) => String(row.record_id) === String(body.id) || String(row.clickup_id) === String(body.id));
+    const recordId = String(current?.record_id || body.id);
+    await stageMosaicWrite({ token, ownerUserId: userId, domain: "market_insights", recordId, listId: MARKET_INSIGHTS_LIST_ID, recordData: { id: recordId, ...article } as never, operation: "update", method: "PUT", resourcePath: `/task/${String(current?.clickup_id || body.id)}`, requestBody: { name: `${article.date} · ${article.company}`, description: descriptionFor(article) } });
+    scheduleMosaicWriteSync();
+    return NextResponse.json({ success: true, article: { id: recordId, ...article }, pendingSync: true }, { status: 202 });
   } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to update Market Insight." }, { status: 502 }); }
 }

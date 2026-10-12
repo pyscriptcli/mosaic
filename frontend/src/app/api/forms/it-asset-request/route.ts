@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { getTokenFromRequest, getUserFromRequest } from "@/lib/auth";
 import { createFormRequestId } from "@/lib/forms/requestId";
 import { sendSubmittedStatusEmail } from "@/lib/forms/email";
-import { clickUpFetch as fetch } from "@/lib/clickupCalendarApi";
+import { randomUUID } from "node:crypto";
+import { scheduleMosaicWriteSync, stageMosaicWrite, uploadStagedMosaicMedia } from "@/lib/mosaicWriteStore";
+
+export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   try {
@@ -15,15 +18,17 @@ export async function POST(req: NextRequest) {
     const title = value("title");
     const formRequestId = await createFormRequestId({ token, listId, department: value("department") || "IT", formName: "IT Asset Request Form" });
     const description = [`# IT Asset Request`, `**Form ID:** ${formRequestId}`, `**Request title:** ${title}`, `**Employee:** ${value("employeeName")}`, `**Department:** ${value("department")}`, `**Asset type:** ${value("assetType")}`, `**Needed by:** ${value("neededBy")}`, `**Assignee:** ${value("assignee")}`, `**Team leader approval:** ${form.get("tlApproval") ? "Confirmed" : "Pending"}`, `\n## Reason for request\n${value("reason")}`, `\n## Remarks\n${value("remarks")}`, `\n---\nSubmitted by ${value("requestorName")} (${value("requestorEmail")})`].join("\n");
-    const headers = { Authorization: token, "Content-Type": "application/json" };
-    const taskRes = await fetch(`https://api.clickup.com/api/v2/list/${listId}/task`, { method: "POST", headers, body: JSON.stringify({ name: `IT Asset Request — ${title}`, description, assignees: [] }) });
-    if (!taskRes.ok) return NextResponse.json({ error: `ClickUp task creation failed: ${await taskRes.text()}` }, { status: taskRes.status });
-    const task = await taskRes.json();
-    for (const entry of form.getAll("attachments")) if (entry instanceof File && entry.size) { const upload = new FormData(); upload.append("attachment", entry, entry.name); await fetch(`https://api.clickup.com/api/v2/task/${task.id}/attachment`, { method: "POST", headers: { Authorization: token }, body: upload }); }
+    const userId = String(getUserFromRequest(req)?.id || "");
+    if (!userId) return NextResponse.json({ error: "Your ClickUp profile is required to submit this request." }, { status: 401 });
+    const taskId = randomUUID();
+    const attachments = form.getAll("attachments").filter((entry): entry is File => entry instanceof File && entry.size > 0);
+    const taskName = `IT Asset Request — ${title}`;
+    await stageMosaicWrite({ token, ownerUserId: userId, domain: "forms", recordId: taskId, listId, recordData: { id: taskId, name: taskName, description, formRequestId, requestType: "it-asset-request" }, operation: "create", method: "POST", resourcePath: `/list/${listId}/task`, requestBody: { name: taskName, description, assignees: [] } });
+    scheduleMosaicWriteSync(() => uploadStagedMosaicMedia(token, "forms", taskId, attachments));
     const host = req.headers.get("host") || "localhost:3000";
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || `${req.headers.get("x-forwarded-proto") || (host.includes("localhost") ? "http" : "https")}://${host}`;
     const requestor = getUserFromRequest(req);
     try { await sendSubmittedStatusEmail({ recipient: requestor?.email || value("requestorEmail"), requestorName: requestor?.username || value("requestorName") || value("employeeName"), department: "IT", formType: "it-asset-request-form", formName: "IT Asset Request Form", formId: formRequestId, requestTitle: title, appUrl }); } catch (emailError) { console.warn("Could not send IT asset request confirmation:", emailError); }
-    return NextResponse.json({ taskId: task.id, taskUrl: task.url, formRequestId });
-  } catch (error: any) { return NextResponse.json({ error: error.message || "Unable to submit IT asset request." }, { status: 500 }); }
+    return NextResponse.json({ taskId, taskUrl: "", formRequestId, pendingSync: true }, { status: 202 });
+  } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to submit IT asset request." }, { status: 500 }); }
 }

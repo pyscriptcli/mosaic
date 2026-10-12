@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
 import { getTokenFromRequest } from "@/lib/auth";
 import { requireProjectAdmin, requireSubprojectEditor } from "@/lib/project-permissions";
 import { clickUpCalendarFetch } from "@/lib/clickupCalendarApi";
+import { getUserFromRequest } from "@/lib/auth";
+import { readStagedMosaicRecords, scheduleMosaicWriteSync, stageMosaicWrite } from "@/lib/mosaicWriteStore";
+import { clickUpScope } from "@/lib/clickupReadStore";
 import { calculateSiteAmount, projectSiteFields, siteRecordDescription, siteRecordMarker, sitesForSubproject } from "@/lib/projectSites";
 
 type ClickUpField = {
@@ -18,7 +22,7 @@ type ClickUpTask = {
   text_content?: string;
   status?: { status?: string };
   parent?: string | null;
-  custom_fields?: Array<{ id?: string; value?: unknown }>;
+  custom_fields?: Array<{ id?: string; name?: string; value?: unknown }>;
 };
 
 const SOURCE_FOLDER_ID = "901414174663";
@@ -109,6 +113,15 @@ export async function GET(request: NextRequest) {
       allTasks.push(...batch);
       if (batch.length < 100) break;
     }
+    const stagedRows = await readStagedMosaicRecords(clickUpScope(token), "project_sites", listId);
+    const taskMap = new Map(allTasks.map((task) => [String(task.id || ""), task]));
+    for (const row of stagedRows) {
+      const id = String(row.clickup_id || row.record_id);
+      if (row.is_deleted) { taskMap.delete(id); taskMap.delete(String(row.record_id)); continue; }
+      const data = row.record_data && typeof row.record_data === "object" ? row.record_data as Record<string, unknown> : {};
+      taskMap.set(id, { ...(taskMap.get(id) || {}), ...data, id } as ClickUpTask);
+    }
+    allTasks.splice(0, allTasks.length, ...taskMap.values());
     const taskMatchesSite = (task: ClickUpTask, site: typeof sourceSites[number]) => {
       const description = task.description || task.text_content || "";
       return description.includes(siteRecordMarker(site)) || (task.name?.startsWith(`Site ${site.siteNo} `) && task.name.endsWith(site.siteName));
@@ -203,14 +216,11 @@ export async function PATCH(request: NextRequest) {
         amount = calculateSiteAmount(monthlyRate, pfStructure);
         nextDescription = setDescriptionField(nextDescription, "Amount", amount || "");
       }
-      const response = await clickUpCalendarFetch(token, `https://api.clickup.com/api/v2/task/${encodeURIComponent(taskId)}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ description: nextDescription }),
-      }, [`/list/${listId}/task`, `/task/${taskId}`]);
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok) return NextResponse.json({ error: result.err || result.error || `Unable to save ${fieldName}.` }, { status: response.status });
-      return NextResponse.json({ success: true, taskId, field: key, value: value.trim(), amount }, { headers: { "Cache-Control": "no-store" } });
+      const userId = String(getUserFromRequest(request)?.id || "");
+      if (!userId) return NextResponse.json({ error: "Your ClickUp profile is required to edit sites." }, { status: 401 });
+      await stageMosaicWrite({ token, ownerUserId: userId, domain: "project_sites", recordId: taskId, listId, recordData: { id: taskId, name: task.name, description: nextDescription, list: { id: listId } } as never, operation: "update", method: "PUT", resourcePath: `/task/${taskId}`, requestBody: { description: nextDescription } });
+      scheduleMosaicWriteSync();
+      return NextResponse.json({ success: true, taskId, field: key, value: value.trim(), amount, pendingSync: true }, { status: 202, headers: { "Cache-Control": "no-store" } });
     }
     const updates: Array<{ fieldId: string; fieldName: string; value: string }> = [{ fieldId: field.id, fieldName, value: value.trim() }];
     let amount: string | null = null;
@@ -223,16 +233,18 @@ export async function PATCH(request: NextRequest) {
       updates.push({ fieldId: amountField.id, fieldName: "Amount", value: amount || "" });
     }
 
+    const userId = String(getUserFromRequest(request)?.id || "");
+    if (!userId) return NextResponse.json({ error: "Your ClickUp profile is required to edit sites." }, { status: 401 });
+    const stagedFields = [...(task.custom_fields || [])];
     for (const update of updates) {
-      const response = await clickUpCalendarFetch(token, `https://api.clickup.com/api/v2/task/${encodeURIComponent(taskId)}/field/${update.fieldId}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ value: update.value }),
-      }, [`/list/${listId}/task`, `/task/${taskId}`]);
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok) return NextResponse.json({ error: result.err || result.error || `Unable to save ${update.fieldName}.` }, { status: response.status });
+      const index = stagedFields.findIndex((item) => String(item.id) === update.fieldId);
+      const valueObject = { value: update.value };
+      if (index >= 0) stagedFields[index] = { ...stagedFields[index], ...valueObject };
+      else stagedFields.push({ id: update.fieldId, name: update.fieldName, ...valueObject });
+      await stageMosaicWrite({ token, ownerUserId: userId, domain: "project_sites", recordId: taskId, listId, recordData: { id: taskId, name: task.name, description, list: { id: listId }, custom_fields: stagedFields } as never, operation: "update", method: "POST", resourcePath: `/task/${taskId}/field/${update.fieldId}`, requestBody: valueObject });
     }
-    return NextResponse.json({ success: true, taskId, field: key, value: value.trim(), amount }, { headers: { "Cache-Control": "no-store" } });
+    scheduleMosaicWriteSync();
+    return NextResponse.json({ success: true, taskId, field: key, value: value.trim(), amount, pendingSync: true }, { status: 202, headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to save site details." }, { status: 502 });
   }
@@ -250,6 +262,8 @@ export async function POST(request: NextRequest) {
     const access = await requireProjectAdmin(request);
     if (!access.ok) return access.response;
     const { token } = access;
+    const userId = String(getUserFromRequest(request)?.id || "");
+    if (!userId) return NextResponse.json({ error: "Your ClickUp profile is required to set up site records." }, { status: 401 });
 
     const folderLists = await clickUpJson(token, `https://api.clickup.com/api/v2/folder/${folderId}/list`);
     const subprojects = (folderLists.lists || []) as Array<{ id?: string | number; name?: string }>;
@@ -300,26 +314,14 @@ export async function POST(request: NextRequest) {
           const value = taskFieldValue(field, key, site);
           return value === undefined ? [] : [{ id: field.id, value }];
         });
-        const createSiteResponse = await clickUpCalendarFetch(token, `https://api.clickup.com/api/v2/list/${listId}/task`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: `Site ${site.siteNo} - ${site.siteName}`,
-            description: siteRecordDescription(site),
-            status: closedStatus,
-            custom_fields: customFields,
-            notify_all: false,
-          }),
-        }, [`/list/${listId}/task`]);
-        const result = await createSiteResponse.json().catch(() => ({}));
-        if (!createSiteResponse.ok) {
-          failures.push(`${listName} site ${site.siteNo}: ${String(result.err || result.error || `ClickUp ${createSiteResponse.status}`)}`);
-          continue;
-        }
+        const taskId = randomUUID();
+        const requestBody = { name: `Site ${site.siteNo} - ${site.siteName}`, description: siteRecordDescription(site), status: closedStatus, custom_fields: customFields, notify_all: false };
+        await stageMosaicWrite({ token, ownerUserId: userId, domain: "project_sites", recordId: taskId, listId, recordData: { id: taskId, ...requestBody, list: { id: listId } } as never, operation: "create", method: "POST", resourcePath: `/list/${listId}/task`, requestBody: requestBody as never });
         createdSites += 1;
       }
     }
 
+    if (createdSites) scheduleMosaicWriteSync();
     return NextResponse.json({
       success: true,
       createdSites,
@@ -328,7 +330,8 @@ export async function POST(request: NextRequest) {
       failures: failures.slice(0, 8),
       totalFailures: failures.length,
       subprojectCount: subprojects.length,
-    }, { headers: { "Cache-Control": "no-store" } });
+      pendingSync: createdSites > 0,
+    }, { status: createdSites ? 202 : 200, headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to set up Sites storage." }, { status: 502 });
   }

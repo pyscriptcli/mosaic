@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTokenFromRequest } from "@/lib/auth";
 import { clickUpFetch as fetch } from "@/lib/clickupCalendarApi";
+import { getUserFromRequest } from "@/lib/auth";
+import { randomUUID } from "node:crypto";
+import { scheduleMosaicWriteSync, stageMosaicWrite } from "@/lib/mosaicWriteStore";
 
 export async function POST(req: NextRequest) {
   try {
@@ -112,69 +115,32 @@ export async function POST(req: NextRequest) {
       tags,
     };
 
-    // Attempt creation with preferred status, then fallback to closed, then fallback without status
-    let taskRes: Response | null = null;
-    let appliedStatus = preferredStatus || "closed";
-
-    if (preferredStatus) {
-      taskRes = await fetch(`https://api.clickup.com/api/v2/list/${list.id}/task`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ ...basePayload, status: preferredStatus }),
-      });
-    }
-
-    // Fallback attempt 1: if preferredStatus failed and was different from closedStatus
-    if ((!taskRes || !taskRes.ok) && closedStatus && closedStatus !== preferredStatus) {
-      taskRes = await fetch(`https://api.clickup.com/api/v2/list/${list.id}/task`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ ...basePayload, status: closedStatus }),
-      });
-      if (taskRes.ok) appliedStatus = closedStatus;
-    }
-
-    // Fallback attempt 2: standard "closed" or "complete"
-    if (!taskRes || !taskRes.ok) {
-      for (const fallback of ["complete", "closed"]) {
-        if (fallback === preferredStatus || fallback === closedStatus) continue;
-        const fbRes = await fetch(`https://api.clickup.com/api/v2/list/${list.id}/task`, {
-          method: "POST",
-          headers,
-          body: JSON.stringify({ ...basePayload, status: fallback }),
-        });
-        if (fbRes.ok) {
-          taskRes = fbRes;
-          appliedStatus = fallback;
-          break;
-        }
-      }
-    }
-
-    // Fallback attempt 3: create without status (ClickUp will assign default open status)
-    if (!taskRes || !taskRes.ok) {
-      taskRes = await fetch(`https://api.clickup.com/api/v2/list/${list.id}/task`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(basePayload),
-      });
-      if (taskRes.ok) {
-        appliedStatus = "default";
-      }
-    }
-
-    if (!taskRes || !taskRes.ok) {
-      const detail = taskRes ? await taskRes.text() : "Network error";
-      throw new Error(`Unable to archive meeting in ClickUp (${taskRes?.status || 500}): ${detail || taskRes?.statusText}`);
-    }
-
-    const task = await taskRes.json();
-    const finalStatus = task.status?.status || appliedStatus;
+    const userId = String(getUserFromRequest(req)?.id || "");
+    if (!userId) return NextResponse.json({ error: "Your ClickUp profile is required to archive this meeting." }, { status: 401 });
+    const taskId = randomUUID();
+    const requestBody = { ...basePayload };
+    const meetingRecord = {
+      meeting_id: taskId,
+      client_name: meetingName,
+      meeting_date: meetingDate,
+      meeting_type: meeting_details.meeting_type || "Internal",
+      location: meeting_details.location || "",
+      summary_md: other_discussions || "",
+      transcript_md: (transcript || "").substring(0, 20_000),
+      meeting_notes: effectiveNotes,
+      table_items: items || [],
+      meeting_details: { ...meeting_details, list_id: String(list.id), list_name: String(list.name || ""), space_name: spaceName },
+      description,
+      status: preferredStatus || "default",
+    };
+    await stageMosaicWrite({ token, ownerUserId: userId, domain: "meetings", recordId: taskId, listId: String(list.id), recordData: meetingRecord as never, operation: "create", method: "POST", resourcePath: `/list/${String(list.id)}/task`, requestBody });
+    if (preferredStatus) await stageMosaicWrite({ token, ownerUserId: userId, domain: "meetings", recordId: taskId, listId: String(list.id), recordData: meetingRecord as never, operation: "update", method: "PUT", resourcePath: `/task/${taskId}`, requestBody: { status: preferredStatus } });
+    scheduleMosaicWriteSync();
 
     return NextResponse.json({
       status: "success",
-      message: isConfidential ? "Meeting archived to Private list in ClickUp." : "Meeting archived in ClickUp.",
-      meeting_id: task.id,
+      message: isConfidential ? "Meeting saved to your private archive and queued to sync." : "Meeting saved and queued to sync.",
+      meeting_id: taskId,
       clickup: {
         workspace: meeting_details.workspace || "Current workspace",
         department: isConfidential ? "Private" : (meeting_details.department || "Unassigned"),
@@ -182,12 +148,13 @@ export async function POST(req: NextRequest) {
         spaceName,
         listName: list.name,
         listId: list.id,
-        taskId: task.id,
-        taskUrl: task.url,
-        archiveStatus: finalStatus,
+        taskId,
+        taskUrl: "",
+        archiveStatus: preferredStatus || "default",
         isConfidential,
       },
-    });
+      pendingSync: true,
+    }, { status: 202 });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

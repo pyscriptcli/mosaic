@@ -10,6 +10,12 @@ import {
   categoryPayload, categoriesFromTask, writeCategories, completeDailyTaskOnTimeIfPopulated,
   type RawClickUpTask,
 } from "@/lib/notebookClickup";
+import { randomUUID } from "node:crypto";
+import { scheduleMosaicWriteSync, stageMosaicWrite } from "@/lib/mosaicWriteStore";
+import { readStagedMosaicRecords } from "@/lib/mosaicWriteStore";
+import { clickUpScope } from "@/lib/clickupReadStore";
+
+export const maxDuration = 60;
 
 type ClickUpTask = RawClickUpTask & {
   description?: string; description_text?: string; text_content?: string; markdown_description?: string;
@@ -65,10 +71,20 @@ async function readPersonalNotes(token: string, listId: string, date: string) {
     tasks.push(...batch);
     if (batch.length < 100 || body.last_page === true) break;
   }
+  const stagedRows = await readStagedMosaicRecords(clickUpScope(token), "notebook", listId);
+  const stagedIds = new Map(stagedRows.map((row) => [String(row.record_id), String(row.clickup_id || row.record_id)]));
+  const taskMap = new Map(tasks.map((task) => [String(task.id), task]));
+  for (const row of stagedRows) {
+    const id = String(row.clickup_id || row.record_id);
+    if (row.is_deleted) { taskMap.delete(id); taskMap.delete(String(row.record_id)); continue; }
+    const data = row.record_data && typeof row.record_data === "object" ? row.record_data as Record<string, unknown> : {};
+    taskMap.set(id, { ...(taskMap.get(id) || {}), ...data, ...(typeof data.parent === "string" && data.parent ? { parent: stagedIds.get(data.parent) || data.parent } : {}), id } as ClickUpTask);
+  }
+  tasks.splice(0, tasks.length, ...taskMap.values());
   const parent = tasks.find((task) => !task.parent && task.name?.trim().toLowerCase() === "notes");
   if (!parent) return { parent: null, note: null };
   const note = tasks.find((task) => String(task.parent) === String(parent.id) && dateFromTask(task) === date);
-  return { parent, note: note ? { id: String(note.id), name: note.name || formatDailyName(date), description: note.markdown_description || note.description_text || note.text_content || note.description || "", url: note.url || `https://app.clickup.com/t/${note.id}` } : null };
+  return { parent, note: note ? { id: String(note.id), name: note.name || formatDailyName(date), description: note.markdown_description || note.description_text || note.text_content || note.description || "", url: note.url || "" } : null };
 }
 
 function serializeDayTask(task: ClickUpTask) {
@@ -80,12 +96,22 @@ function serializeDayTask(task: ClickUpTask) {
     completed: task.status?.type === "closed" || /^(complete|completed|closed|done)$/i.test(task.status?.status || ""),
     priority: priority === 1 ? "urgent" : priority === 2 ? "high" : priority === 4 ? "low" : "normal",
     dueDate: task.due_date ? new Date(Number(task.due_date)).toISOString().slice(0, 10) : "",
-    url: task.url || `https://app.clickup.com/t/${task.id}`,
+    url: task.url || "",
   };
 }
 
 async function getKpiContext(token: string, date: string, req: NextRequest) {
-  const tasks = await fetchAllTasks(token) as ClickUpTask[];
+  const remoteTasks = await fetchAllTasks(token) as ClickUpTask[];
+  const stagedRows = await readStagedMosaicRecords(clickUpScope(token), "notebook", DAILY_LOG_LIST_ID);
+  const stagedIds = new Map(stagedRows.map((row) => [String(row.record_id), String(row.clickup_id || row.record_id)]));
+  const taskMap = new Map(remoteTasks.map((task) => [String(task.id), task]));
+  for (const row of stagedRows) {
+    const id = String(row.clickup_id || row.record_id);
+    if (row.is_deleted) { taskMap.delete(id); taskMap.delete(String(row.record_id)); continue; }
+    const data = row.record_data && typeof row.record_data === "object" ? row.record_data as Record<string, unknown> : {};
+    taskMap.set(id, { ...(taskMap.get(id) || {}), ...data, ...(typeof data.parent === "string" && data.parent ? { parent: stagedIds.get(data.parent) || data.parent } : {}), id } as ClickUpTask);
+  }
+  const tasks = [...taskMap.values()];
   const byId = new Map(tasks.map((task) => [String(task.id), task]));
   const user = getUserFromRequest(req);
   const day = tasks.find((task) => {
@@ -117,7 +143,7 @@ export async function GET(req: NextRequest) {
     }
     const children = day ? tasks.filter((task) => String(task.parent) === String(day.id)).map(serializeDayTask) : [];
     return NextResponse.json({
-      date, dayTask: day ? { id: String(day.id), name: day.name || formatDailyName(date), url: day.url || `https://app.clickup.com/t/${day.id}` } : null,
+      date, dayTask: day ? { id: String(day.id), name: day.name || formatDailyName(date), url: day.url || "" } : null,
       tasks: children, notes: note?.description || "", noteTask: note, activity: categoriesFromTask(day),
       completeStatus, openStatus,
       personalList: personalList ? { id: personalList.id, name: personalList.name } : null, notesError,
@@ -137,6 +163,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     if (!isValidDate(body.date)) return NextResponse.json({ error: "A valid day is required." }, { status: 400 });
     const { action } = body;
+    const ownerUserId = String(user.id);
 
     if (action === "note") {
       const personalList = await getPersonalList(req);
@@ -144,17 +171,22 @@ export async function POST(req: NextRequest) {
       const notes = await readPersonalNotes(token, personalList.id, body.date);
       let parent = notes.parent;
       if (!parent) {
-        parent = await clickUpJson(token, `https://api.clickup.com/api/v2/list/${encodeURIComponent(personalList.id)}/task`, { method: "POST", body: JSON.stringify({ name: "Notes", description: "Day notes are stored as dated subtasks." }) });
+        parent = await createTask(token, { name: "Notes", description: "Day notes are stored as dated subtasks." }, ownerUserId, personalList.id);
       }
       if (!parent?.id) throw new Error("Could not find or create the Notes parent task in your Personal List.");
       const dateName = formatDailyName(body.date);
       const description = String(body.notes || "");
       if (notes.note) {
-        await clickUpJson(token, `https://api.clickup.com/api/v2/task/${notes.note.id}`, { method: "PUT", body: JSON.stringify({ name: dateName, markdown_content: description }) });
+        await stageMosaicWrite({ token, ownerUserId, domain: "notebook", recordId: String(notes.note.id), listId: personalList.id, recordData: { ...notes.note, name: dateName, description } as never, operation: "update", method: "PUT", resourcePath: `/task/${notes.note.id}`, requestBody: { name: dateName, markdown_content: description } });
+        scheduleMosaicWriteSync();
         return NextResponse.json({ success: true, noteTask: { ...notes.note, name: dateName, description } });
       }
-      const created = await clickUpJson(token, `https://api.clickup.com/api/v2/list/${encodeURIComponent(personalList.id)}/task`, { method: "POST", body: JSON.stringify({ name: dateName, parent: parent.id, markdown_content: description, due_date: new Date(`${body.date}T12:00:00`).getTime(), due_date_time: false }) });
-      return NextResponse.json({ success: true, noteTask: { id: String(created.id), name: created.name, description, url: created.url || `https://app.clickup.com/t/${created.id}` } });
+      const localId = randomUUID();
+      const requestBody = { name: dateName, parent: parent.id, markdown_content: description, due_date: new Date(`${body.date}T12:00:00`).getTime(), due_date_time: false };
+      const record = { id: localId, name: dateName, description, parent: parent.id, url: "" };
+      await stageMosaicWrite({ token, ownerUserId, domain: "notebook", recordId: localId, listId: personalList.id, recordData: record as never, operation: "create", method: "POST", resourcePath: `/list/${personalList.id}/task`, requestBody });
+      scheduleMosaicWriteSync();
+      return NextResponse.json({ success: true, noteTask: { ...record, url: "" }, pendingSync: true }, { status: 202 });
     }
 
     if (action === "summary") {
@@ -179,12 +211,12 @@ export async function POST(req: NextRequest) {
       const categories = categoryPayload(body.categories);
       const context = day
         ? { daily: day }
-        : await ensureDailyTask(token, body.date, { id: String(user.id), name: user.username });
-      await writeCategories(token, String(context.daily.id), categories);
-      const statusResult = await completeDailyTaskOnTimeIfPopulated(token, String(context.daily.id), context.daily.status?.status || "to do", categories);
+        : await ensureDailyTask(token, body.date, { id: String(user.id), name: user.username }, ownerUserId);
+      await writeCategories(token, String(context.daily.id), categories, ownerUserId);
+      const statusResult = await completeDailyTaskOnTimeIfPopulated(token, String(context.daily.id), context.daily.status?.status || "to do", categories, ownerUserId);
       return NextResponse.json({
         success: true,
-        dayTask: { id: String(context.daily.id), name: context.daily.name || formatDailyName(body.date), url: context.daily.url || "https://app.clickup.com/t/" + context.daily.id },
+        dayTask: { id: String(context.daily.id), name: context.daily.name || formatDailyName(body.date), url: context.daily.url || "" },
         activity: categories,
         ...statusResult,
       });
@@ -192,13 +224,13 @@ export async function POST(req: NextRequest) {
     if (action === "create") {
       const title = String(body.name || "").trim();
       if (!title) return NextResponse.json({ error: "Enter a task name." }, { status: 400 });
-      const context = day ? { daily: day } : await ensureDailyTask(token, body.date, { id: String(user.id), name: user.username });
+      const context = day ? { daily: day } : await ensureDailyTask(token, body.date, { id: String(user.id), name: user.username }, ownerUserId);
       const payload: Record<string, unknown> = { name: title, parent: context.daily.id, description: String(body.description || "") };
       if (body.dueDate && isValidDate(body.dueDate)) { payload.due_date = new Date(`${body.dueDate}T12:00:00`).getTime(); payload.due_date_time = false; }
       const priority = ({ urgent: 1, high: 2, normal: 3, low: 4 } as Record<string, number>)[body.priority];
       if (priority) payload.priority = priority;
-      const created = await createTask(token, payload);
-      return NextResponse.json({ success: true, task: serializeDayTask(created as ClickUpTask), dayTask: { id: String(context.daily.id), name: context.daily.name, url: context.daily.url } });
+      const created = await createTask(token, payload, ownerUserId, String(context.daily.list?.id || DAILY_LOG_LIST_ID));
+      return NextResponse.json({ success: true, task: serializeDayTask(created as ClickUpTask), dayTask: { id: String(context.daily.id), name: context.daily.name, url: context.daily.url }, pendingSync: true }, { status: 202 });
     }
 
     if (action === "update" || action === "delete") {
@@ -206,8 +238,9 @@ export async function POST(req: NextRequest) {
       const task = tasks.find((item) => String(item.id) === taskId && String(item.parent) === String(day?.id));
       if (!task || !day) return NextResponse.json({ error: "That task is not part of the selected day." }, { status: 404 });
       if (action === "delete") {
-        await clickUpJson(token, `https://api.clickup.com/api/v2/task/${encodeURIComponent(taskId)}`, { method: "DELETE" });
-        return NextResponse.json({ success: true });
+        await stageMosaicWrite({ token, ownerUserId, domain: "notebook", recordId: taskId, listId: String(task.list?.id || DAILY_LOG_LIST_ID), recordData: {}, operation: "delete", method: "DELETE", resourcePath: `/task/${taskId}` });
+        scheduleMosaicWriteSync();
+        return NextResponse.json({ success: true, pendingSync: true }, { status: 202 });
       }
       const payload: Record<string, unknown> = {};
       if (typeof body.name === "string") payload.name = body.name.trim();
@@ -215,8 +248,10 @@ export async function POST(req: NextRequest) {
       if (body.dueDate !== undefined) { payload.due_date = body.dueDate ? new Date(`${body.dueDate}T12:00:00`).getTime() : null; payload.due_date_time = false; }
       if (body.priority) payload.priority = ({ urgent: 1, high: 2, normal: 3, low: 4 } as Record<string, number>)[body.priority] || 3;
       if (body.status) payload.status = String(body.status);
-      const updated = await clickUpJson(token, `https://api.clickup.com/api/v2/task/${encodeURIComponent(taskId)}`, { method: "PUT", body: JSON.stringify(payload) });
-      return NextResponse.json({ success: true, task: serializeDayTask(updated as ClickUpTask) });
+      const projected = { ...task, ...payload, id: taskId };
+      await stageMosaicWrite({ token, ownerUserId, domain: "notebook", recordId: taskId, listId: String(task.list?.id || DAILY_LOG_LIST_ID), recordData: projected as never, operation: "update", method: "PUT", resourcePath: `/task/${taskId}`, requestBody: payload as never });
+      scheduleMosaicWriteSync();
+      return NextResponse.json({ success: true, task: serializeDayTask(projected as ClickUpTask), pendingSync: true }, { status: 202 });
     }
     return NextResponse.json({ error: "Unsupported My Day action." }, { status: 400 });
   } catch (error) {

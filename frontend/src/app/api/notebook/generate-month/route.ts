@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getUserFromRequest } from "@/lib/auth";
+import { clickUpScope } from "@/lib/clickupReadStore";
+import { readStagedMosaicRecords, scheduleMosaicWriteSync } from "@/lib/mosaicWriteStore";
 import {
   createTask,
   dateFromTask,
@@ -48,6 +51,8 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    const ownerUserId = String(getUserFromRequest(req)?.id || "");
+    if (!ownerUserId) return NextResponse.json({ error: "Your ClickUp profile is required to generate Daily Log records." }, { status: 401 });
     const body = (await req.json()) as GenerateMonthRequest;
     if (!body?.month || !/^\d{4}-\d{2}$/.test(body.month)) {
       return NextResponse.json({ error: "A valid month in YYYY-MM format is required." }, { status: 400 });
@@ -63,7 +68,17 @@ export async function POST(req: NextRequest) {
     }
 
     // Fetch existing tasks
-    const rawTasks = await fetchAllTasks(token);
+    const remoteTasks = await fetchAllTasks(token);
+    const stagedRows = await readStagedMosaicRecords(clickUpScope(token), "notebook", "901418075633");
+    const stagedIds = new Map(stagedRows.map((row) => [String(row.record_id), String(row.clickup_id || row.record_id)]));
+    const taskMap = new Map(remoteTasks.map((task) => [String(task.id), task]));
+    for (const row of stagedRows) {
+      const id = String(row.clickup_id || row.record_id);
+      if (row.is_deleted) { taskMap.delete(id); taskMap.delete(String(row.record_id)); continue; }
+      const data = row.record_data && typeof row.record_data === "object" ? row.record_data as Record<string, unknown> : {};
+      taskMap.set(id, { ...(taskMap.get(id) || {}), ...data, ...(typeof data.parent === "string" && data.parent ? { parent: stagedIds.get(data.parent) || data.parent } : {}), id } as typeof remoteTasks[number]);
+    }
+    const rawTasks = [...taskMap.values()];
     const byId = new Map(rawTasks.map((t) => [String(t.id), t]));
 
     // Find or create month parent task
@@ -80,7 +95,7 @@ export async function POST(req: NextRequest) {
       parent = await createTask(token, {
         name: formatParentName(`${month}-01`, member),
         assignees: numericMemberId ? [numericMemberId] : [],
-      });
+      }, ownerUserId);
       byId.set(String(parent.id), parent);
     }
 
@@ -100,7 +115,7 @@ export async function POST(req: NextRequest) {
     const batchLimit = body.limit && body.limit > 0 ? body.limit : missingDates.length;
     const toProcess = missingDates.slice(0, batchLimit);
 
-    // Create subtasks sequentially with pacing to avoid ClickUp rate limits
+    // Stage local records quickly; the outbox applies them to ClickUp after the response.
     const createdTasks: Array<{ id: string; name?: string; date: string }> = [];
     for (let i = 0; i < toProcess.length; i++) {
       const date = toProcess[i];
@@ -114,15 +129,12 @@ export async function POST(req: NextRequest) {
         assignees: numericMemberId ? [numericMemberId] : [],
         start_date: String(startOfDayUtc),
         due_date: String(endOfDayUtc),
-      });
+      }, ownerUserId);
 
       createdTasks.push({ id: String(created.id), name: created.name, date });
 
-      // Add a 600ms pacing delay between task creations if there are more tasks in this batch
-      if (i < toProcess.length - 1) {
-        await new Promise((resolve) => setTimeout(resolve, 600));
-      }
     }
+    if (createdTasks.length || !parent) scheduleMosaicWriteSync();
 
     const remainingCount = missingDates.length - toProcess.length;
 
@@ -137,7 +149,8 @@ export async function POST(req: NextRequest) {
       createdCount: createdTasks.length,
       remainingCount,
       createdTasks,
-    });
+      pendingSync: true,
+    }, { status: createdTasks.length ? 202 : 200 });
   } catch (error) {
     console.error("Generate month tasks failed:", error);
     return NextResponse.json(

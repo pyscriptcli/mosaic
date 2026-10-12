@@ -3,7 +3,8 @@ import { requireSubprojectAdmin } from "@/lib/project-permissions";
 import { AdminConfigError, loadAdminConfig, saveAdminConfig } from "@/lib/admin-config/store";
 import { clearClickUpCalendarCache, clickUpCalendarFetch } from "@/lib/clickupCalendarApi";
 import { recordProjectActivity } from "@/lib/projectActivity";
-import { clickUpFetch as fetch } from "@/lib/clickupCalendarApi";
+import { getUserFromRequest } from "@/lib/auth";
+import { scheduleMosaicWriteSync, stageMosaicWrite } from "@/lib/mosaicWriteStore";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -19,6 +20,8 @@ export async function PUT(req: NextRequest) {
     const access = await requireSubprojectAdmin(req, folderId, listId);
     if (!access.ok) return access.response;
     const { token } = access;
+    const ownerUserId = String(getUserFromRequest(req)?.id || "");
+    if (!ownerUserId) return NextResponse.json({ error: "Your ClickUp profile is required to update subproject assignments." }, { status: 401 });
     const leadId = Number(assigneeIds[0]);
     const taskIds: string[] = [];
     let assignedCount = 0;
@@ -37,14 +40,12 @@ export async function PUT(req: NextRequest) {
       for (const task of tasks) {
         const taskId = String(task.id);
         if ((task.assignees || []).some((assignee) => String(assignee.id) === String(leadId))) { alreadyAssignedCount += 1; taskIds.push(taskId); continue; }
-        const response = await clickUpCalendarFetch(
-          token,
-          `https://api.clickup.com/api/v2/task/${encodeURIComponent(taskId)}`,
-          { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ assignees: { add: [leadId], rem: [] } }) },
-          [`/list/${listId}/task`, `/task/${taskId}`],
-        );
-        if (!response.ok) failedCount += 1;
-        else { assignedCount += 1; taskIds.push(taskId); }
+        try {
+          const requestBody = { assignees: { add: [leadId], rem: [] } };
+          await stageMosaicWrite({ token, ownerUserId, domain: "project_tasks", recordId: taskId, listId, recordData: { id: taskId, assignees: [{ id: String(leadId) }] }, operation: "update", method: "PUT", resourcePath: `/task/${taskId}`, requestBody });
+          assignedCount += 1;
+          taskIds.push(taskId);
+        } catch { failedCount += 1; }
       }
       clearClickUpCalendarCache(token, [`/list/${listId}/task`]);
     }
@@ -61,7 +62,8 @@ export async function PUT(req: NextRequest) {
       summary: assigneeIds.length ? `Set ${String(body.leadName || "a new member")} as subproject lead and assigned them to ${assignedCount + alreadyAssignedCount} existing tasks` : "Cleared the subproject lead",
       details: { previousLeadId: previousLeadId || null, leadId: assigneeIds[0] || null, leadName: String(body.leadName || ""), assignedCount, alreadyAssignedCount, failedCount, taskIds },
     });
-    return NextResponse.json({ listId, assigneeIds, taskIds, assignedCount, alreadyAssignedCount, failedCount }, { headers: { "Cache-Control": "no-store" } });
+    if (assignedCount) scheduleMosaicWriteSync();
+    return NextResponse.json({ listId, assigneeIds, taskIds, assignedCount, alreadyAssignedCount, failedCount, pendingSync: assignedCount > 0 }, { status: assignedCount ? 202 : 200, headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     const status = error instanceof AdminConfigError ? error.status : 503;
     return NextResponse.json({ error: "The subproject assignees could not be saved." }, { status });
