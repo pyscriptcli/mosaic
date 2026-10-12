@@ -1,0 +1,30 @@
+appId: com.primephilippines.mosaic
+productName: Mosaic
+asar: true
+npmRebuild: false
+directories:
+  output: dist
+files:
+  - src/**
+  - build/mosaic.png
+  - build/mosaic.ico
+  - package.json
+extraResources:
+  - from: build/app-origin.json
+    to: app-origin.json
+win:
+  icon: build/mosaic.ico
+  target:
+    - target: nsis
+      arch:
+        - x64
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: false
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: Mosaic
+  deleteAppDataOnUninstall: false
+  runAfterFinish: true
+artifactName: Mosaic-Setup-${version}-${arch}.${ext}

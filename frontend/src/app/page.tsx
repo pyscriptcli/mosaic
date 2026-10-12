@@ -270,6 +270,12 @@ export default function Home() {
     if (!activeBrowserUser) void checkAuth();
   }, []);
 
+  useEffect(() => {
+    if (authStatus !== "unauthenticated") return;
+    const desktop = (window as Window & { mosaicDesktop?: { scheduleReminder: (input: { enabled: boolean; intervalSeconds: number; taskNames: string[] }) => void } }).mosaicDesktop;
+    desktop?.scheduleReminder({ enabled: false, intervalSeconds: 1, taskNames: [] });
+  }, [authStatus]);
+
   const studioRecorder = useStudioRecorderContext();
 
   const handleSignOut = async () => {

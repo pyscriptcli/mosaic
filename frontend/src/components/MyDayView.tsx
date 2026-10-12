@@ -27,6 +27,7 @@ const moveDate = (value: string, days: number) => {
 };
 const dateLabel = (value: string) => new Date(`${value}T12:00:00`).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
 const REMINDER_KEY = "project_echo_my_day_reminders";
+const EMPTY_TASKS: DayTask[] = [];
 const ACTIVITY_FIELDS: Array<{ key: keyof DailyActivity; label: string }> = [
   { key: "client", label: "Client" },
   { key: "admin", label: "Admin" },
@@ -68,7 +69,9 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
   const [activitySave, setActivitySave] = useState<"saved" | "pending" | "saving" | "error">("saved");
   const [activityError, setActivityError] = useState("");
   const [remindersEnabled, setRemindersEnabled] = useState(false);
+  const [reminderHours, setReminderHours] = useState(0);
   const [reminderMinutes, setReminderMinutes] = useState(30);
+  const [reminderSeconds, setReminderSeconds] = useState(0);
   const [snoozedUntil, setSnoozedUntil] = useState(0);
   const [reminderOpen, setReminderOpen] = useState(false);
   const [reminderSettingsOpen, setReminderSettingsOpen] = useState(false);
@@ -84,8 +87,10 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
   const [summaryError, setSummaryError] = useState("");
   const [notesSize, setNotesSize] = useState<"small" | "normal">("normal");
   const notesEditor = useRef<HTMLTextAreaElement>(null);
+  const reminderDialog = useRef<HTMLElement>(null);
   const summaryAttempt = useRef("");
-  const tasks = payload?.tasks || [];
+  const tasks = payload?.tasks ?? EMPTY_TASKS;
+  const reminderIntervalSeconds = Math.max(1, reminderHours * 3600 + reminderMinutes * 60 + reminderSeconds);
   const lastReminderAt = useRef(0);
   const notesTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activityTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -99,7 +104,12 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
       try {
         const stored = JSON.parse(localStorage.getItem(REMINDER_KEY) || "{}");
         setRemindersEnabled(stored.enabled !== false);
-        setReminderMinutes(Math.min(240, Math.max(5, Number(stored.minutes) || 30)));
+        const storedSeconds = Number.isFinite(Number(stored.intervalSeconds))
+          ? Math.max(1, Math.min(359999, Number(stored.intervalSeconds)))
+          : Math.max(300, Math.min(14400, Number(stored.minutes) * 60 || 1800));
+        setReminderHours(Math.floor(storedSeconds / 3600));
+        setReminderMinutes(Math.floor((storedSeconds % 3600) / 60));
+        setReminderSeconds(storedSeconds % 60);
       } catch { /* use defaults */ }
       setPersonalList({
         id: localStorage.getItem("project_echo_personal_list_id") || "",
@@ -290,6 +300,10 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
   }, [notify, tasks]);
 
   useEffect(() => {
+    if (reminderOpen) reminderDialog.current?.querySelector<HTMLElement>("button")?.focus();
+  }, [reminderOpen]);
+
+  useEffect(() => {
     if (!remindersEnabled || date !== todayIso()) return;
     const timer = setInterval(() => {
       const now = Date.now();
@@ -298,15 +312,19 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
         return;
       }
       const elapsed = now - lastReminderAt.current;
-      const interval = reminderOpen ? 2 : reminderMinutes;
-      if (elapsed >= interval * 60_000) openReminder();
-    }, 20_000);
+      if (reminderOpen) return;
+      if (elapsed >= reminderIntervalSeconds * 1000) openReminder();
+    }, 1000);
     return () => clearInterval(timer);
-  }, [date, remindersEnabled, reminderMinutes, reminderOpen, snoozedUntil, openReminder]);
+  }, [date, remindersEnabled, reminderIntervalSeconds, reminderOpen, snoozedUntil, openReminder]);
 
   useEffect(() => {
-    localStorage.setItem(REMINDER_KEY, JSON.stringify({ enabled: remindersEnabled, minutes: reminderMinutes }));
-  }, [settingsReady, remindersEnabled, reminderMinutes]);
+    if (!settingsReady) return;
+    const intervalSeconds = Math.max(1, reminderHours * 3600 + reminderMinutes * 60 + reminderSeconds);
+    localStorage.setItem(REMINDER_KEY, JSON.stringify({ enabled: remindersEnabled, intervalSeconds }));
+    const desktop = (window as Window & { mosaicDesktop?: { scheduleReminder: (input: { enabled: boolean; intervalSeconds: number; taskNames: string[] }) => void } }).mosaicDesktop;
+    if (userId) desktop?.scheduleReminder({ enabled: remindersEnabled, intervalSeconds, taskNames: tasks.filter((task) => !task.completed).map((task) => task.name).slice(0, 8) });
+  }, [settingsReady, remindersEnabled, reminderHours, reminderMinutes, reminderSeconds, tasks]);
 
   const saveTask = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -371,13 +389,12 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
             <button type="button" onClick={() => setReminderSettingsOpen((open) => !open)} aria-label="Reminder settings" title="Reminder settings" aria-expanded={reminderSettingsOpen} className={`grid h-9 w-9 place-items-center border ${remindersEnabled ? "border-[#003366] bg-[#003366] text-white" : "border-slate-300 bg-[#FFFCFB] text-[#003366] hover:border-[#C9A84C]"}`}>
               {remindersEnabled ? <Bell size={15} /> : <BellOff size={15} />}
             </button>
-            {reminderSettingsOpen && <div className="absolute right-0 top-11 z-30 w-56 border border-slate-200 bg-[#FFFCFB] p-3 shadow-lg">
-              <label htmlFor="my-day-reminder-interval" className="flex items-center justify-between gap-3 text-xs font-semibold text-[#003366]">
-                Remind every
-                <select id="my-day-reminder-interval" value={reminderMinutes} onChange={(event) => setReminderMinutes(Number(event.target.value))} className="h-8 border border-slate-300 bg-white px-2 text-xs text-[#003366] outline-none">
-                  {[5, 10, 15, 30, 45, 60, 90, 120, 180, 240].map((minutes) => <option key={minutes} value={minutes}>{minutes} min</option>)}
-                </select>
-              </label>
+            {reminderSettingsOpen && <div className="absolute right-0 top-11 z-30 w-72 border border-slate-200 bg-[#FFFCFB] p-3 shadow-lg">
+              <p className="text-xs font-semibold text-[#003366]">Remind every</p>
+              <div className="mt-2 grid grid-cols-3 gap-2">
+                {[{ label: "HH", value: reminderHours, set: setReminderHours, max: 99 }, { label: "MM", value: reminderMinutes, set: setReminderMinutes, max: 59 }, { label: "SS", value: reminderSeconds, set: setReminderSeconds, max: 59 }].map(({ label, value, set, max }) => <label key={label} className="text-[10px] font-semibold text-slate-500">{label}<select aria-label={`${label} reminder interval`} value={value} onChange={(event) => set(Number(event.target.value))} className="mt-1 h-9 w-full border border-slate-300 bg-white px-2 text-sm tabular-nums text-[#003366] outline-none focus:border-[#C9A84C]">{Array.from({ length: max + 1 }, (_, index) => <option key={index} value={index}>{String(index).padStart(2, "0")}</option>)}</select></label>)}
+              </div>
+              <p className="mt-2 text-[10px] text-slate-500">Choose any interval from one second to 99 hours, 59 minutes, 59 seconds.</p>
               <button type="button" onClick={() => void enableReminders()} className="mt-3 w-full border border-slate-200 px-2.5 py-2 text-left text-xs font-semibold text-[#003366] hover:border-[#C9A84C]">
                 {remindersEnabled ? "Turn reminders off" : "Enable reminders"}
               </button>
@@ -522,13 +539,14 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
         </aside>}
       </div>
 
-      {reminderOpen && <div className="fixed inset-0 z-[100] grid place-items-center bg-[#003366]/35 p-4" role="presentation">
-        <section role="dialog" aria-modal="true" aria-labelledby="my-day-reminder-title" className="w-full max-w-lg border border-slate-300 bg-[#FFFCFB] p-5 shadow-xl">
-          <div className="flex items-start justify-between gap-4"><div><p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Reminder</p><h2 id="my-day-reminder-title" className="mt-1 font-serif text-2xl italic text-[#003366]">Check in on your day</h2></div><button type="button" onClick={() => setReminderOpen(false)} aria-label="Close reminder" className="grid h-8 w-8 place-items-center border border-slate-200 text-slate-500"><X size={16} /></button></div>
+      {reminderOpen && <div className="fixed inset-0 z-[10000] grid place-items-center bg-[#001D3D]/80 p-4 backdrop-blur-sm" role="presentation">
+        <style>{"@keyframes mosaic-reminder-arrival{0%{opacity:0;transform:translateY(28px) scale(.94)}65%{opacity:1;transform:translateY(-4px) scale(1.01)}100%{opacity:1;transform:translateY(0) scale(1)}}@media(prefers-reduced-motion:reduce){.mosaic-reminder-arrival{animation:none!important}}"}</style>
+        <section ref={reminderDialog} role="alertdialog" aria-modal="true" aria-labelledby="my-day-reminder-title" onKeyDown={(event) => { if (event.key !== "Tab") return; const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>("button:not(:disabled)")); if (!controls.length) return; const first = controls[0]; const last = controls[controls.length - 1]; if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); } else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); } }} className="mosaic-reminder-arrival w-full max-w-3xl border-2 border-[#C9A84C] bg-[#FFFCFB] p-7 shadow-[0_24px_100px_rgba(0,0,0,.48)] sm:p-10" style={{ animation: "mosaic-reminder-arrival 720ms cubic-bezier(.16,1,.3,1) both" }}>
+          <div className="flex items-start justify-between gap-4"><div><p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#9A761E]">Mosaic reminder</p><h2 id="my-day-reminder-title" className="mt-2 font-serif text-4xl italic text-[#003366] sm:text-5xl">Pause and check in</h2></div><button type="button" onClick={() => setReminderOpen(false)} aria-label="Close reminder" className="grid h-10 w-10 place-items-center border border-slate-300 text-slate-600"><X size={19} /></button></div>
           <p className="mt-2 text-xs text-slate-500">{reminderTitle.length ? `${reminderTitle.length} unfinished task${reminderTitle.length === 1 ? "" : "s"} remaining.` : "You have no unfinished tasks. Review your notes or plan ahead."}</p>
           <ul className="mt-4 max-h-56 space-y-2 overflow-y-auto">{reminderTitle.map((title) => <li key={title} className="border-l-2 border-[#C9A84C] py-1 pl-3 text-sm text-[#003366]">{title}</li>)}</ul>
           <div className="mt-5 flex flex-wrap justify-end gap-2 border-t border-slate-200 pt-4">
-            {[5, 15, 30].map((minutes) => <button key={minutes} type="button" onClick={() => { const until = Date.now() + minutes * 60_000; setSnoozedUntil(until); setReminderOpen(false); }} className="h-9 border border-slate-300 px-3 text-xs font-semibold text-[#003366] hover:border-[#C9A84C]">Snooze {minutes} min</button>)}
+            <button type="button" onClick={() => { setSnoozedUntil(Date.now() + reminderIntervalSeconds * 1000); setReminderOpen(false); }} className="h-10 border border-slate-300 px-4 text-sm font-semibold text-[#003366] hover:border-[#C9A84C]">Snooze for {String(reminderHours).padStart(2, "0")}:{String(reminderMinutes).padStart(2, "0")}:{String(reminderSeconds).padStart(2, "0")}</button>
             <button type="button" onClick={() => { setReminderOpen(false); lastReminderAt.current = Date.now(); }} className="inline-flex h-9 items-center gap-2 bg-[#003366] px-4 text-xs font-semibold text-white"><Check size={14} />Dismiss</button>
           </div>
         </section>

@@ -1,0 +1,19 @@
+{
+  "name": "mosaic-desktop",
+  "version": "0.2.0",
+  "description": "Mosaic desktop launcher for Windows",
+  "author": "Prime Philippines",
+  "private": true,
+  "main": "src/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "prepare:build": "node scripts/generate-icons.cjs && node scripts/prepare-build.cjs",
+    "dist:win": "npm run prepare:build && electron-builder --win nsis --x64 && npm run checksum",
+    "dist:dir": "npm run prepare:build && electron-builder --dir --win --x64",
+    "checksum": "node scripts/write-checksum.cjs"
+  },
+  "devDependencies": {
+    "electron": "44.7.0",
+    "electron-builder": "26.15.3"
+  }
+}

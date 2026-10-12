@@ -505,7 +505,7 @@ export async function updateClickUpTask(updateData: {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || "Failed to update task in ClickUp");
+    throw Object.assign(new Error(err.error || "Failed to update task in ClickUp"), { status: res.status });
   }
   return res.json();
 }
@@ -518,7 +518,7 @@ export async function deleteClickUpTask(taskId: string) {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || "Failed to delete task from ClickUp");
+    throw Object.assign(new Error(err.error || "Failed to delete task from ClickUp"), { status: res.status });
   }
   return res.json();
 }

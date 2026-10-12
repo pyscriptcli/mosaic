@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mosaic reminder</title>
+  <style>
+    * { box-sizing: border-box }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #001D3D; color: #003366; font: 16px Arial, sans-serif; }
+    main { width: min(650px, calc(100vw - 44px)); max-height: calc(100vh - 44px); overflow: auto; padding: 44px; border: 2px solid #C9A84C; background: #FFFCFB; box-shadow: 0 24px 100px #0008; animation: arrive 720ms cubic-bezier(.16,1,.3,1) both; }
+    @keyframes arrive { from { opacity: 0; transform: translateY(28px) scale(.94) } 65% { transform: translateY(-4px) scale(1.01) } to { opacity: 1; transform: none } }
+    @media (prefers-reduced-motion: reduce) { main { animation: none } }
+    .eyebrow { color: #9A761E; font-size: 12px; font-weight: 700; letter-spacing: .2em; text-transform: uppercase }
+    h1 { margin: 10px 0 8px; font: italic 42px Georgia, serif }
+    p { color: #536273; line-height: 1.5 }
+    ul { display: grid; gap: 8px; padding: 0; margin: 24px 0; list-style: none }
+    li { border-left: 3px solid #C9A84C; padding: 8px 12px; overflow-wrap: anywhere }
+    footer { display: flex; justify-content: flex-end; gap: 10px; border-top: 1px solid #dbe1e7; padding-top: 18px }
+    button { min-height: 44px; padding: 0 18px; border: 1px solid #003366; background: #FFFCFB; color: #003366; font-weight: 700; cursor: pointer }
+    button:last-child { background: #003366; color: white }
+    button:focus-visible { outline: 3px solid #C9A84C; outline-offset: 2px }
+  </style>
+</head>
+<body>
+  <main role="alertdialog" aria-modal="true" aria-labelledby="title" tabindex="-1">
+    <div class="eyebrow">Mosaic reminder</div>
+    <h1 id="title">Pause and check in</h1>
+    <p id="summary">Review your current tasks.</p>
+    <ul id="tasks"></ul>
+    <footer><button id="snooze" type="button">Snooze</button><button id="dismiss" type="button">Dismiss</button></footer>
+  </main>
+  <script>
+    const params = new URLSearchParams(location.search);
+    let taskNames = [];
+    try { taskNames = JSON.parse(params.get("tasks") || "[]"); } catch { taskNames = []; }
+    const list = document.getElementById("tasks");
+    for (const name of taskNames.slice(0, 8)) {
+      const item = document.createElement("li");
+      item.textContent = String(name);
+      list.append(item);
+    }
+    document.getElementById("summary").textContent = taskNames.length ? `${taskNames.length} unfinished task${taskNames.length === 1 ? "" : "s"} to review.` : "Review your day and decide what needs attention next.";
+    document.getElementById("snooze").addEventListener("click", () => window.mosaicDesktop.respondToReminder("snooze"));
+    document.getElementById("dismiss").addEventListener("click", () => window.mosaicDesktop.respondToReminder("dismiss"));
+    document.getElementById("snooze").focus();
+  </script>
+</body>
+</html>

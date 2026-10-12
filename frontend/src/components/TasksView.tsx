@@ -46,6 +46,7 @@ import { WORKSPACE_STATUS_CATEGORIES, ALL_WORKSPACE_STATUSES } from "@/lib/click
 import { SearchableMemberSelect } from "./SearchableMemberSelect";
 import { formatEchoDate } from "@/lib/dateUtils";
 import { clearBrowserPageCache, readBrowserPageCache, writeBrowserPageCache } from "@/lib/browserPageCache";
+import { flushClickUpMutationQueue, getPendingClickUpMutationCount, mergePendingClickUpMutations, queueClickUpDelete, queueClickUpUpdate } from "@/lib/clickUpMutationQueue";
 
 export interface ClickUpTask {
   id: string;
@@ -94,6 +95,7 @@ export default function TasksView({
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [needsAuth, setNeedsAuth] = useState(false);
+  const [pendingSync, setPendingSync] = useState(0);
 
   // List Selector & Discovery state
   const [selectedListId, setSelectedListId] = useState<string>("");
@@ -181,6 +183,39 @@ export default function TasksView({
     })();
   }, []);
 
+  useEffect(() => {
+    if (!userId) return;
+    const refreshCount = () => setPendingSync(getPendingClickUpMutationCount(userId));
+    const flush = () => { refreshCount(); void flushClickUpMutationQueue(userId, setPendingSync); };
+    const onQueueChange = (event: Event) => {
+      if ((event as CustomEvent<{ userId: string }>).detail?.userId === userId) flush();
+    };
+    refreshCount();
+    flush();
+    window.addEventListener("online", flush);
+    window.addEventListener("mosaic-clickup-sync", onQueueChange);
+    return () => {
+      window.removeEventListener("online", flush);
+      window.removeEventListener("mosaic-clickup-sync", onQueueChange);
+    };
+  }, [userId]);
+
+  const persistTaskSnapshot = (nextTasks: ClickUpTask[]) => {
+    if (!userId) return;
+    const key = `tasks:${selectedListId || getStoredClickUpListId() || "default"}`;
+    void readBrowserPageCache<Awaited<ReturnType<typeof fetchClickUpTasks>>>(userId, key).then((cached) => {
+      if (cached) return writeBrowserPageCache(userId, key, { ...cached, tasks: nextTasks });
+    });
+  };
+
+  const updateTasksLocally = (change: (current: ClickUpTask[]) => ClickUpTask[]) => {
+    setTasks((current) => {
+      const next = change(current);
+      persistTaskSnapshot(next);
+      return next;
+    });
+  };
+
   // Close dropdown on outside click
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -212,8 +247,9 @@ export default function TasksView({
 
     try {
       const data = await fetchClickUpTasks(activeListId || undefined, showRefreshIndicator);
-      if (userId) void writeBrowserPageCache(userId, `tasks:${activeListId || "default"}`, data);
-      setTasks(data.tasks || []);
+      const visibleData = userId ? { ...data, tasks: mergePendingClickUpMutations(userId, data.tasks || []) } : data;
+      if (userId) void writeBrowserPageCache(userId, `tasks:${activeListId || "default"}`, visibleData);
+      setTasks(visibleData.tasks || []);
       if (data.members && Array.isArray(data.members)) {
         setAvailableMembers(data.members);
       }
@@ -372,11 +408,8 @@ export default function TasksView({
         payload.assignees = [Number(editAssigneeId)];
       }
 
-      await updateClickUpTask(payload);
-
-      // Update local state
       const updatedAssignee = availableMembers.find(m => String(m.id) === editAssigneeId);
-      setTasks(prev =>
+      updateTasksLocally(prev =>
         prev.map(t => {
           if (t.id === selectedTaskForDetail.id) {
             return {
@@ -402,10 +435,14 @@ export default function TasksView({
         })
       );
 
+      if (userId) {
+        queueClickUpUpdate(userId, payload);
+        void flushClickUpMutationQueue(userId, setPendingSync);
+      } else await updateClickUpTask(payload);
       setEditSavedSuccess(true);
       setTimeout(() => setEditSavedSuccess(false), 2500);
     } catch (err: any) {
-      alert(err.message || "Failed to update task in ClickUp.");
+      alert(err.message || "Failed to update task.");
     } finally {
       setSavingEdit(false);
     }
@@ -413,41 +450,25 @@ export default function TasksView({
 
   const handleStatusChange = async (taskId: string, newStatus: string) => {
     // Optimistic UI update
-    setTasks(prev =>
-      prev.map(t => (t.id === taskId ? { ...t, status: newStatus } : t))
-    );
-    try {
-      await updateClickUpTask({ taskId, status: newStatus });
-    } catch (err: any) {
-      console.error("Failed to update status in ClickUp:", err);
-      loadTasks();
-    }
+    updateTasksLocally(prev => prev.map(t => (t.id === taskId ? { ...t, status: newStatus } : t)));
+    if (userId) { queueClickUpUpdate(userId, { taskId, status: newStatus }); void flushClickUpMutationQueue(userId, setPendingSync); }
+    else void updateClickUpTask({ taskId, status: newStatus }).catch(() => loadTasks());
   };
 
   const handlePriorityChange = async (taskId: string, newPriority: string) => {
-    setTasks(prev =>
-      prev.map(t => (t.id === taskId ? { ...t, priority: newPriority } : t))
-    );
-    try {
-      await updateClickUpTask({ taskId, priority: newPriority });
-    } catch (err: any) {
-      console.error("Failed to update priority in ClickUp:", err);
-      loadTasks();
-    }
+    updateTasksLocally(prev => prev.map(t => (t.id === taskId ? { ...t, priority: newPriority } : t)));
+    if (userId) { queueClickUpUpdate(userId, { taskId, priority: newPriority }); void flushClickUpMutationQueue(userId, setPendingSync); }
+    else void updateClickUpTask({ taskId, priority: newPriority }).catch(() => loadTasks());
   };
 
   const handleDeleteTask = async (taskId: string) => {
     if (!confirm("Are you sure you want to delete this task from ClickUp?")) return;
-    setTasks(prev => prev.filter(t => t.id !== taskId));
+    updateTasksLocally(prev => prev.filter(t => t.id !== taskId));
     if (selectedTaskForDetail?.id === taskId) {
       setSelectedTaskForDetail(null);
     }
-    try {
-      await deleteClickUpTask(taskId);
-    } catch (err: any) {
-      alert(err.message || "Failed to delete task.");
-      loadTasks();
-    }
+    if (userId) { queueClickUpDelete(userId, taskId); void flushClickUpMutationQueue(userId, setPendingSync); }
+    else void deleteClickUpTask(taskId).catch(() => loadTasks());
   };
 
   const handleCreateTask = async (e: React.FormEvent) => {
@@ -690,7 +711,7 @@ export default function TasksView({
                 Meeting Action Items & Tasks
               </h1>
               <span className="text-[10px] bg-purple-50 text-purple-800 font-bold px-2 py-0.5 border border-purple-200 tracking-wider uppercase">
-                ClickUp Live Portal
+                {pendingSync ? `${pendingSync} change${pendingSync === 1 ? "" : "s"} syncing` : "Up to date"}
               </span>
             </div>
             <p className="text-[11px] text-gray-500 mt-0.5">
