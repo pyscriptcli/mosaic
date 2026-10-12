@@ -57,7 +57,15 @@ export async function GET(req: NextRequest) {
           (Object.keys(CATEGORY_MATCHERS) as CategoryKey[]).some((key) => CATEGORY_MATCHERS[key](normalizeFieldName(field.name || ""))),
         );
 
-      if (!date || (!hasRecognizedFields && !task.parent)) return [];
+      const parent = task.parent ? byId.get(String(task.parent)) : undefined;
+      const isDatedDailyTask = Boolean(parent && monthFromTaskName(parent.name) === date?.slice(0, 7));
+      if (!date || (!isDatedDailyTask && (Boolean(task.parent) || !hasRecognizedFields))) return [];
+      const dailyTasks = rawTasks.filter((child) => String(child.parent) === String(task.id)).map((child) => ({
+        id: String(child.id), name: child.name || "Untitled task", status: child.status?.status || "to do",
+        completed: child.status?.type === "closed" || /^(complete|completed|closed|done)$/i.test(child.status?.status || ""),
+        dueDate: child.due_date ? new Date(Number(child.due_date)).toISOString().slice(0, 10) : "",
+        url: child.url || `https://app.clickup.com/t/${child.id}`,
+      }));
       return [{
         id: String(task.id),
         name: task.name || date,
@@ -67,6 +75,7 @@ export async function GET(req: NextRequest) {
         member: owner,
         categories,
         hasContent: Object.values(categories).some((value) => value.trim().length > 0),
+        dailyTasks,
       }];
     });
 

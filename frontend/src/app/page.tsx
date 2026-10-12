@@ -40,7 +40,8 @@ import { DashboardView } from "@/components/DashboardView";
 import { ProjectWorkspace } from "@/components/ProjectWorkspace";
 import { ContractsWorkspace } from "@/components/ContractsWorkspace";
 import { MeetingsView } from "@/components/MeetingsView";
-import TasksView, { ClickUpTask } from "@/components/TasksView";
+import TasksPageView from "@/components/TasksPageView";
+import type { ClickUpTask } from "@/components/TasksView";
 import { NotebookView } from "@/components/NotebookView";
 import { MarketInsightsView } from "@/components/MarketInsightsView";
 import { DemandsView } from "@/components/DemandsView";
@@ -1387,8 +1388,9 @@ export default function Home() {
 
             {/* VIEW: TASKS (CLICKUP PORTAL) */}
             {currentView === "tasks" && (
-              <TasksView
+              <TasksPageView
                 userId={authUser?.id ? String(authUser.id) : undefined}
+                currentUserName={authUser?.username}
                 onNavigateToMeetings={() => setCurrentView("meetings")}
                 onSelectMeeting={(meetingTitle) => {
                   const match = archivedMeetings.find((m) =>

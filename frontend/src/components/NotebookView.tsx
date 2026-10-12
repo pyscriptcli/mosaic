@@ -39,6 +39,7 @@ interface NotebookEntry {
   member: NotebookMember;
   categories: Record<CategoryKey, string>;
   hasContent: boolean;
+  dailyTasks?: Array<{ id: string; name: string; status: string; completed: boolean; dueDate: string; url: string }>;
 }
 
 interface NotebookPayload {
@@ -137,10 +138,10 @@ function MemberAvatar({ member }: { member: NotebookMember }) {
   );
 }
 
-export function NotebookView({ currentUserName, userId }: { currentUserName?: string; userId?: string }) {
+export function NotebookView({ currentUserName, userId, initialDate }: { currentUserName?: string; userId?: string; initialDate?: string }) {
   const today = localIso(new Date());
   const [activeTab, setActiveTab] = useState<"today" | "week" | "insights">("today");
-  const [selectedDate, setSelectedDate] = useState(today);
+  const [selectedDate, setSelectedDate] = useState(initialDate || today);
   const [selectedMemberId, setSelectedMemberId] = useState("");
   const [insightMemberId, setInsightMemberId] = useState("all");
   const [rangePreset, setRangePreset] = useState<"this-week" | "last-week" | "this-month" | "last-month" | "custom">("this-month");
@@ -606,6 +607,24 @@ export function NotebookView({ currentUserName, userId }: { currentUserName?: st
                   </div>
                 </div>
               </div>
+              <section className="mt-4 border border-gray-200 bg-[#FFFCFB] p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="text-lg font-serif italic text-[#003366]">My Day tasks</h3>
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">{selectedDayEntry?.dailyTasks?.length || 0} item{(selectedDayEntry?.dailyTasks?.length || 0) === 1 ? "" : "s"}</span>
+                </div>
+                <p className="mt-1 text-xs text-gray-500">Tasks created in My Day are saved as subtasks of this dated KPI Monitoring record.</p>
+                {selectedDayEntry?.dailyTasks?.length ? (
+                  <ul className="mt-3 divide-y divide-gray-100 border-t border-gray-100">
+                    {selectedDayEntry.dailyTasks.map((task) => <li key={task.id} className="flex items-center justify-between gap-3 py-2.5">
+                      <span className={`text-xs ${task.completed ? "text-gray-400 line-through" : "text-gray-700"}`}>{task.name}</span>
+                      <div className="flex shrink-0 items-center gap-2 text-[10px] text-gray-400">
+                        {task.dueDate && <span>Due {new Date(`${task.dueDate}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>}
+                        <a href={task.url} target="_blank" rel="noreferrer" aria-label={`Open ${task.name} in ClickUp`} className="text-[#31577D] hover:text-[#003366]"><ExternalLink size={12} /></a>
+                      </div>
+                    </li>)}
+                  </ul>
+                ) : <p className="mt-3 border-t border-gray-100 pt-3 text-xs text-gray-400">No My Day tasks are linked to this date yet.</p>}
+              </section>
             </section>
 
             <aside className="lg:col-span-4 space-y-4">
