@@ -1473,8 +1473,9 @@ export function ProjectWorkspace({ userId }: { userId?: string }) {
         : error ? <div role="alert" className="border border-amber-300 bg-[#FFFCFB] p-6"><h2 className="text-sm font-semibold text-[#003366]">Project data could not be loaded</h2><p className="mt-2 text-sm leading-6 text-slate-700">{error}</p><div className="mt-4 flex flex-wrap gap-2"><button type="button" onClick={refreshProject} className="inline-flex min-h-11 items-center gap-2 border border-[#003366] bg-[#003366] px-4 text-xs font-semibold text-white hover:bg-[#174778] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#C9A84C]">Try again <RefreshCw aria-hidden="true" className="h-4 w-4" /></button><a href="/api/auth/login" className="inline-flex min-h-11 items-center gap-2 border border-slate-300 bg-white px-4 text-xs font-semibold text-[#003366] hover:border-[#003366] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#003366]">Sign in with ClickUp <ArrowUpRight aria-hidden="true" className="h-4 w-4" /></a></div></div>
         : data && view === "overview" ? <section aria-label="Subprojects" className="border border-slate-200 bg-white">
           <div className="border-b border-slate-100 px-4 py-3"><h2 className="text-sm font-semibold text-[#003366]">Subprojects</h2><p className="mt-0.5 text-[11px] text-slate-500">Open a subproject workspace to see its tasks and team schedule.</p></div>
-          <div className="space-y-4 p-3">
-            {orderedSubprojectGroups.map(([key, group]) => <section key={key} aria-labelledby={`subproject-group-${key}`}>
+          <div className="overflow-x-auto p-3">
+            <div className="grid min-w-[1040px] grid-cols-4 items-start gap-3">
+              {orderedSubprojectGroups.map(([key, group]) => <section key={key} aria-labelledby={`subproject-group-${key}`}>
               <header className="mb-2 flex items-center justify-between gap-3 border-b border-slate-100 pb-2">
                 <h3 id={`subproject-group-${key}`} className="flex min-w-0 items-center gap-2 text-xs font-semibold text-[#003366]">
                   {group.assignee && <MemberAvatars members={[group.assignee]} emptyLabel="" />}
@@ -1482,7 +1483,7 @@ export function ProjectWorkspace({ userId }: { userId?: string }) {
                 </h3>
                 <span className="shrink-0 text-[10px] text-slate-500">{group.lists.length} subproject{group.lists.length === 1 ? "" : "s"}</span>
               </header>
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="flex flex-col gap-2">
                 {group.lists.map((list) => {
                   const listTasks = tasksByList.get(list.id) || [];
                   const listTasksLoaded = Boolean(data.loadedTaskListIds?.includes(list.id));
@@ -1499,7 +1500,8 @@ export function ProjectWorkspace({ userId }: { userId?: string }) {
                   </article>;
                 })}
               </div>
-            </section>)}
+              </section>)}
+            </div>
           </div>
           {data.lists.length === 0 && <p className="p-5 text-sm text-slate-600">No subprojects are included in this project yet.</p>}
         </section>
