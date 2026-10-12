@@ -88,7 +88,6 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
   const [notesSize, setNotesSize] = useState<"small" | "normal">("normal");
   const notesEditor = useRef<HTMLTextAreaElement>(null);
   const reminderDialog = useRef<HTMLElement>(null);
-  const summaryAttempt = useRef("");
   const tasks = payload?.tasks ?? EMPTY_TASKS;
   const reminderIntervalSeconds = Math.max(1, Number(reminderHours || 0) * 3600 + Number(reminderMinutes || 0) * 60 + Number(reminderSeconds || 0));
   const lastReminderAt = useRef(0);
@@ -233,14 +232,6 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
       setSummaryError(error instanceof Error ? error.message : "A task summary could not be generated.");
     }
   }, [send, tasks]);
-
-  useEffect(() => {
-    const taskKey = `${date}:${tasks.map((task) => `${task.id}:${task.name}:${task.description}:${task.status}:${task.completed}`).sort().join("|")}`;
-    if ((!showDailyActivity && !activityOnly) || !tasks.length || !payload || summaryAttempt.current === taskKey) return;
-    if (!summaryAttempt.current && payload.activity.adhoc.includes("My Day summary")) { summaryAttempt.current = taskKey; return; }
-    summaryAttempt.current = taskKey;
-    void generateSummary();
-  }, [date, tasks, payload, generateSummary, showDailyActivity, activityOnly]);
 
   useEffect(() => {
     if (!notesReady.current || personalListLoading || noteDraft === (payload?.notes || "")) return;
@@ -480,7 +471,7 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
                 <h2 className="font-serif text-lg italic text-[#003366]">Daily activity</h2>
                 <p className="mt-1 text-xs text-slate-500">Saved with this day’s log and shown in Notebook.</p>
               </div>
-              <div className="flex items-center gap-3"><span role="status" className="text-[10px] font-semibold text-slate-500">{activitySave === "saved" ? "Saved" : activitySave === "saving" ? "Saving…" : activitySave === "pending" ? "Autosave pending" : "Save failed"}</span><button type="button" onClick={() => void generateSummary()} disabled={summaryState === "loading" || tasks.length === 0} className="inline-flex min-h-8 items-center gap-1.5 border border-slate-300 px-2.5 text-[10px] font-semibold text-[#003366] hover:border-[#003366] disabled:opacity-50"><Sparkles size={12} />{summaryState === "loading" ? "Summarizing…" : "Refresh summary"}</button></div>
+              <div className="flex items-center gap-3"><span role="status" className="text-[10px] font-semibold text-slate-500">{activitySave === "saved" ? "Saved" : activitySave === "saving" ? "Saving…" : activitySave === "pending" ? "Autosave pending" : "Save failed"}</span><button type="button" onClick={() => void generateSummary()} disabled={summaryState === "loading" || tasks.length === 0} title={summaryState === "loading" ? "Generating summary…" : "Generate summary with AI"} aria-label={summaryState === "loading" ? "Generating summary with AI" : "Generate summary with AI"} aria-busy={summaryState === "loading"} className="inline-flex min-h-8 min-w-8 items-center justify-center border border-slate-300 text-[#003366] hover:border-[#003366] disabled:opacity-50"><Sparkles size={14} aria-hidden="true" /></button></div>
             </div>
             {(summaryState === "loading" || summaryError || taskSummary) && <div className="border-b border-slate-200 bg-slate-50/70 px-4 py-2 text-xs text-slate-600" role={summaryError ? "alert" : "status"}>{summaryState === "loading" ? "Preparing a task summary…" : summaryError || (taskSummary ? "A bullet summary of your My Day tasks is included in Ad hoc activity." : "")}</div>}
             <div className="grid grid-cols-1 gap-3 p-4 md:grid-cols-2">

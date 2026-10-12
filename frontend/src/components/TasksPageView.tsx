@@ -28,8 +28,10 @@ export default function TasksPageView(props: Props) {
     : "activity";
   const [tab, setTab] = useState<WorkspaceTab>(firstTab);
   const tabs: Array<{ id: WorkspaceTab; label: string }> = [
-    ...(props.canAccessTasks ? [{ id: "my-day" as const, label: "My Day" }, { id: "all-tasks" as const, label: "All Tasks" }] : []),
-    ...(props.canAccessNotebook ? [{ id: "activity" as const, label: "Daily activity" }, { id: "dashboard" as const, label: "Dashboard" }] : []),
+    ...(props.canAccessTasks ? [{ id: "my-day" as const, label: "My Day" }] : []),
+    ...(props.canAccessNotebook ? [{ id: "activity" as const, label: "Daily Log" }] : []),
+    ...(props.canAccessTasks ? [{ id: "all-tasks" as const, label: "Tasks" }] : []),
+    ...(props.canAccessNotebook ? [{ id: "dashboard" as const, label: "Dashboard" }] : []),
   ];
 
   return (
