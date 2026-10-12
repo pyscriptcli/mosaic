@@ -1,7 +1,7 @@
 import { createHash, createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 
-const TTL_MS = 30_000;
+const TTL_MS = 5 * 60_000;
 const HOT_MAX = 300;
 type Entry = { body: string; status: number; statusText: string; headers: Array<[string, string]>; resourcePath: string; expiresAt: number };
 const hot = new Map<string, Entry>();
@@ -161,10 +161,10 @@ export async function claimClickUpSyncJobs(limit = 2) {
   return (data || []) as Array<{ id: number; scope_key: string; user_id: string; list_id: string; encrypted_token: string }>;
 }
 
-export async function completeClickUpSyncJob(jobId: number, scope: string, listId: string, tasks: unknown[]) {
+export async function completeClickUpSyncJob(jobId: number, scope: string, listId: string, tasks: unknown[], syncedAt = new Date().toISOString()) {
   const client = db();
   if (!client) return;
-  const { error } = await client.rpc("echo_publish_clickup_task_snapshot", { p_job_id: jobId, p_scope_key: scope, p_list_id: listId, p_tasks: tasks, p_synced_at: new Date().toISOString() });
+  const { error } = await client.rpc("echo_publish_clickup_task_snapshot", { p_job_id: jobId, p_scope_key: scope, p_list_id: listId, p_tasks: tasks, p_synced_at: syncedAt });
   if (error) throw new Error("ClickUp snapshot could not be published.");
 }
 
@@ -216,23 +216,55 @@ export async function queueClickUpWebhookJob(scope: string, listId: string) {
   await client.from("echo_clickup_sync_jobs").upsert({ scope_key: scope, user_id: connection.user_id, list_id: listId, state: "queued", next_attempt_at: new Date().toISOString(), updated_at: new Date().toISOString() }, { onConflict: "scope_key,list_id" });
 }
 
-export async function readClickUpTaskSnapshot(scope: string, listId: string, maxAgeMs = 5 * 60_000) {
+const USABLE_SNAPSHOT_STATES = new Set(["ready", "queued", "running", "retry", "failed"]);
+
+export async function readClickUpTaskSnapshot(scope: string, listId: string, maxAgeMs = 24 * 60 * 60_000) {
   const client = db();
   if (!client) return null;
-  const cutoff = new Date(Date.now() - maxAgeMs).toISOString();
+  const cutoff = Date.now() - maxAgeMs;
   const { data: job } = await client.from("echo_clickup_sync_jobs").select("last_synced_at,state").eq("scope_key", scope).eq("list_id", listId).maybeSingle();
-  if (job?.state !== "ready" || !job.last_synced_at || job.last_synced_at < cutoff) return null;
+  if (!job?.last_synced_at || !USABLE_SNAPSHOT_STATES.has(job.state) || Date.parse(job.last_synced_at) < cutoff) return null;
   const { data, error } = await client.from("echo_clickup_task_records").select("payload").eq("scope_key", scope).eq("list_id", listId).order("record_id").limit(3001);
   if (error || !data || data.length > 3000) return null;
-  return { tasks: data.map((record) => record.payload as Record<string, unknown>), syncedAt: job.last_synced_at };
+  return { tasks: data.map((record) => record.payload as Record<string, unknown>), syncedAt: job.last_synced_at, syncState: job.state };
 }
 
-export async function hasFreshClickUpTaskSnapshot(scope: string, listId: string, maxAgeMs = 5 * 60_000) {
+export async function hasUsableClickUpTaskSnapshot(scope: string, listId: string, maxAgeMs = 24 * 60 * 60_000) {
   const client = db();
   if (!client) return false;
-  const cutoff = new Date(Date.now() - maxAgeMs).toISOString();
+  const cutoff = Date.now() - maxAgeMs;
   const { data, error } = await client.from("echo_clickup_sync_jobs").select("state,last_synced_at").eq("scope_key", scope).eq("list_id", listId).maybeSingle();
-  return !error && data?.state === "ready" && Boolean(data.last_synced_at) && data.last_synced_at >= cutoff;
+  if (error || !data?.last_synced_at) return false;
+  return Date.parse(data.last_synced_at) >= cutoff && USABLE_SNAPSHOT_STATES.has(data.state);
+}
+
+export async function readClickUpTaskSyncCursor(scope: string, listId: string) {
+  const client = db();
+  if (!client) return null;
+  const { data, error } = await client.from("echo_clickup_sync_jobs").select("last_synced_at").eq("scope_key", scope).eq("list_id", listId).maybeSingle();
+  return error ? null : data?.last_synced_at || null;
+}
+
+export async function completeClickUpTaskDelta(jobId: number, scope: string, listId: string, tasks: unknown[], syncedAt: string) {
+  const client = db();
+  if (!client) throw new Error("ClickUp sync storage is unavailable.");
+  const records = tasks.flatMap((task) => {
+    if (!task || typeof task !== "object" || !("id" in task) || !String((task as { id?: unknown }).id || "")) return [];
+    return [{ scope_key: scope, list_id: listId, record_id: String((task as { id: unknown }).id), payload: task, synced_at: syncedAt }];
+  });
+  for (let offset = 0; offset < records.length; offset += 500) {
+    const { error } = await client.from("echo_clickup_task_records").upsert(records.slice(offset, offset + 500), { onConflict: "scope_key,list_id,record_id" });
+    if (error) throw new Error("ClickUp task changes could not be saved.");
+  }
+  const { data, error } = await client.from("echo_clickup_sync_jobs").update({ state: "ready", last_synced_at: syncedAt, last_error: null, lease_until: null, updated_at: syncedAt }).eq("id", jobId).eq("scope_key", scope).eq("list_id", listId).eq("state", "running").select("id").maybeSingle();
+  if (error || !data) throw new Error("ClickUp sync lease is no longer valid.");
+}
+
+export async function removeClickUpTaskSnapshotRecord(scope: string, listId: string, taskId: string) {
+  const client = db();
+  if (!client) return false;
+  const { error } = await client.from("echo_clickup_task_records").delete().eq("scope_key", scope).eq("list_id", listId).eq("record_id", taskId);
+  return !error;
 }
 
 export async function invalidateClickUpSync(scope: string, listId?: string) {
@@ -255,4 +287,10 @@ export async function recordClickUpWebhookEvent(webhookId: string, eventKey: str
   const { data, error } = await client.from("echo_clickup_webhook_events").upsert({ webhook_id: webhookId, event_key: eventKey }, { onConflict: "webhook_id,event_key", ignoreDuplicates: true }).select("webhook_id").maybeSingle();
   if (error) return null;
   return Boolean(data);
+}
+
+export async function forgetClickUpWebhookEvent(webhookId: string, eventKey: string) {
+  const client = db();
+  if (!client) return;
+  await client.from("echo_clickup_webhook_events").delete().eq("webhook_id", webhookId).eq("event_key", eventKey);
 }

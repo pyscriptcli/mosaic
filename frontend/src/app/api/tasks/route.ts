@@ -8,7 +8,7 @@ import { recordProjectActivity } from "@/lib/projectActivity";
 import { after } from "next/server";
 import { recordTelemetry } from "@/lib/telemetry";
 import { getSubprojectAccess, getVerifiedClickUpUser, isSubprojectAdmin, requireManagedTaskEditor, requireSubprojectEditor } from "@/lib/project-permissions";
-import { clickUpScope, hasFreshClickUpTaskSnapshot, invalidateClickUpSync, queueClickUpSync, readClickUpTaskSnapshot } from "@/lib/clickupReadStore";
+import { clickUpScope, hasUsableClickUpTaskSnapshot, invalidateClickUpSync, queueClickUpSync, readClickUpTaskSnapshot } from "@/lib/clickupReadStore";
 import { processClickUpSyncQueue, registerClickUpListWebhook } from "@/lib/clickupSync";
 
 export const maxDuration = 60;
@@ -533,11 +533,11 @@ export async function GET(req: NextRequest) {
     try { syncUserId = String(JSON.parse(userProfile || "{}").id || ""); } catch { /* no snapshot sync without a signed-in profile */ }
     if (forceRefresh) await invalidateClickUpSync(scope, targetListId);
 
-    const canUseSnapshot = !forceRefresh && Boolean(syncUserId) && await hasFreshClickUpTaskSnapshot(scope, targetListId);
+    const canUseSnapshot = !forceRefresh && Boolean(syncUserId) && await hasUsableClickUpTaskSnapshot(scope, targetListId);
     let snapshot: Awaited<ReturnType<typeof readClickUpTaskSnapshot>> = null;
     let verifiedListResponse: Response | null = null;
     if (canUseSnapshot) {
-      verifiedListResponse = await clickUpCalendarFetch(token, `https://api.clickup.com/api/v2/list/${encodeURIComponent(targetListId)}`, undefined, undefined, { skipCache: true });
+      verifiedListResponse = await clickUpCalendarFetch(token, `https://api.clickup.com/api/v2/list/${encodeURIComponent(targetListId)}`);
       if (!verifiedListResponse.ok) {
         const status = verifiedListResponse.status;
         return NextResponse.json({ error: status === 401 ? "Your ClickUp session has expired. Sign in again to continue." : "This account cannot access the selected ClickUp list." }, { status });
@@ -582,7 +582,8 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    if (!snapshot && syncUserId) after(async () => {
+    const snapshotNeedsSync = !snapshot || snapshot.syncState !== "ready" || Date.now() - Date.parse(snapshot.syncedAt) > 5 * 60_000;
+    if (syncUserId && snapshotNeedsSync) after(async () => {
       try {
         await queueClickUpSync(token, syncUserId, targetListId);
         try { await registerClickUpListWebhook(token, syncUserId, targetListId); }
@@ -770,7 +771,7 @@ export async function GET(req: NextRequest) {
     }, { headers: {
       "Server-Timing": `clickup;dur=${Date.now() - routeStartedAt}`,
       "X-ClickUp-Data-Source": snapshot ? "snapshot" : "api-read",
-      ...(snapshot?.syncedAt ? { "X-Data-Synced-At": snapshot.syncedAt } : {}),
+      ...(snapshot?.syncedAt ? { "X-Data-Synced-At": snapshot.syncedAt, "X-ClickUp-Sync-State": snapshot.syncState } : {}),
     } });
     const durationMs = Date.now() - routeStartedAt;
     const snapshotAgeMs = snapshot?.syncedAt ? Math.max(0, Date.now() - Date.parse(snapshot.syncedAt)) : null;

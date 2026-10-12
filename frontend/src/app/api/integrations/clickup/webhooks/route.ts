@@ -1,8 +1,8 @@
 import { after, NextRequest, NextResponse } from "next/server";
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { getTokenFromRequest, getUserFromRequest } from "@/lib/auth";
-import { clickUpFetch } from "@/lib/clickupCalendarApi";
-import { clickUpScope, decryptClickUpToken, invalidateClickUpSync, isClickUpSyncStorageReady, loadClickUpWebhook, persistClickUpConnection, queueClickUpWebhookJob, registerClickUpWebhook, recordClickUpWebhookEvent } from "@/lib/clickupReadStore";
+import { clickUpCalendarFetch } from "@/lib/clickupCalendarApi";
+import { clickUpScope, decryptClickUpToken, forgetClickUpWebhookEvent, invalidateClickUpSync, isClickUpSyncStorageReady, loadClickUpWebhook, persistClickUpConnection, removeClickUpTaskSnapshotRecord, queueClickUpWebhookJob, registerClickUpWebhook, recordClickUpWebhookEvent } from "@/lib/clickupReadStore";
 import { processClickUpSyncQueue } from "@/lib/clickupSync";
 
 export async function POST(request: NextRequest) {
@@ -25,6 +25,12 @@ export async function POST(request: NextRequest) {
   const firstDelivery = await recordClickUpWebhookEvent(webhookId, eventKey);
   if (firstDelivery === null) return NextResponse.json({ error: "Webhook event could not be recorded." }, { status: 503 });
   if (!firstDelivery) return NextResponse.json({ received: true, duplicate: true }, { status: 200 });
+  const eventName = String(event.event || "");
+  const taskId = String(event.task_id || "");
+  if (taskId && (eventName === "taskDeleted" || eventName === "taskMoved") && !await removeClickUpTaskSnapshotRecord(stored.scope_key, stored.list_id, taskId)) {
+    await forgetClickUpWebhookEvent(webhookId, eventKey);
+    return NextResponse.json({ error: "The ClickUp task change could not be applied." }, { status: 503 });
+  }
   await invalidateClickUpSync(stored.scope_key, stored.list_id);
   after(async () => {
     try { await queueClickUpWebhookJob(stored.scope_key, stored.list_id); await processClickUpSyncQueue(1); }
@@ -43,11 +49,11 @@ export async function PUT(request: NextRequest) {
   const endpoint = process.env.CLICKUP_WEBHOOK_URL || (process.env.NEXT_PUBLIC_APP_URL ? `${process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, "")}/api/integrations/clickup/webhooks` : "");
   if (!endpoint || !await isClickUpSyncStorageReady()) return NextResponse.json({ error: "ClickUp update sync is not configured." }, { status: 503 });
   if (!await persistClickUpConnection(token, String(user.id))) return NextResponse.json({ error: "ClickUp update sync is not configured." }, { status: 503 });
-  const teams = await clickUpFetch("https://api.clickup.com/api/v2/team", { headers: { Authorization: token } });
+  const teams = await clickUpCalendarFetch(token, "https://api.clickup.com/api/v2/team");
   const teamData = await teams.json().catch(() => ({}));
   const teamId = String(teamData.teams?.[0]?.id || "");
   if (!teams.ok || !teamId) return NextResponse.json({ error: "Unable to find an accessible workspace." }, { status: teams.status || 502 });
-  const response = await clickUpFetch(`https://api.clickup.com/api/v2/team/${encodeURIComponent(teamId)}/webhook`, { method: "POST", headers: { Authorization: token, "Content-Type": "application/json" }, body: JSON.stringify({ endpoint, events: ["taskCreated", "taskUpdated", "taskDeleted"], list_id: Number(normalizedListId) }) });
+  const response = await clickUpCalendarFetch(token, `https://api.clickup.com/api/v2/team/${encodeURIComponent(teamId)}/webhook`, { method: "POST", headers: { Authorization: token, "Content-Type": "application/json" }, body: JSON.stringify({ endpoint, events: ["taskCreated", "taskUpdated", "taskDeleted", "taskMoved", "taskPriorityUpdated", "taskStatusUpdated", "taskAssigneeUpdated", "taskDueDateUpdated", "taskTagUpdated", "taskTimeEstimateUpdated", "taskTimeTrackedUpdated"], list_id: Number(normalizedListId) }) }, ["/list/" + normalizedListId + "/task"]);
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || !payload.id || !payload.secret) return NextResponse.json({ error: "The update subscription could not be created." }, { status: response.status || 502 });
   try {
