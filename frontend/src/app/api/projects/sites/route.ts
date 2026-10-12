@@ -37,6 +37,12 @@ function taskFieldTextValue(task: ClickUpTask, fields: ClickUpField[], fieldName
   return description.match(new RegExp(`^${escaped}:[ \\t]*([^\\r\\n]*)$`, "mi"))?.[1]?.trim() || "";
 }
 
+function setDescriptionField(description: string, fieldName: string, value: string) {
+  const linePattern = new RegExp(`^${fieldName}:[ \\t]*[^\\r\\n]*$`, "mi");
+  if (linePattern.test(description)) return description.replace(linePattern, `${fieldName}: ${value}`);
+  return `${description.trimEnd()}\n${fieldName}: ${value}`;
+}
+
 function findField(fields: ClickUpField[], name: string) {
   const matches = SITE_FIELD_ALIASES[name.toLocaleLowerCase()] || [name.toLocaleLowerCase()];
   return fields.find((field) => matches.includes(field.name.trim().toLocaleLowerCase()));
@@ -185,7 +191,24 @@ export async function PATCH(request: NextRequest) {
     }
     const fields = (fieldsPayload.fields || []) as ClickUpField[];
     const field = findField(fields, fieldName);
-    if (!field?.id) return NextResponse.json({ error: `The ${fieldName} field is not available in this subproject.` }, { status: 404 });
+    if (!field?.id) {
+      let nextDescription = setDescriptionField(description, fieldName, value.trim());
+      let amount: string | null = null;
+      if (key === "monthlyRate" || key === "pfStructure") {
+        const monthlyRate = key === "monthlyRate" ? value.trim() : taskFieldTextValue(task, fields, "Monthly Rate");
+        const pfStructure = key === "pfStructure" ? value.trim() : taskFieldTextValue(task, fields, "PF Structure");
+        amount = calculateSiteAmount(monthlyRate, pfStructure);
+        nextDescription = setDescriptionField(nextDescription, "Amount", amount || "");
+      }
+      const response = await clickUpCalendarFetch(token, `https://api.clickup.com/api/v2/task/${encodeURIComponent(taskId)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ description: nextDescription }),
+      }, [`/list/${listId}/task`, `/task/${taskId}`]);
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) return NextResponse.json({ error: result.err || result.error || `Unable to save ${fieldName}.` }, { status: response.status });
+      return NextResponse.json({ success: true, taskId, field: key, value: value.trim(), amount }, { headers: { "Cache-Control": "no-store" } });
+    }
     const updates: Array<{ fieldId: string; fieldName: string; value: string }> = [{ fieldId: field.id, fieldName, value: value.trim() }];
     let amount: string | null = null;
     if (key === "monthlyRate" || key === "pfStructure") {

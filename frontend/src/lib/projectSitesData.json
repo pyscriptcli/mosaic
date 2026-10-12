@@ -580,5 +580,733 @@
         "siteNo":  "30",
         "siteName":  "Autoshop - Residential",
         "priority":  "Secondary"
+    },
+
+    {
+        "tradeArea":  "Intramuros",
+        "siteNo":  "1",
+        "siteName":  "Intramuros Fire Station",
+        "priority":  "Secondary"
+    },
+
+    {
+        "tradeArea":  "Intramuros",
+        "siteNo":  "2",
+        "siteName":  "Casa Rocha-Shipping Center Bldg (KFC)",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Intramuros",
+        "siteNo":  "3",
+        "siteName":  "FEMII Bldg (Chowking – Greenwich – Metrobank)",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Intramuros",
+        "siteNo":  "4",
+        "siteName":  "The Bank of Commerce Aduana (Max’s)",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Intramuros",
+        "siteNo":  "5",
+        "siteName":  "Jollibee",
+        "priority":  "Secondary"
+    },
+
+    {
+        "tradeArea":  "Intramuros",
+        "siteNo":  "6",
+        "siteName":  "Palcio del Gobernador",
+        "priority":  "Secondary"
+    },
+
+    {
+        "tradeArea":  "Intramuros",
+        "siteNo":  "7",
+        "siteName":  "Plaza de Roma",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Intramuros",
+        "siteNo":  "8",
+        "siteName":  "Bureau of Treasury – Central Ofc",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Intramuros",
+        "siteNo":  "9",
+        "siteName":  "BF Condominum (SorianoAve)",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Intramuros",
+        "siteNo":  "10",
+        "siteName":  "BF Condominuim (Solana St)",
+        "priority":  "Secondary"
+    },
+
+    {
+        "tradeArea":  "Intramuros",
+        "siteNo":  "11",
+        "siteName":  "BPI Bldg",
+        "priority":  "Secondary"
+    },
+
+    {
+        "tradeArea":  "Intramuros",
+        "siteNo":  "12",
+        "siteName":  "Intendencia Ruins",
+        "priority":  "Secondary"
+    },
+
+    {
+        "tradeArea":  "Tomas Morato",
+        "siteNo":  "1",
+        "siteName":  "Shakey's, Peri-Peri",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Tomas Morato",
+        "siteNo":  "2",
+        "siteName":  "Watsons, Gusta Gelato Pares Retiro, Padis Point",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Tomas Morato",
+        "siteNo":  "3",
+        "siteName":  "Bingo Bayan, Pho Hoa",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Tomas Morato",
+        "siteNo":  "4",
+        "siteName":  "Amber, J.Co",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Tomas Morato",
+        "siteNo":  "5",
+        "siteName":  "Chillis",
+        "priority":  "Secondary"
+    },
+
+    {
+        "tradeArea":  "Tomas Morato",
+        "siteNo":  "6",
+        "siteName":  "Fabricare Cleaners, Salon, Headway, Nommu",
+        "priority":  "Secondary"
+    },
+
+    {
+        "tradeArea":  "Tomas Morato",
+        "siteNo":  "7",
+        "siteName":  "Ocean Cravings, Some Thai, Krispy Kreme",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Tomas Morato",
+        "siteNo":  "8",
+        "siteName":  "Caramia, CBTL, Bruno's Barbers",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Tomas Morato",
+        "siteNo":  "9",
+        "siteName":  "Mario's Restaurant",
+        "priority":  "Secondary"
+    },
+
+    {
+        "tradeArea":  "Tomas Morato",
+        "siteNo":  "10",
+        "siteName":  "Metrobank, Oriental Palace",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Tomas Morato",
+        "siteNo":  "11",
+        "siteName":  "Jollibee",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Tomas Morato",
+        "siteNo":  "12",
+        "siteName":  "Central Bloc",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Tomas Morato",
+        "siteNo":  "13",
+        "siteName":  "BPI Parking",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Tomas Morato",
+        "siteNo":  "14",
+        "siteName":  "BPI Bldg",
+        "priority":  "Secondary"
+    },
+
+    {
+        "tradeArea":  "Tomas Morato",
+        "siteNo":  "15",
+        "siteName":  "Sourdough Café, The Red Crab, Rob Bank",
+        "priority":  "Secondary"
+    },
+
+    {
+        "tradeArea":  "Tomas Morato",
+        "siteNo":  "16",
+        "siteName":  "Alpha Massage and Wellness",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Tomas Morato",
+        "siteNo":  "17",
+        "siteName":  "Wilhwa Galbi",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Tomas Morato",
+        "siteNo":  "18",
+        "siteName":  "Unlimited Grill, Palm Grill",
+        "priority":  "Secondary"
+    },
+
+    {
+        "tradeArea":  "Tomas Morato",
+        "siteNo":  "19",
+        "siteName":  "RCBC, Premiercon Bldg",
+        "priority":  "Secondary"
+    },
+
+    {
+        "tradeArea":  "Tomas Morato",
+        "siteNo":  "20",
+        "siteName":  "RCBC, Premiercon Bldg",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Tomas Morato",
+        "siteNo":  "21",
+        "siteName":  "Thompson's Square",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Tomas Morato",
+        "siteNo":  "22",
+        "siteName":  "Thompson's Square",
+        "priority":  "Secondary"
+    },
+
+    {
+        "tradeArea":  "Tomas Morato",
+        "siteNo":  "23",
+        "siteName":  "Dallas Commercial Bldg",
+        "priority":  "Secondary"
+    },
+
+    {
+        "tradeArea":  "Tomas Morato",
+        "siteNo":  "24",
+        "siteName":  "Mcdonald's",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Tomas Morato",
+        "siteNo":  "25",
+        "siteName":  "George and Onie's",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Tomas Morato",
+        "siteNo":  "26",
+        "siteName":  "Yi Fang under Office Bldg",
+        "priority":  "Secondary"
+    },
+
+    {
+        "tradeArea":  "Tomas Morato",
+        "siteNo":  "27",
+        "siteName":  "Tagawa Karaoke Bar",
+        "priority":  "Secondary"
+    },
+
+    {
+        "tradeArea":  "Tomas Morato",
+        "siteNo":  "28",
+        "siteName":  "Unionbank, 7-11",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Tomas Morato",
+        "siteNo":  "29",
+        "siteName":  "Alba",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Tomas Morato",
+        "siteNo":  "30",
+        "siteName":  "en Route",
+        "priority":  "Secondary"
+    },
+
+    {
+        "tradeArea":  "Tomas Morato",
+        "siteNo":  "31",
+        "siteName":  "Vacant Lot",
+        "priority":  "Secondary"
+    },
+
+    {
+        "tradeArea":  "Tomas Morato",
+        "siteNo":  "32",
+        "siteName":  "Starbucks",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Tomas Morato",
+        "siteNo":  "33",
+        "siteName":  "Amistad Spa, Maybank, Wolfs.. Uncle John's",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Tomas Morato",
+        "siteNo":  "34",
+        "siteName":  "Metrotiles",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Tomas Morato",
+        "siteNo":  "35",
+        "siteName":  "Amarah Residences",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Tomas Morato",
+        "siteNo":  "36",
+        "siteName":  "Dona Consuelo Bldg (right side)",
+        "priority":  "Secondary"
+    },
+
+    {
+        "tradeArea":  "Tomas Morato",
+        "siteNo":  "37",
+        "siteName":  "Dona Consuelo Bldg (left side)",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Tomas Morato",
+        "siteNo":  "38",
+        "siteName":  "Kimono Ken,Eastwest",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Tomas Morato",
+        "siteNo":  "39",
+        "siteName":  "Peers+Beers, Yoshimeatsu",
+        "priority":  "Secondary"
+    },
+
+    {
+        "tradeArea":  "Tomas Morato",
+        "siteNo":  "40",
+        "siteName":  "Mesa, Chammie",
+        "priority":  "Secondary"
+    },
+
+    {
+        "tradeArea":  "Tomas Morato",
+        "siteNo":  "41",
+        "siteName":  "Bdo, New Gangnam Grill",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Tomas Morato",
+        "siteNo":  "42",
+        "siteName":  "Private Property, P&P Tatoo, Dulcenea,",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Tomas Morato",
+        "siteNo":  "43",
+        "siteName":  "Pizza Telefono, Army Navy",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Tomas Morato",
+        "siteNo":  "44",
+        "siteName":  "Grupo Barbero, Land Bank, Pleasure Place",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Matandang Balara",
+        "siteNo":  "1",
+        "siteName":  "St. Peter Chapels",
+        "priority":  "Secondary"
+    },
+
+    {
+        "tradeArea":  "Matandang Balara",
+        "siteNo":  "2",
+        "siteName":  "Berkeley Square",
+        "priority":  "Secondary"
+    },
+
+    {
+        "tradeArea":  "Matandang Balara",
+        "siteNo":  "3",
+        "siteName":  "Mercury Drug",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Matandang Balara",
+        "siteNo":  "4",
+        "siteName":  "KFC / DMCI Condo",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Matandang Balara",
+        "siteNo":  "5",
+        "siteName":  "Commercial Building",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Matandang Balara",
+        "siteNo":  "6",
+        "siteName":  "Vacant lot",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Matandang Balara",
+        "siteNo":  "7",
+        "siteName":  "Vacant lot / Parking",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Matandang Balara",
+        "siteNo":  "8",
+        "siteName":  "Loyola Memorial Chapels",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Matandang Balara",
+        "siteNo":  "9",
+        "siteName":  "Warehouse",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Matandang Balara",
+        "siteNo":  "10",
+        "siteName":  "Eatery, sari-sari store, general merchandise",
+        "priority":  "Secondary"
+    },
+
+    {
+        "tradeArea":  "Matandang Balara",
+        "siteNo":  "11",
+        "siteName":  "Vacant lot",
+        "priority":  "Secondary"
+    },
+
+    {
+        "tradeArea":  "Matandang Balara",
+        "siteNo":  "12",
+        "siteName":  "CW Home Depot",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Matandang Balara",
+        "siteNo":  "13",
+        "siteName":  "Vacant Lot (Proposed CK/MI)",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Matandang Balara",
+        "siteNo":  "14",
+        "siteName":  "Diliman Doctors",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Matandang Balara",
+        "siteNo":  "15",
+        "siteName":  "Woodworks shop",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Matandang Balara",
+        "siteNo":  "16",
+        "siteName":  "Toyota Commonwealth",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Matandang Balara",
+        "siteNo":  "17",
+        "siteName":  "Petron / Rapide",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Matandang Balara",
+        "siteNo":  "18",
+        "siteName":  "Vacant lot",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Matandang Balara",
+        "siteNo":  "19",
+        "siteName":  "Vacant lot",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Matandang Balara",
+        "siteNo":  "20",
+        "siteName":  "Jollibee / Shell Feria Commonwealth",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Matandang Balara",
+        "siteNo":  "21",
+        "siteName":  "Commercial building, Human Nature",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Matandang Balara",
+        "siteNo":  "22",
+        "siteName":  "Human Nature / Building under construction",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Matandang Balara",
+        "siteNo":  "23",
+        "siteName":  "Yamaha / Pares / Wilcon",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Matandang Balara",
+        "siteNo":  "24",
+        "siteName":  "Tarpaulin printing / Tire center / Car seat shop",
+        "priority":  "Secondary"
+    },
+
+    {
+        "tradeArea":  "Matandang Balara",
+        "siteNo":  "25",
+        "siteName":  "hardware, commercial spaces (with waiting shed)",
+        "priority":  "Secondary"
+    },
+
+    {
+        "tradeArea":  "Matandang Balara",
+        "siteNo":  "26",
+        "siteName":  "shanties",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Matandang Balara",
+        "siteNo":  "27",
+        "siteName":  "vacant lot, shanties",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Matandang Balara",
+        "siteNo":  "28",
+        "siteName":  "commercial shanties",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Matandang Balara",
+        "siteNo":  "29",
+        "siteName":  "vacant lot, old house",
+        "priority":  "Secondary"
+    },
+
+    {
+        "tradeArea":  "Matandang Balara",
+        "siteNo":  "30",
+        "siteName":  "commercial building",
+        "priority":  "Secondary"
+    },
+
+    {
+        "tradeArea":  "Matandang Balara",
+        "siteNo":  "31",
+        "siteName":  "commercial stalls, gen. merchandise, pawnshops",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Matandang Balara",
+        "siteNo":  "32",
+        "siteName":  "Bedrock Bldg. (CK, MCD)",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Matandang Balara",
+        "siteNo":  "33",
+        "siteName":  "Puregold Commonwealth (JB, RR)",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Matandang Balara",
+        "siteNo":  "34",
+        "siteName":  "gas station, Mitsubishi",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Matandang Balara",
+        "siteNo":  "35",
+        "siteName":  "Izuzu, Gen. Malvar Hospital",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Matandang Balara",
+        "siteNo":  "36",
+        "siteName":  "commercial & office bldg. (RCBC, Bank of Commerce, 711)",
+        "priority":  "Secondary"
+    },
+
+    {
+        "tradeArea":  "Matandang Balara",
+        "siteNo":  "37",
+        "siteName":  "Blocked commercial building by the the MRT Line 7 station construction",
+        "priority":  "Secondary"
+    },
+
+    {
+        "tradeArea":  "Matandang Balara",
+        "siteNo":  "38",
+        "siteName":  "Country Builder's Bank; BDO",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Matandang Balara",
+        "siteNo":  "39",
+        "siteName":  "New Era Hospital Property",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Matandang Balara",
+        "siteNo":  "40",
+        "siteName":  "New Era Hospital Property",
+        "priority":  "Secondary"
+    },
+
+    {
+        "tradeArea":  "Matandang Balara",
+        "siteNo":  "41",
+        "siteName":  "Strip of small commercial shops: Vape, Motortrade etc.",
+        "priority":  "Secondary"
+    },
+
+    {
+        "tradeArea":  "Matandang Balara",
+        "siteNo":  "42",
+        "siteName":  "Old Vacant Psbank Building (potential site for MI)",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Matandang Balara",
+        "siteNo":  "43",
+        "siteName":  "Jollibee, commercial shops: pawnshops, medical supplies",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Matandang Balara",
+        "siteNo":  "44",
+        "siteName":  "Chowking",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Matandang Balara",
+        "siteNo":  "45",
+        "siteName":  "7-Eleven; Thrift Shop",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Matandang Balara",
+        "siteNo":  "46",
+        "siteName":  "Super8",
+        "priority":  "Secondary"
+    },
+
+    {
+        "tradeArea":  "Matandang Balara",
+        "siteNo":  "47",
+        "siteName":  "commercial shanties & bldg",
+        "priority":  "Priority"
+    },
+
+    {
+        "tradeArea":  "Matandang Balara",
+        "siteNo":  "48",
+        "siteName":  "commercial bldg (ukay-ukay)",
+        "priority":  "Priority"
     }
 ]
