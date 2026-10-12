@@ -64,6 +64,18 @@ This preserves today's handoff through tomorrow. It is replaced only after two n
 - Product Backlog and RTM edit the same requirement records. RTM retains rich-text story, test, criteria and impact editing, generation and classification actions, local tasks, verification, details, deletion confirmation, and saved table widths. Dashboard dates and deliverables and Reports drafts remain editable in both views.
 - Reports retains project workbook export, browser print, and editable Word document drafts. Apply `supabase/business_analysis.sql` when setting up workspace storage.
 
+### Mosaic desktop launcher
+
+- `desktop/` contains an Electron 44 Windows x64 launcher for the hosted Mosaic app; it does not run a second web server or add business-data access.
+- The app uses a persistent per-user Electron session for the existing hosted OAuth flow. The remote workspace has no Node integration, uses context isolation and sandboxing, limits navigation to its configured HTTPS origin and ClickUp sign-in pages, prompts before microphone/camera access, and rejects other permission requests. Screen/window capture requires explicit selection per request; system audio requires separate approval.
+- Closing the window hides Mosaic in the system tray. Startup is opt-in and starts hidden. Quit asks for confirmation because unsaved changes or recording can be interrupted. Tray residency alone does not guarantee background meeting capture.
+- Tasks-page edits, status and priority changes, and deletions update the owner-scoped browser cache immediately and sync through a durable per-user browser outbox. Creation still waits for the hosted write response.
+- My Day supports typed HH/MM/SS reminder intervals. The desktop tray timer opens a centered, always-on-top reminder over other apps on the pointer's monitor; the alert stays until snoozed or dismissed. Task titles remain in memory only.
+- The installer defaults to `https://mosaic-workspace.online`, the verified custom domain attached to the `echo-next` Vercel project. Vercel marks its current A record as needing a change and recommends `76.76.21.21`; the domain uses Spaceship nameservers, and local DNS resolution failed. The former `project-echo-next.vercel.app` alias returned `DEPLOYMENT_NOT_FOUND`; override with `MOSAIC_APP_URL` if the production domain changes.
+- In `desktop/`, run `npm ci` then `npm run dist:win` on Windows x64. This creates `dist/Mosaic-Setup-<version>-x64.exe` and `dist/SHA256SUMS.txt`. Packaged builds use `electron-updater` with the public Mosaic GitHub Releases feed, Authenticode verification, background downloads, and a user-confirmed install/restart. Pushes to `main` that change `desktop/` trigger `.github/workflows/mosaic-desktop-release.yml`; it publishes a versioned signed release once GitHub Actions has the Windows signing certificate and password secrets. Web-only fixes arrive through the live hosted app.
+- Current local artifact: `desktop/dist/Mosaic-Setup-0.2.0-x64.exe`. It is unsigned and must be replaced by a signed release build before authenticated automatic updates can be validated. OAuth/tray/capture still need clean-machine validation.
+- Key files: `desktop/src/main.cjs`; `desktop/electron-builder.yml`; `desktop/scripts/prepare-build.cjs`; `desktop/README.md`.
+
 ### Authentication and user connections
 
 - Echo signs users in through ClickUp OAuth.

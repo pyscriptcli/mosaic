@@ -1,7 +1,7 @@
 # Mosaic desktop launcher implementation plan
 
 Date: 2026-10-12
-Status: Desktop launcher source and Windows packaging implemented. `desktop/dist/Mosaic-Setup-0.2.0-x64.exe` opens the live Mosaic origin and includes tray lifecycle support plus a native always-on-top reminder window. The web Tasks page uses its owner-scoped IndexedDB cache first and queues task updates/deletes for background sync through the signed-in session. The installer is unsigned; clean-machine OAuth, tray behavior, and capture still need validation.
+Status: Desktop launcher, Windows packaging, tray reminders, typed HH/MM/SS reminder controls, and an electron-updater release path are implemented. Packaged Windows builds check public GitHub Releases and download signed NSIS updates in the background, then ask before restarting. Main-branch changes under `desktop/` trigger a versioned release workflow; publishing requires GitHub Actions signing secrets. The existing installer must be replaced with an updater-enabled build, and clean-machine update validation remains required.
 
 ## 1. Intended outcome
 
@@ -101,7 +101,7 @@ Exact file boundaries can stay small until implementation needs justify extracti
 | Start with Windows | Optional user preference, off by default |
 | Startup launch | Start in tray when enabled, without stealing focus |
 | Network loss | Explain connection state and offer Retry; preserve recoverable work |
-| My Day reminder | Let the user choose HH/MM/SS; show a topmost alert that stays until snoozed or dismissed |
+| My Day reminder | Let the user type HH/MM/SS; show a centered topmost desktop alert over other apps that stays until snoozed or dismissed |
 | Web deployment | Load updated hosted functionality without rebuilding the installer |
 | Native shell update | Install a separately versioned desktop release through the chosen release channel |
 
@@ -164,7 +164,7 @@ Expected delivery bundle:
 
 Build on a Windows runner with pinned runtime/package versions and a lockfile. Keep signing credentials in the release secret store. Sign the application and installer for broad distribution, and verify signatures on a clean machine. Signing identifies the publisher; it does not guarantee that Windows reputation prompts disappear immediately.
 
-Choose an HTTPS update feed accessible to installed users. Do not embed a repository access token in the client to download private releases. Keep update signature verification enabled and configure manifest signing according to the pinned builder version. NSIS packaging and update requirements are documented by [electron-builder](https://www.electron.build/docs/win/) and its [auto-update guide](https://www.electron.build/docs/features/auto-update/).
+Use `electron-updater` with the public Mosaic GitHub Releases feed and the NSIS target. The tray offers an update check, updates check at launch and every six hours, downloads run in the background, and installation waits for the user to choose **Install and restart**. The updater never restarts the app automatically, since no active-work signal is available. The GitHub Actions workflow releases a new stable version on `main` changes under `desktop/` and uploads the SHA-256 checksum. Web-only pushes do not rebuild the installer because the launcher already loads the hosted web app. Do not embed a repository token in the client. Keep Windows Authenticode verification enabled and store the signing certificate and password only in GitHub Actions secrets. NSIS packaging and updater behavior follow the [electron-builder v26 auto-update guide](https://www.electron.build/v26/docs/features/auto-update/) and [Windows signing guidance](https://www.electron.build/v26/docs/win/).
 
 Check for updates on a bounded schedule, download safely, and offer restart when idle. Never restart during recording, an export, or other reported critical work. Coordinate the updater with an explicit active-work signal; do not infer safety merely because the window is hidden. If that signal is unavailable, require a user-initiated restart.
 
@@ -202,10 +202,11 @@ Exit: another user can install and use Mosaic without development tools; no cred
 
 ### Phase 4 — Maintain the release
 
-1. Configure and test the selected update feed and signature checks.
-2. Validate update deferral during active work and failure recovery.
-3. Finalize resource budgets, support logs, and compatibility policy.
-4. Update `handoff.md` with shipped desktop behavior and release requirements.
+1. Add the publisher's Windows signing certificate and password to GitHub Actions secrets.
+2. Configure and test the GitHub Releases update feed and Authenticode checks.
+3. Validate update deferral during active work and failure recovery.
+4. Finalize resource budgets, support logs, and compatibility policy.
+5. Update `handoff.md` with shipped desktop behavior and release requirements.
 
 Exit: release and update behavior are repeatable and documented. A pilot can use manual installer updates until automatic updates pass these checks; the distribution notes must state which mode is supported.
 
@@ -233,6 +234,6 @@ The initial delivery is complete when a shareable installer opens the hosted Mos
 
 ## 12. Inputs needed before broad release
 
-Before broad release: confirm the production URL and supported device matrix; provide publisher signing access and installer/update hosting; identify pilot accounts/devices and the support owner. The first output is an unsigned Windows x64 pilot, not a broad-distribution release.
+Before broad release: confirm the production URL and supported device matrix; add publisher signing credentials to GitHub Actions; identify pilot accounts/devices and the support owner. The first output remains an unsigned Windows x64 pilot until those credentials are configured.
 
-The implementation adds a dedicated `desktop/` package and updates the web Tasks cache/sync behavior and My Day reminder controls. It does not change authentication routes, data ownership, or server permission checks. The package builds an unsigned pilot installer; broad distribution still needs publisher signing and release hosting.
+The implementation adds a dedicated `desktop/` package, web Tasks cache/sync behavior, and My Day reminder controls. It does not change authentication routes, data ownership, or server permission checks. Desktop update installation uses signed NSIS packages hosted as public GitHub Releases; publishing requires the signing secrets documented in `desktop/README.md`.

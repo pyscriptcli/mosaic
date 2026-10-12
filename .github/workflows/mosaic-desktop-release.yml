@@ -1,0 +1,57 @@
+name: Mosaic desktop release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - desktop/**
+      - .github/workflows/mosaic-desktop-release.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: mosaic-desktop-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@1e60f620b9541d2ae5e7f5c6678bbadab3e9a7f4 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - run: npm ci
+      - name: Require Windows code-signing credentials
+        env:
+          CSC_LINK: ${{ secrets.MOSAIC_WINDOWS_SIGNING_CERTIFICATE }}
+          CSC_KEY_PASSWORD: ${{ secrets.MOSAIC_WINDOWS_SIGNING_PASSWORD }}
+        shell: pwsh
+        run: |
+          if (-not $env:CSC_LINK -or -not $env:CSC_KEY_PASSWORD) {
+            throw "Add MOSAIC_WINDOWS_SIGNING_CERTIFICATE and MOSAIC_WINDOWS_SIGNING_PASSWORD in GitHub Actions secrets before publishing signed desktop updates."
+          }
+      - name: Assign the release version
+        run: node scripts/set-release-version.cjs
+      - name: Build and publish the signed release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CSC_LINK: ${{ secrets.MOSAIC_WINDOWS_SIGNING_CERTIFICATE }}
+          CSC_KEY_PASSWORD: ${{ secrets.MOSAIC_WINDOWS_SIGNING_PASSWORD }}
+        run: npm run release:win
+      - name: Attach the installer checksum
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          gh release upload "v$version" "dist/SHA256SUMS.txt" --clobber

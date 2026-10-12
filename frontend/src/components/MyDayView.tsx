@@ -69,9 +69,9 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
   const [activitySave, setActivitySave] = useState<"saved" | "pending" | "saving" | "error">("saved");
   const [activityError, setActivityError] = useState("");
   const [remindersEnabled, setRemindersEnabled] = useState(false);
-  const [reminderHours, setReminderHours] = useState(0);
-  const [reminderMinutes, setReminderMinutes] = useState(30);
-  const [reminderSeconds, setReminderSeconds] = useState(0);
+  const [reminderHours, setReminderHours] = useState("00");
+  const [reminderMinutes, setReminderMinutes] = useState("30");
+  const [reminderSeconds, setReminderSeconds] = useState("00");
   const [snoozedUntil, setSnoozedUntil] = useState(0);
   const [reminderOpen, setReminderOpen] = useState(false);
   const [reminderSettingsOpen, setReminderSettingsOpen] = useState(false);
@@ -90,7 +90,7 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
   const reminderDialog = useRef<HTMLElement>(null);
   const summaryAttempt = useRef("");
   const tasks = payload?.tasks ?? EMPTY_TASKS;
-  const reminderIntervalSeconds = Math.max(1, reminderHours * 3600 + reminderMinutes * 60 + reminderSeconds);
+  const reminderIntervalSeconds = Math.max(1, Number(reminderHours || 0) * 3600 + Number(reminderMinutes || 0) * 60 + Number(reminderSeconds || 0));
   const lastReminderAt = useRef(0);
   const notesTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activityTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -107,9 +107,9 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
         const storedSeconds = Number.isFinite(Number(stored.intervalSeconds))
           ? Math.max(1, Math.min(359999, Number(stored.intervalSeconds)))
           : Math.max(300, Math.min(14400, Number(stored.minutes) * 60 || 1800));
-        setReminderHours(Math.floor(storedSeconds / 3600));
-        setReminderMinutes(Math.floor((storedSeconds % 3600) / 60));
-        setReminderSeconds(storedSeconds % 60);
+        setReminderHours(String(Math.floor(storedSeconds / 3600)).padStart(2, "0"));
+        setReminderMinutes(String(Math.floor((storedSeconds % 3600) / 60)).padStart(2, "0"));
+        setReminderSeconds(String(storedSeconds % 60).padStart(2, "0"));
       } catch { /* use defaults */ }
       setPersonalList({
         id: localStorage.getItem("project_echo_personal_list_id") || "",
@@ -320,11 +320,11 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
 
   useEffect(() => {
     if (!settingsReady) return;
-    const intervalSeconds = Math.max(1, reminderHours * 3600 + reminderMinutes * 60 + reminderSeconds);
+    const intervalSeconds = reminderIntervalSeconds;
     localStorage.setItem(REMINDER_KEY, JSON.stringify({ enabled: remindersEnabled, intervalSeconds }));
     const desktop = (window as Window & { mosaicDesktop?: { scheduleReminder: (input: { enabled: boolean; intervalSeconds: number; taskNames: string[] }) => void } }).mosaicDesktop;
     if (userId) desktop?.scheduleReminder({ enabled: remindersEnabled, intervalSeconds, taskNames: tasks.filter((task) => !task.completed).map((task) => task.name).slice(0, 8) });
-  }, [settingsReady, remindersEnabled, reminderHours, reminderMinutes, reminderSeconds, tasks, userId]);
+  }, [settingsReady, remindersEnabled, reminderIntervalSeconds, tasks, userId]);
 
   const saveTask = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -392,9 +392,10 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
             {reminderSettingsOpen && <div className="absolute right-0 top-11 z-30 w-72 border border-slate-200 bg-[#FFFCFB] p-3 shadow-lg">
               <p className="text-xs font-semibold text-[#003366]">Remind every</p>
               <div className="mt-2 grid grid-cols-3 gap-2">
-                {[{ label: "HH", value: reminderHours, set: setReminderHours, max: 99 }, { label: "MM", value: reminderMinutes, set: setReminderMinutes, max: 59 }, { label: "SS", value: reminderSeconds, set: setReminderSeconds, max: 59 }].map(({ label, value, set, max }) => <label key={label} className="text-[10px] font-semibold text-slate-500">{label}<select aria-label={`${label} reminder interval`} value={value} onChange={(event) => set(Number(event.target.value))} className="mt-1 h-9 w-full border border-slate-300 bg-white px-2 text-sm tabular-nums text-[#003366] outline-none focus:border-[#C9A84C]">{Array.from({ length: max + 1 }, (_, index) => <option key={index} value={index}>{String(index).padStart(2, "0")}</option>)}</select></label>)}
+                {[{ label: "HH", value: reminderHours, set: setReminderHours, max: 99 }, { label: "MM", value: reminderMinutes, set: setReminderMinutes, max: 59 }, { label: "SS", value: reminderSeconds, set: setReminderSeconds, max: 59 }].map(({ label, value, set, max }) => <label key={label} className="text-[10px] font-semibold text-slate-500">{label}<input aria-label={`${label} reminder interval`} type="text" inputMode="numeric" pattern="[0-9]*" maxLength={2} value={value} onChange={(event) => set(event.target.value.replace(/\D/g, "").slice(0, 2))} onBlur={(event) => set(String(Math.min(max, Number(event.target.value) || 0)).padStart(2, "0"))} className="mt-1 h-9 w-full border border-slate-300 bg-white px-2 text-sm tabular-nums text-[#003366] outline-none focus:border-[#C9A84C]" /></label>)}
               </div>
               <p className="mt-2 text-[10px] text-slate-500">Choose any interval from one second to 99 hours, 59 minutes, 59 seconds.</p>
+              <p className="mt-1 text-[10px] text-slate-500">Desktop reminders appear above other apps while Mosaic runs in the tray.</p>
               <button type="button" onClick={() => void enableReminders()} className="mt-3 w-full border border-slate-200 px-2.5 py-2 text-left text-xs font-semibold text-[#003366] hover:border-[#C9A84C]">
                 {remindersEnabled ? "Turn reminders off" : "Enable reminders"}
               </button>

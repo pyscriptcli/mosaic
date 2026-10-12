@@ -1,4 +1,5 @@
-const { app, BrowserWindow, desktopCapturer, dialog, ipcMain, Menu, nativeImage, session, shell, Tray } = require("electron");
+const { app, BrowserWindow, desktopCapturer, dialog, ipcMain, Menu, nativeImage, screen, session, shell, Tray } = require("electron");
+const { autoUpdater } = require("electron-updater");
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -11,6 +12,11 @@ let reminderTimer;
 let reminderCanClose = false;
 let tray;
 let isQuitting = false;
+let updateStatus = "Updates are checked automatically";
+let updateCheckInProgress = false;
+let manualUpdateCheck = false;
+let downloadedUpdateVersion = null;
+let updateCheckTimer;
 let settings = { startWithWindows: false, closeToTrayNoticeShown: false, mediaPermissionGranted: false };
 
 if (!app.requestSingleInstanceLock()) {
@@ -23,9 +29,12 @@ if (!app.requestSingleInstanceLock()) {
     app.setAppUserModelId("com.primephilippines.mosaic");
     readSettings();
     setPermissionPolicy();
+    registerReminderBridge();
     createTray();
     createMainWindow();
     applyStartupSetting();
+    scheduleNextReminder();
+    initializeUpdater();
 
     app.on("activate", showMainWindow);
   });
@@ -37,6 +46,7 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.on("will-quit", () => {
+    if (updateCheckTimer) clearInterval(updateCheckTimer);
     if (tray && !tray.isDestroyed()) tray.destroy();
   });
 }
@@ -298,6 +308,12 @@ function buildTrayMenu() {
   return Menu.buildFromTemplate([
     { label: "Open Mosaic", click: showMainWindow },
     { type: "separator" },
+    { label: `Desktop version ${app.getVersion()}`, enabled: false },
+    { label: updateStatus, enabled: false },
+    downloadedUpdateVersion
+      ? { label: `Install update ${downloadedUpdateVersion} and restart`, click: installDownloadedUpdate }
+      : { label: "Check for desktop updates", enabled: app.isPackaged, click: () => checkForDesktopUpdates(true) },
+    { type: "separator" },
     {
       label: "Start with Windows",
       type: "checkbox",
@@ -323,6 +339,108 @@ function buildTrayMenu() {
   ]);
 }
 
+function initializeUpdater() {
+  if (!app.isPackaged) {
+    updateStatus = "Desktop updates are available in installed builds";
+    tray.setContextMenu(buildTrayMenu());
+    return;
+  }
+
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = false;
+  autoUpdater.allowDowngrade = false;
+  autoUpdater.on("checking-for-update", () => {
+    updateCheckInProgress = true;
+    updateStatus = "Checking for desktop updates…";
+    refreshTrayMenu();
+  });
+  autoUpdater.on("update-available", ({ version }) => {
+    updateStatus = `Downloading desktop update ${version}…`;
+    refreshTrayMenu();
+  });
+  autoUpdater.on("update-not-available", () => {
+    updateCheckInProgress = false;
+    updateStatus = "Mosaic is up to date";
+    if (manualUpdateCheck) showUpdateMessage("You're up to date", `Mosaic ${app.getVersion()} is the latest desktop version.`);
+    manualUpdateCheck = false;
+    refreshTrayMenu();
+  });
+  autoUpdater.on("download-progress", ({ percent }) => {
+    updateStatus = `Downloading desktop update (${Math.floor(percent)}%)`;
+    refreshTrayMenu();
+  });
+  autoUpdater.on("update-downloaded", ({ version }) => {
+    updateCheckInProgress = false;
+    downloadedUpdateVersion = version;
+    updateStatus = `Desktop update ${version} is ready`;
+    manualUpdateCheck = false;
+    refreshTrayMenu();
+    showUpdateReadyMessage();
+  });
+  autoUpdater.on("error", (error) => {
+    updateCheckInProgress = false;
+    updateStatus = "Could not check for desktop updates";
+    console.error("Mosaic desktop update failed:", error.message);
+    if (manualUpdateCheck) showUpdateMessage("Update check failed", "Mosaic could not check for updates. Check your connection and try again.");
+    manualUpdateCheck = false;
+    refreshTrayMenu();
+  });
+
+  updateCheckTimer = setInterval(() => checkForDesktopUpdates(false), 6 * 60 * 60 * 1000);
+  setTimeout(() => checkForDesktopUpdates(false), 15_000);
+}
+
+async function checkForDesktopUpdates(manual) {
+  if (!app.isPackaged || updateCheckInProgress || downloadedUpdateVersion) return;
+  manualUpdateCheck = manual;
+  updateCheckInProgress = true;
+  updateStatus = "Checking for desktop updates…";
+  refreshTrayMenu();
+  try {
+    await autoUpdater.checkForUpdates();
+  } catch (error) {
+    updateCheckInProgress = false;
+    updateStatus = "Could not check for desktop updates";
+    console.error("Mosaic desktop update check failed:", error.message);
+    if (manual) showUpdateMessage("Update check failed", "Mosaic could not check for updates. Check your connection and try again.");
+    manualUpdateCheck = false;
+    refreshTrayMenu();
+  }
+}
+
+function showUpdateReadyMessage() {
+  showUpdateMessage(
+    "Mosaic update ready",
+    `Version ${downloadedUpdateVersion} has downloaded. Restart Mosaic when you're ready to install it.`,
+    ["Later", "Install and restart"],
+  ).then(({ response }) => {
+    if (response === 1) installDownloadedUpdate();
+  });
+}
+
+function showUpdateMessage(title, message, buttons = ["OK"]) {
+  const parent = mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() ? mainWindow : undefined;
+  return dialog.showMessageBox(parent, {
+    type: "info",
+    title,
+    message,
+    buttons,
+    defaultId: 0,
+    cancelId: 0,
+    noLink: true,
+  });
+}
+
+function installDownloadedUpdate() {
+  if (!downloadedUpdateVersion) return;
+  isQuitting = true;
+  autoUpdater.quitAndInstall(false, true);
+}
+
+function refreshTrayMenu() {
+  if (tray && !tray.isDestroyed()) tray.setContextMenu(buildTrayMenu());
+}
+
 function applyStartupSetting() {
   app.setLoginItemSettings({
     openAtLogin: settings.startWithWindows,
@@ -333,8 +451,6 @@ function applyStartupSetting() {
 function showMainWindow() {
   if (!mainWindow || mainWindow.isDestroyed()) {
     createMainWindow();
-    registerReminderBridge();
-    scheduleNextReminder();
     return;
   }
   if (mainWindow.isMinimized()) mainWindow.restore();
@@ -398,19 +514,32 @@ function scheduleNextReminder() {
 }
 
 function showReminderWindow() {
-  if (reminderWindow && !reminderWindow.isDestroyed()) return reminderWindow.focus();
+  if (reminderWindow && !reminderWindow.isDestroyed()) return focusReminderWindow();
+  const { x, y, width: displayWidth, height: displayHeight } = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
+  const width = Math.max(1, Math.min(720, displayWidth - 32));
+  const height = Math.max(1, Math.min(560, displayHeight - 32));
   reminderWindow = new BrowserWindow({
-    width: 720, height: 560, minWidth: 520, minHeight: 420,
+    x: Math.round(x + (displayWidth - width) / 2),
+    y: Math.round(y + (displayHeight - height) / 2),
+    width, height, minWidth: Math.min(420, width), minHeight: Math.min(360, height),
     show: false, frame: false, resizable: false, backgroundColor: "#FFFCFB",
-    alwaysOnTop: true, skipTaskbar: false,
+    alwaysOnTop: true, focusable: true, skipTaskbar: false,
     webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, preload: path.join(__dirname, "preload.cjs"), webSecurity: true },
   });
   reminderWindow.setAlwaysOnTop(true, "screen-saver");
   reminderCanClose = false;
   reminderWindow.loadFile(path.join(__dirname, "reminder.html"), { query: { tasks: JSON.stringify(settings.reminder?.taskNames || []) } });
-  reminderWindow.once("ready-to-show", () => { reminderWindow?.show(); reminderWindow?.focus(); });
+  reminderWindow.once("ready-to-show", focusReminderWindow);
   reminderWindow.on("close", (event) => {
     if (!reminderCanClose && !isQuitting) event.preventDefault();
   });
   reminderWindow.on("closed", () => { reminderWindow = null; scheduleNextReminder(); });
+}
+
+function focusReminderWindow() {
+  if (!reminderWindow || reminderWindow.isDestroyed()) return;
+  reminderWindow.setAlwaysOnTop(true, "screen-saver");
+  if (!reminderWindow.isVisible()) reminderWindow.show();
+  reminderWindow.moveTop();
+  reminderWindow.focus();
 }
