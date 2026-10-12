@@ -3,55 +3,57 @@
 import { useLayoutEffect, useState } from "react";
 import { LoaderCircle } from "lucide-react";
 
-type Activity = "loading" | "saving";
-
 const CLICKUP_API_PATH = /^\/api\/(?:tasks|my-day|notebook|meetings|demands|market-insights|ask-echo|forms|rfp|save-meeting|meeting|projects\/(?:activity|assignees|sites)|integrations\/clickup|auth\/me)(?:\/|$)/;
 
-function clickUpActivity(input: RequestInfo | URL, init?: RequestInit): Activity | null {
+function isWorkspaceRead(input: RequestInfo | URL, init?: RequestInit): boolean {
   const source = input instanceof Request ? input.url : String(input);
   let url: URL;
-  try { url = new URL(source, window.location.origin); } catch { return null; }
-  if (url.origin !== window.location.origin || !CLICKUP_API_PATH.test(url.pathname)) return null;
+  try { url = new URL(source, window.location.origin); } catch { return false; }
+  if (url.origin !== window.location.origin || !CLICKUP_API_PATH.test(url.pathname)) return false;
   const method = (init?.method || (input instanceof Request ? input.method : "GET")).toUpperCase();
-  return method === "GET" || method === "HEAD" ? "loading" : "saving";
+  return method === "GET" || method === "HEAD";
 }
 
-export function ClickUpLoadingPanel({ label = "Loading from ClickUp", compact = false }: { label?: string; compact?: boolean }) {
-  return <div role="status" aria-live="polite" aria-busy="true" className={"flex items-center gap-3 border border-slate-200 border-t-2 border-t-[#C9A84C] bg-[#FFFCFB] text-[#003366] " + (compact ? "px-3 py-2 text-xs shadow-sm" : "mx-auto my-10 max-w-xl px-5 py-7 text-sm")}>
-    <LoaderCircle aria-hidden="true" className="h-4 w-4 shrink-0 animate-spin text-[#003366]" />
-    <div className="min-w-0"><p className="font-semibold">{label}</p>{!compact && <p className="mt-1 text-xs text-slate-600">Mosaic is loading your workspace data.</p>}</div>
-  </div>;
+export function ClickUpLoadingPanel({ label = "Loading workspace" }: { label?: string }) {
+  return <section role="status" aria-live="polite" aria-busy="true" className="w-full border border-slate-200 bg-[#FFFCFB] p-4 text-[#003366]">
+    <div className="flex items-center gap-2 text-xs font-medium"><LoaderCircle aria-hidden="true" className="h-4 w-4 shrink-0 animate-spin" />{label}</div>
+    <div aria-hidden="true" className="mt-4 space-y-2">
+      <div className="h-10 motion-safe:animate-pulse border border-slate-100 bg-slate-50" />
+      <div className="h-10 motion-safe:animate-pulse border border-slate-100 bg-slate-50" />
+      <div className="h-10 motion-safe:animate-pulse border border-slate-100 bg-slate-50" />
+    </div>
+  </section>;
 }
 
 export function ClickUpLoadingProvider({ children }: { children: React.ReactNode }) {
-  const [activity, setActivity] = useState<Activity | null>(null);
+  const [loading, setLoading] = useState(false);
 
   useLayoutEffect(() => {
     const originalFetch = window.fetch;
-    const pending = new Map<number, Activity>();
+    const pending = new Set<number>();
     let requestId = 0;
     let showTimer: number | undefined;
     let hideTimer: number | undefined;
+    let visible = false;
 
     const publish = () => {
       if (pending.size === 0) {
         window.clearTimeout(showTimer);
         showTimer = undefined;
         window.clearTimeout(hideTimer);
-        hideTimer = window.setTimeout(() => setActivity(null), 120);
+        if (visible) hideTimer = window.setTimeout(() => { visible = false; setLoading(false); }, 160);
         return;
       }
       window.clearTimeout(hideTimer);
-      const next = Array.from(pending.values()).includes("saving") ? "saving" : "loading";
-      window.clearTimeout(showTimer);
-      showTimer = window.setTimeout(() => setActivity(next), 180);
+      if (!visible && showTimer === undefined) {
+        showTimer = window.setTimeout(() => { visible = true; showTimer = undefined; setLoading(true); }, 220);
+      }
     };
 
     const trackedFetch: typeof window.fetch = async (input, init) => {
-      const kind = clickUpActivity(input, init);
-      if (!kind) return originalFetch.call(window, input, init);
+      if (!isWorkspaceRead(input, init)) return originalFetch.call(window, input, init);
       const id = ++requestId;
-      pending.set(id, kind);
+      pending.add(id);
       publish();
       try {
         return await originalFetch.call(window, input, init);
@@ -71,8 +73,8 @@ export function ClickUpLoadingProvider({ children }: { children: React.ReactNode
 
   return <>
     {children}
-    {activity && <div className="pointer-events-none fixed inset-x-0 top-2 z-[100] flex justify-center px-3">
-      <div className="pointer-events-auto"><ClickUpLoadingPanel compact label={activity === "saving" ? "Saving changes to ClickUp" : "Loading data from ClickUp"} /></div>
+    {loading && <div role="status" aria-label="Loading workspace data" aria-live="polite" aria-busy="true" className="pointer-events-none fixed left-[56px] right-0 top-[58px] z-[100] h-0.5 bg-[#003366]/10">
+      <span aria-hidden="true" className="block h-full w-full bg-[#C9A84C]" />
     </div>}
   </>;
 }

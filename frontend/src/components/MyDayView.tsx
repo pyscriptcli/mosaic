@@ -322,7 +322,7 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
         <section className="space-y-4 xl:col-span-8">
           <div className="flex flex-wrap items-end justify-between gap-2">
             <div><h2 className="font-serif text-xl italic text-[#003366]">{dateLabel(date)}</h2><p className="mt-1 text-xs text-slate-500">{currentUserName || "Personal schedule"}</p></div>
-            {loading ? <span className="inline-flex items-center gap-2 text-xs text-slate-500"><LoaderCircle size={14} className="animate-spin" />Loading ClickUp tasks</span> : <span className="border border-slate-200 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">{payload?.dayTask ? "KPI daily record linked" : "Daily record created when you add a task"}</span>}
+            {!loading && <span className="border border-slate-200 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">{payload?.dayTask ? "KPI daily record linked" : "Daily record created when you add a task"}</span>}
           </div>
 
           <form onSubmit={saveTask} className="border border-slate-200 bg-[#FFFCFB] p-4">
@@ -342,7 +342,14 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
           </form>
 
           <div className="border border-slate-200 bg-[#FFFCFB]">
-            {loading && !payload ? <div className="flex min-h-28 items-center justify-center text-xs text-slate-500"><LoaderCircle size={15} className="mr-2 animate-spin" />Loading day</div> :
+            {loading && !payload ? <div role="status" aria-live="polite" aria-busy="true" className="space-y-3 p-4">
+              <p className="flex items-center gap-2 text-xs text-slate-500"><LoaderCircle size={14} className="animate-spin text-[#003366]" />Loading tasks</p>
+              <div aria-hidden="true" className="space-y-2">
+                <div className="h-12 motion-safe:animate-pulse border border-slate-100 bg-slate-50" />
+                <div className="h-12 motion-safe:animate-pulse border border-slate-100 bg-slate-50" />
+                <div className="h-12 motion-safe:animate-pulse border border-slate-100 bg-slate-50" />
+              </div>
+            </div> :
               tasks.length === 0 ? <div className="p-8 text-center"><CheckCircle2 size={24} className="mx-auto text-[#C9A84C]" /><p className="mt-2 font-serif text-lg italic text-[#003366]">A clear day</p><p className="mt-1 text-xs text-slate-500">Tasks added here become subtasks of this day in KPI Monitoring.</p></div> :
                 <div className="divide-y divide-slate-200">
                   {tasks.map((task) => <div key={task.id} className={`flex gap-3 p-4 ${task.completed ? "bg-slate-50/70" : "bg-[#FFFCFB]"}`}>
