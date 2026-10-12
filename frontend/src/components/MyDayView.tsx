@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, Bell, BellOff, CalendarDays, Check, CheckCircle2, ChevronLeft, ChevronRight, Clock3, ExternalLink, LoaderCircle, Plus, RefreshCw, Save, Trash2, X } from "lucide-react";
+import { AlertCircle, Bell, BellOff, CalendarDays, Check, CheckCircle2, ChevronLeft, ChevronRight, ExternalLink, LoaderCircle, Plus, RefreshCw, Save, Trash2, X } from "lucide-react";
 import { getStoredClickUpListId, getStoredClickUpToken } from "@/lib/api";
 
 type DayTask = {
@@ -71,9 +71,11 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
   const [reminderMinutes, setReminderMinutes] = useState(30);
   const [snoozedUntil, setSnoozedUntil] = useState(0);
   const [reminderOpen, setReminderOpen] = useState(false);
+  const [reminderSettingsOpen, setReminderSettingsOpen] = useState(false);
   const [notice, setNotice] = useState("");
   const [settingsReady, setSettingsReady] = useState(false);
   const [personalList, setPersonalList] = useState<DayPayload["personalList"]>(null);
+  const [personalListLoading, setPersonalListLoading] = useState(true);
   const lastReminderAt = useRef(0);
   const notesTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activityTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -103,7 +105,7 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
           localStorage.setItem("project_echo_personal_list_name", list.name);
           setPersonalList(list);
         }
-      }).catch(() => undefined);
+      }).catch(() => undefined).finally(() => setPersonalListLoading(false));
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);
@@ -117,7 +119,8 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || "My Day could not be loaded.");
       setPayload(body);
-      if (body.personalList?.id) setPersonalList((current) => current?.id === body.personalList.id && current?.name === body.personalList.name ? current : body.personalList);
+      setPersonalList(body.personalList || null);
+      setPersonalListLoading(false);
       setNoteDraft(body.notes || "");
       setNoteSave("saved");
       setNoteError(body.notesError || "");
@@ -127,6 +130,7 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
       activityReady.current = true;
       notesReady.current = true;
     } catch (loadError) {
+      setPersonalListLoading(false);
       setError(loadError instanceof Error ? loadError.message : "My Day could not be loaded.");
     } finally {
       setLoading(false);
@@ -151,7 +155,7 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
   }, [date, personalList]);
 
   useEffect(() => {
-    if (!notesReady.current || noteDraft === (payload?.notes || "")) return;
+    if (!notesReady.current || personalListLoading || noteDraft === (payload?.notes || "")) return;
     if (notesTimer.current) clearTimeout(notesTimer.current);
     setNoteSave("pending");
     notesTimer.current = setTimeout(async () => {
@@ -167,7 +171,7 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
       }
     }, 700);
     return () => { if (notesTimer.current) clearTimeout(notesTimer.current); };
-  }, [noteDraft, payload?.notes, send]);
+  }, [noteDraft, payload?.notes, personalListLoading, send]);
 
   const saveActivity = useCallback(async () => {
     setActivitySave("saving");
@@ -195,9 +199,6 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
   }, [activityDraft, payload, saveActivity]);
 
   const tasks = payload?.tasks || [];
-  const remaining = tasks.filter((task) => !task.completed).length;
-  const completed = tasks.length - remaining;
-
   const notify = useCallback((title: string, body: string) => {
     if (typeof window === "undefined") return;
     if ("Notification" in window && Notification.permission === "granted") {
@@ -274,57 +275,48 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
 
   return (
     <div className="mx-auto max-w-[1440px] space-y-5 pb-8">
-      <header className="flex flex-col gap-4 border-b border-slate-200 pb-4 md:flex-row md:items-end md:justify-between">
-        <div>
+      <header className="flex flex-col gap-3 border-b border-slate-200 pb-4 xl:flex-row xl:items-center xl:justify-between">
+        <div className="min-w-0">
           <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Notebook · Daily workspace</p>
           <h1 className="mt-1 font-serif text-3xl italic text-[#003366]">My Day</h1>
           <p className="mt-1 text-sm text-slate-500">Plan tasks, record daily activity, and keep notes together.</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <label className="flex h-10 items-center gap-2 border border-slate-300 bg-[#FFFCFB] px-3 text-xs text-slate-600">
-            <Clock3 size={14} className="text-[#003366]" />
-            <span>Remind every</span>
-            <select value={reminderMinutes} onChange={(event) => setReminderMinutes(Number(event.target.value))} className="bg-transparent font-semibold text-[#003366] outline-none" aria-label="Reminder interval">
-              {[5, 10, 15, 30, 45, 60, 90, 120, 180, 240].map((minutes) => <option key={minutes} value={minutes}>{minutes} min</option>)}
-            </select>
+        <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+          <div className="flex h-9 items-center gap-0.5">
+            <button type="button" onClick={() => setDate(moveDate(date, -1))} aria-label="Previous day" className="grid h-9 w-9 place-items-center border border-slate-200 text-slate-600 hover:text-[#003366]"><ChevronLeft size={16} /></button>
+            <button type="button" onClick={() => setDate(todayIso())} className="h-9 border border-slate-200 px-3 text-xs font-semibold text-[#003366] hover:border-[#C9A84C]">Today</button>
+            <button type="button" onClick={() => setDate(moveDate(date, 1))} aria-label="Next day" className="grid h-9 w-9 place-items-center border border-slate-200 text-slate-600 hover:text-[#003366]"><ChevronRight size={16} /></button>
+          </div>
+          <label className="flex h-9 items-center gap-2 border border-slate-300 bg-[#FFFCFB] px-2.5 text-sm text-[#003366]">
+            <CalendarDays size={14} /><input type="date" value={date} onChange={(event) => setDate(event.target.value)} className="w-[125px] bg-transparent text-xs outline-none" aria-label="Select day" />
           </label>
-          <button type="button" onClick={enableReminders} aria-pressed={remindersEnabled} className={`inline-flex h-10 items-center gap-2 border px-3 text-xs font-semibold ${remindersEnabled ? "border-[#003366] bg-[#003366] text-white" : "border-slate-300 bg-[#FFFCFB] text-[#003366] hover:border-[#C9A84C]"}`}>
-            {remindersEnabled ? <Bell size={15} /> : <BellOff size={15} />}{remindersEnabled ? "Reminders on" : "Enable reminders"}
-          </button>
-          <button type="button" onClick={() => void loadDay(true)} disabled={refreshing} className="inline-flex h-10 items-center gap-2 border border-slate-300 bg-[#FFFCFB] px-3 text-xs font-semibold text-[#003366] hover:border-[#C9A84C] disabled:opacity-50">
-            <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} /> Refresh
+          <a href={payload?.dayTask?.url || "https://app.clickup.com/9014981136/v/l/901418075633"} target="_blank" rel="noreferrer" aria-label="Open KPI Monitoring" title="KPI Monitoring" className="inline-flex h-9 items-center gap-1.5 border border-[#003366] px-2.5 text-[10px] font-semibold uppercase tracking-wide text-[#003366] hover:bg-[#003366] hover:text-white">
+            KPI <ExternalLink size={12} />
+          </a>
+          <div className="relative">
+            <button type="button" onClick={() => setReminderSettingsOpen((open) => !open)} aria-label="Reminder settings" title="Reminder settings" aria-expanded={reminderSettingsOpen} className={`grid h-9 w-9 place-items-center border ${remindersEnabled ? "border-[#003366] bg-[#003366] text-white" : "border-slate-300 bg-[#FFFCFB] text-[#003366] hover:border-[#C9A84C]"}`}>
+              {remindersEnabled ? <Bell size={15} /> : <BellOff size={15} />}
+            </button>
+            {reminderSettingsOpen && <div className="absolute right-0 top-11 z-30 w-56 border border-slate-200 bg-[#FFFCFB] p-3 shadow-lg">
+              <label htmlFor="my-day-reminder-interval" className="flex items-center justify-between gap-3 text-xs font-semibold text-[#003366]">
+                Remind every
+                <select id="my-day-reminder-interval" value={reminderMinutes} onChange={(event) => setReminderMinutes(Number(event.target.value))} className="h-8 border border-slate-300 bg-white px-2 text-xs text-[#003366] outline-none">
+                  {[5, 10, 15, 30, 45, 60, 90, 120, 180, 240].map((minutes) => <option key={minutes} value={minutes}>{minutes} min</option>)}
+                </select>
+              </label>
+              <button type="button" onClick={() => void enableReminders()} className="mt-3 w-full border border-slate-200 px-2.5 py-2 text-left text-xs font-semibold text-[#003366] hover:border-[#C9A84C]">
+                {remindersEnabled ? "Turn reminders off" : "Enable reminders"}
+              </button>
+            </div>}
+          </div>
+          <button type="button" onClick={() => void loadDay(true)} disabled={refreshing} aria-label="Refresh My Day" title="Refresh" className="grid h-9 w-9 place-items-center border border-slate-300 bg-[#FFFCFB] text-[#003366] hover:border-[#C9A84C] disabled:opacity-50">
+            <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
           </button>
         </div>
       </header>
 
-      <div className="flex flex-wrap items-center justify-between gap-3 border border-slate-200 bg-[#FFFCFB] p-2">
-        <div className="flex items-center gap-1">
-          <button type="button" onClick={() => setDate(moveDate(date, -1))} aria-label="Previous day" className="grid h-10 w-10 place-items-center border border-slate-200 text-slate-600 hover:text-[#003366]"><ChevronLeft size={17} /></button>
-          <button type="button" onClick={() => setDate(todayIso())} className="h-10 border border-slate-200 px-4 text-xs font-semibold text-[#003366] hover:border-[#C9A84C]">Today</button>
-          <button type="button" onClick={() => setDate(moveDate(date, 1))} aria-label="Next day" className="grid h-10 w-10 place-items-center border border-slate-200 text-slate-600 hover:text-[#003366]"><ChevronRight size={17} /></button>
-          <label className="ml-2 flex h-10 items-center gap-2 border border-slate-300 px-3 text-sm text-[#003366]">
-            <CalendarDays size={15} /><input type="date" value={date} onChange={(event) => setDate(event.target.value)} className="bg-transparent outline-none" aria-label="Select day" />
-          </label>
-        </div>
-        <a href={payload?.dayTask?.url || "https://app.clickup.com/9014981136/v/l/901418075633"} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center gap-2 border border-[#003366] px-3 text-xs font-semibold uppercase tracking-wide text-[#003366] hover:bg-[#003366] hover:text-white">
-          KPI Monitoring <ExternalLink size={13} />
-        </a>
-      </div>
-
       {notice && <div role="status" className="flex items-start justify-between gap-3 border border-amber-300 bg-amber-50 px-4 py-3 text-xs text-amber-900"><span>{notice}</span><button type="button" onClick={() => setNotice("")} aria-label="Dismiss notification note"><X size={14} /></button></div>}
       {error && <div role="alert" className="flex items-start gap-2 border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"><AlertCircle size={16} className="mt-0.5 shrink-0" />{error}</div>}
-
-      <section className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        {[
-          ["Tasks", tasks.length, "planned for this date"],
-          ["Open", remaining, "still to do"],
-          ["Done", completed, "completed"],
-        ].map(([label, value, detail]) => <div key={String(label)} className="border border-slate-200 bg-[#FFFCFB] p-4">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">{label}</div>
-          <div className="mt-1 font-serif text-3xl text-[#003366]">{value}</div>
-          <div className="mt-1 text-xs text-slate-500">{detail}</div>
-        </div>)}
-      </section>
 
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-12">
         <section className="space-y-4 xl:col-span-8">
@@ -424,22 +416,18 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
         <aside className="space-y-4 xl:col-span-4">
           <section className="border border-slate-200 bg-[#FFFCFB] p-5">
             <div className="flex items-center justify-between gap-2"><h2 className="font-serif text-lg italic text-[#003366]">Day notes</h2><span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{noteSave === "saved" ? "Saved to Personal List" : noteSave === "saving" ? "Saving…" : noteSave === "pending" ? "Autosave pending" : "Save failed"}</span></div>
-            <p className="mt-2 text-xs leading-relaxed text-slate-500">{personalList?.id ? `Stored as a dated subtask of Notes in ${personalList.name}.` : "Choose a Personal List in Meetings settings to save day notes."}</p>
-            <textarea value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} placeholder="Capture decisions, reminders, or thoughts for this day…" rows={9} className="mt-3 w-full resize-y border border-slate-200 bg-[#FFFCFB] p-3 text-sm leading-relaxed text-slate-700 outline-none focus:border-[#C9A84C]" aria-label="Day notes" />
+            <p className="mt-2 text-xs leading-relaxed text-slate-500">{personalListLoading ? "Loading your saved Personal List…" : personalList?.id ? `Stored as a dated subtask of Notes in ${personalList.name}.` : "Set a Personal List in Meetings settings to save day notes."}</p>
+            <textarea value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} placeholder="Capture decisions, reminders, or thoughts for this day…" rows={9} disabled={personalListLoading} className="mt-3 w-full resize-y border border-slate-200 bg-[#FFFCFB] p-3 text-sm leading-relaxed text-slate-700 outline-none focus:border-[#C9A84C] disabled:cursor-wait disabled:bg-slate-50" aria-label="Day notes" />
             {(noteError || payload?.notesError) && <div role="alert" className="mt-2 flex gap-2 text-xs text-red-700"><AlertCircle size={14} className="shrink-0" />{noteError || payload?.notesError}</div>}
             <div className="mt-3 flex items-center justify-between gap-2">
               <span className="text-[10px] text-slate-500">{payload?.noteTask ? <a href={payload.noteTask.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[#31577D]">Open note task <ExternalLink size={11} /></a> : "First save creates Notes and its dated subtask."}</span>
-              <button type="button" onClick={() => { if (notesTimer.current) clearTimeout(notesTimer.current); void send({ action: "note", notes: noteDraft }).then((result) => { setPayload((current) => current ? { ...current, notes: noteDraft, noteTask: result.noteTask || current.noteTask } : current); setNoteSave("saved"); setNoteError(""); }).catch((saveError) => { setNoteSave("error"); setNoteError(saveError instanceof Error ? saveError.message : "Notes could not be saved."); }); }} disabled={noteSave === "saving"} className="inline-flex h-9 items-center gap-2 border border-[#003366] px-3 text-xs font-semibold text-[#003366] hover:bg-[#003366] hover:text-white disabled:opacity-50"><Save size={13} />Save now</button>
+              <button type="button" onClick={() => { if (notesTimer.current) clearTimeout(notesTimer.current); void send({ action: "note", notes: noteDraft }).then((result) => { setPayload((current) => current ? { ...current, notes: noteDraft, noteTask: result.noteTask || current.noteTask } : current); setNoteSave("saved"); setNoteError(""); }).catch((saveError) => { setNoteSave("error"); setNoteError(saveError instanceof Error ? saveError.message : "Notes could not be saved."); }); }} disabled={noteSave === "saving" || personalListLoading || !personalList?.id} className="inline-flex h-9 items-center gap-2 border border-[#003366] px-3 text-xs font-semibold text-[#003366] hover:bg-[#003366] hover:text-white disabled:opacity-50"><Save size={13} />Save now</button>
             </div>
           </section>
           <section className="border border-slate-200 bg-[#FFFCFB] p-5">
             <h2 className="font-serif text-lg italic text-[#003366]">KPI Monitoring record</h2>
             <p className="mt-2 text-xs leading-relaxed text-slate-500">Activity fields and task subtasks are saved on the same dated record used by Notebook.</p>
             {payload?.dayTask ? <a href={payload.dayTask.url} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-2 border border-[#003366] px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[#003366] hover:bg-[#003366] hover:text-white">Open daily log <ExternalLink size={13} /></a> : <p className="mt-3 text-[11px] text-slate-500">The dated KPI record is created when you save a task or activity.</p>}
-          </section>
-          <section className="border border-slate-200 bg-[#FFFCFB] p-5">
-            <h2 className="font-serif text-lg italic text-[#003366]">Reminders</h2>
-            <p className="mt-2 text-xs leading-relaxed text-slate-500">A reminder lists your unfinished tasks and repeats at the selected interval while My Day is open. Browser notifications require permission.</p>
           </section>
         </aside>
       </div>
