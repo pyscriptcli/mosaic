@@ -97,6 +97,24 @@
   scrollbar-width: none;
 }
 
+.calendar-timeline-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 51, 102, 0.14) transparent;
+}
+.calendar-timeline-scroll::-webkit-scrollbar {
+  height: 4px;
+}
+.calendar-timeline-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.calendar-timeline-scroll::-webkit-scrollbar-thumb {
+  background: rgba(0, 51, 102, 0.14);
+  border-radius: 9999px;
+}
+.calendar-timeline-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 51, 102, 0.26);
+}
+
 @layer base {
   body {
     @apply bg-bg-primary text-text-primary font-sans antialiased;
