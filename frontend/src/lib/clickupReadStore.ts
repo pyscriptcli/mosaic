@@ -5,21 +5,20 @@ const TTL_MS = 5 * 60_000;
 const HOT_MAX = 300;
 type Entry = { body: string; status: number; statusText: string; headers: Array<[string, string]>; resourcePath: string; expiresAt: number };
 const hot = new Map<string, Entry>();
-let databaseUnavailableUntil = 0;
-let hasLoggedDatabaseError = false;
+let cacheUnavailableUntil = 0;
+let hasLoggedCacheError = false;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let sharedClient: ReturnType<typeof createClient<any>> | null = null;
 
-function markDatabaseUnavailable(code?: string) {
-  databaseUnavailableUntil = Date.now() + 30_000;
-  if (!hasLoggedDatabaseError) {
+function markCacheUnavailable(code?: string) {
+  cacheUnavailableUntil = Date.now() + 30_000;
+  if (!hasLoggedCacheError) {
     console.warn("[clickup-perf] shared cache is unavailable", code || "unknown");
-    hasLoggedDatabaseError = true;
+    hasLoggedCacheError = true;
   }
 }
 
 function db() {
-  if (Date.now() < databaseUnavailableUntil) return null;
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
   if (!url || !key) return null;
@@ -69,10 +68,13 @@ export async function readCachedClickUp(scope: string, url: string) {
   const local = hot.get(key);
   if (local && local.expiresAt > Date.now()) return asResponse(local);
   if (local) hot.delete(key);
+  // The HTTP cache is optional. Its circuit breaker must not take down durable
+  // connection persistence or queued writes that use the same Supabase client.
+  if (Date.now() < cacheUnavailableUntil) return null;
   const client = db();
   if (!client) return null;
   const { data, error } = await client.from("echo_clickup_http_cache").select("status,status_text,headers,body,resource_path,expires_at").eq("scope_key", scope).eq("cache_key", key.slice(scope.length + 1)).gt("expires_at", new Date().toISOString()).maybeSingle();
-  if (error) { markDatabaseUnavailable(error.code); return null; }
+  if (error) { markCacheUnavailable(error.code); return null; }
   if (!data) return null;
   const entry: Entry = { status: data.status, statusText: data.status_text || "", headers: data.headers || [], body: typeof data.body === "string" ? data.body : JSON.stringify(data.body), resourcePath: data.resource_path || "", expiresAt: new Date(data.expires_at).getTime() };
   putHot(key, entry);
@@ -84,7 +86,7 @@ export async function reserveClickUpRequest(scope: string, intervalMs = 667) {
   if (client) {
     const { data, error } = await client.rpc("echo_reserve_clickup_request", { p_scope_key: scope, p_interval_ms: intervalMs });
     if (!error && typeof data === "number") return data;
-    if (error) markDatabaseUnavailable(error.code);
+    if (error) console.warn("[clickup-perf] shared request limiter is unavailable", error.code || "unknown");
   }
   return 0;
 }
@@ -104,7 +106,7 @@ export async function writeCachedClickUp(scope: string, url: string, response: R
   const client = db();
   if (client) {
     const cacheKey = key.slice(scope.length + 1);
-    void client.from("echo_clickup_http_cache").upsert({ scope_key: scope, cache_key: cacheKey, url_hash: cacheKey, resource_path: resourcePath, status: response.status, status_text: response.statusText, headers, body: JSON.parse(body), expires_at: expiresAt }, { onConflict: "scope_key,cache_key" }).then(({ error }) => { if (error) markDatabaseUnavailable(error.code); });
+    void client.from("echo_clickup_http_cache").upsert({ scope_key: scope, cache_key: cacheKey, url_hash: cacheKey, resource_path: resourcePath, status: response.status, status_text: response.statusText, headers, body: JSON.parse(body), expires_at: expiresAt }, { onConflict: "scope_key,cache_key" }).then(({ error }) => { if (error) markCacheUnavailable(error.code); });
   }
 }
 
