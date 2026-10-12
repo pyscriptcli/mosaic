@@ -1479,7 +1479,7 @@ export function ProjectWorkspace({ userId }: { userId?: string }) {
               <header className="mb-2 flex items-center justify-between gap-3 border-b border-slate-100 pb-2">
                 <h3 id={`subproject-group-${key}`} className="flex min-w-0 items-center gap-2 text-xs font-semibold text-[#003366]">
                   {group.assignee && <MemberAvatars members={[group.assignee]} emptyLabel="" />}
-                  <span className="truncate">{group.assignee?.name || "Unassigned"}</span>
+                  <span className="truncate text-lg">{group.assignee?.name || "Unassigned"}</span>
                 </h3>
                 <span className="shrink-0 text-[10px] text-slate-500">{group.lists.length} subproject{group.lists.length === 1 ? "" : "s"}</span>
               </header>
