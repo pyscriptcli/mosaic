@@ -1429,6 +1429,20 @@ export function ProjectWorkspace({ userId }: { userId?: string }) {
   }, [data]);
 
   const tasks = data?.tasks || [];
+  const subprojectGroups = new Map<string, { assignee: ProjectMember | null; lists: ProjectList[] }>();
+  for (const list of data?.lists || []) {
+    const assigneeId = data?.defaultAssignees[list.id]?.[0];
+    const assignee = data?.members.find((member) => member.id === assigneeId) || null;
+    const key = assignee?.id || "unassigned";
+    const group = subprojectGroups.get(key) || { assignee, lists: [] };
+    group.lists.push(list);
+    subprojectGroups.set(key, group);
+  }
+  const orderedSubprojectGroups = [...subprojectGroups.entries()].sort(([keyA, groupA], [keyB, groupB]) => {
+    if (keyA === "unassigned") return 1;
+    if (keyB === "unassigned") return -1;
+    return (groupA.assignee?.name || "").localeCompare(groupB.assignee?.name || "") || keyA.localeCompare(keyB);
+  });
   if (screen === "gallery") return <ProjectGallery projects={projects} selectedProjectIds={selectedProjectIds} selectionLoaded={selectionLoaded} selectionError={selectionError} loading={loading} error={error} savingSelection={savingSelection} onRefresh={refreshGallery} onOpen={openProject} onSaveSelection={saveProjectSelection} />;
 
   const activeList = data?.lists.find((list) => list.id === activeListId);
@@ -1459,23 +1473,33 @@ export function ProjectWorkspace({ userId }: { userId?: string }) {
         : error ? <div role="alert" className="border border-amber-300 bg-[#FFFCFB] p-6"><h2 className="text-sm font-semibold text-[#003366]">Project data could not be loaded</h2><p className="mt-2 text-sm leading-6 text-slate-700">{error}</p><div className="mt-4 flex flex-wrap gap-2"><button type="button" onClick={refreshProject} className="inline-flex min-h-11 items-center gap-2 border border-[#003366] bg-[#003366] px-4 text-xs font-semibold text-white hover:bg-[#174778] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#C9A84C]">Try again <RefreshCw aria-hidden="true" className="h-4 w-4" /></button><a href="/api/auth/login" className="inline-flex min-h-11 items-center gap-2 border border-slate-300 bg-white px-4 text-xs font-semibold text-[#003366] hover:border-[#003366] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#003366]">Sign in with ClickUp <ArrowUpRight aria-hidden="true" className="h-4 w-4" /></a></div></div>
         : data && view === "overview" ? <section aria-label="Subprojects" className="border border-slate-200 bg-white">
           <div className="border-b border-slate-100 px-4 py-3"><h2 className="text-sm font-semibold text-[#003366]">Subprojects</h2><p className="mt-0.5 text-[11px] text-slate-500">Open a subproject workspace to see its tasks and team schedule.</p></div>
-          <div className="grid gap-2 p-3 sm:grid-cols-2 lg:grid-cols-3">
-            {data.lists.map((list) => {
-              const listTasks = tasksByList.get(list.id) || [];
-              const listTasksLoaded = Boolean(data.loadedTaskListIds?.includes(list.id));
-              const listDone = listTasks.filter(isComplete).length;
-              const listProgress = listTasks.length ? Math.round((listDone / listTasks.length) * 100) : 0;
-              const taskCount = listTasksLoaded ? listTasks.filter((task) => !isComplete(task)).length : list.taskCount;
-              const lead = (data.defaultAssignees[list.id] || []).map((id) => data.members.find((member) => member.id === id)).find((member): member is ProjectMember => Boolean(member));
-              return <article key={list.id} className="border border-slate-200 bg-white p-3 transition-colors hover:border-[#C9A84C]">
-                <button type="button" onClick={() => openSubproject(list.id)} className="block w-full text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#003366]">
-                  <span className="flex items-start justify-between gap-2"><span className="text-sm font-semibold text-[#003366]">{list.name}</span><span className="shrink-0 text-[10px] text-slate-500">{taskCount === null ? "Open to load tasks" : `${taskCount} open tasks`}</span></span>
-                  <span className="mt-2 block h-1.5 bg-slate-100"><span className="block h-full bg-[#C9A84C]" style={{ width: `${listTasksLoaded ? listProgress : 0}%` }} /></span>
-                  <span className="mt-2 block text-[10px] text-slate-500">{listTasksLoaded ? `${listProgress}% complete` : "Progress loads when opened"}</span>
-                </button>
-                <div className="mt-3 flex min-w-0 items-center justify-between gap-2 border-t border-slate-100 pt-2">{lead ? <span className="flex min-w-0 items-center gap-2"><MemberAvatars members={[lead]} emptyLabel=""/><span className="truncate text-xs text-slate-700">{lead.name}</span></span> : <span className="truncate text-xs text-slate-400">Unassigned</span>}<button type="button" onClick={() => openSubproject(list.id)} className="inline-flex shrink-0 items-center gap-1 text-[10px] font-semibold text-[#31577D] hover:text-[#003366] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#003366]">Open workspace <ArrowUpRight className="h-3 w-3" /></button></div>
-              </article>;
-            })}
+          <div className="space-y-4 p-3">
+            {orderedSubprojectGroups.map(([key, group]) => <section key={key} aria-labelledby={`subproject-group-${key}`}>
+              <header className="mb-2 flex items-center justify-between gap-3 border-b border-slate-100 pb-2">
+                <h3 id={`subproject-group-${key}`} className="flex min-w-0 items-center gap-2 text-xs font-semibold text-[#003366]">
+                  {group.assignee && <MemberAvatars members={[group.assignee]} emptyLabel="" />}
+                  <span className="truncate">{group.assignee?.name || "Unassigned"}</span>
+                </h3>
+                <span className="shrink-0 text-[10px] text-slate-500">{group.lists.length} subproject{group.lists.length === 1 ? "" : "s"}</span>
+              </header>
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {group.lists.map((list) => {
+                  const listTasks = tasksByList.get(list.id) || [];
+                  const listTasksLoaded = Boolean(data.loadedTaskListIds?.includes(list.id));
+                  const listDone = listTasks.filter(isComplete).length;
+                  const listProgress = listTasks.length ? Math.round((listDone / listTasks.length) * 100) : 0;
+                  const taskCount = listTasksLoaded ? listTasks.filter((task) => !isComplete(task)).length : list.taskCount;
+                  return <article key={list.id} className="border border-slate-200 bg-white p-3 transition-colors hover:border-[#C9A84C]">
+                    <button type="button" onClick={() => openSubproject(list.id)} className="block w-full text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#003366]">
+                      <span className="flex items-start justify-between gap-2"><span className="text-sm font-semibold text-[#003366]">{list.name}</span><span className="shrink-0 text-[10px] text-slate-500">{taskCount === null ? "Open to load tasks" : `${taskCount} open tasks`}</span></span>
+                      <span className="mt-2 block h-1.5 bg-slate-100"><span className="block h-full bg-[#C9A84C]" style={{ width: `${listTasksLoaded ? listProgress : 0}%` }} /></span>
+                      <span className="mt-2 block text-[10px] text-slate-500">{listTasksLoaded ? `${listProgress}% complete` : "Progress loads when opened"}</span>
+                    </button>
+                    <div className="mt-3 flex justify-end border-t border-slate-100 pt-2"><button type="button" onClick={() => openSubproject(list.id)} className="inline-flex min-h-8 items-center gap-1 text-[10px] font-semibold text-[#31577D] hover:text-[#003366] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#003366]">Open workspace <ArrowUpRight className="h-3 w-3" /></button></div>
+                  </article>;
+                })}
+              </div>
+            </section>)}
           </div>
           {data.lists.length === 0 && <p className="p-5 text-sm text-slate-600">No subprojects are included in this project yet.</p>}
         </section>
