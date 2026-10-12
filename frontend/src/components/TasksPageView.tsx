@@ -5,7 +5,7 @@ import MyDayView from "@/components/MyDayView";
 import TasksView from "@/components/TasksView";
 import { NotebookView } from "@/components/NotebookView";
 
-type WorkspaceTab = "my-day" | "all-tasks" | "week" | "dashboard";
+type WorkspaceTab = "my-day" | "all-tasks" | "activity" | "dashboard";
 type Props = {
   userId?: string;
   currentUserName?: string;
@@ -25,11 +25,11 @@ export default function TasksPageView(props: Props) {
   });
   const firstTab: WorkspaceTab = props.canAccessTasks
     ? props.currentView === "tasks" ? "all-tasks" : "my-day"
-    : "week";
+    : "activity";
   const [tab, setTab] = useState<WorkspaceTab>(firstTab);
   const tabs: Array<{ id: WorkspaceTab; label: string }> = [
     ...(props.canAccessTasks ? [{ id: "my-day" as const, label: "My Day" }, { id: "all-tasks" as const, label: "All Tasks" }] : []),
-    ...(props.canAccessNotebook ? [{ id: "week" as const, label: "Week" }, { id: "dashboard" as const, label: "Dashboard" }] : []),
+    ...(props.canAccessNotebook ? [{ id: "activity" as const, label: "Daily activity" }, { id: "dashboard" as const, label: "Dashboard" }] : []),
   ];
 
   return (
@@ -39,10 +39,22 @@ export default function TasksPageView(props: Props) {
         <h1 className="mt-0.5 font-serif text-2xl font-bold italic text-[#003366]">Notebook</h1>
         <p className="mt-1 text-sm text-slate-600">Plan your day, capture activity, and review work in one place.</p>
       </header>
-      <div role="tablist" aria-label="Notebook views" className="flex flex-wrap border-b border-slate-200">
+      <div role="tablist" aria-label="Notebook views" className="flex flex-wrap border-b border-slate-200" onKeyDown={(event) => {
+        const tabButtons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>("[role='tab']"));
+        const currentIndex = tabButtons.indexOf(document.activeElement as HTMLButtonElement);
+        if (currentIndex < 0 || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+        event.preventDefault();
+        const nextIndex = event.key === "Home" ? 0 : event.key === "End" ? tabButtons.length - 1 : (currentIndex + (event.key === "ArrowRight" ? 1 : -1) + tabButtons.length) % tabButtons.length;
+        const nextButton = tabButtons[nextIndex];
+        const nextTab = tabs.find((item) => `notebook-view-tab-${item.id}` === nextButton?.id);
+        if (nextTab) setTab(nextTab.id);
+        nextButton?.focus();
+      }}>
         {tabs.map((item) => (
           <button
             key={item.id}
+            id={`notebook-view-tab-${item.id}`}
+            aria-controls="notebook-workspace-panel"
             type="button"
             role="tab"
             aria-selected={tab === item.id}
@@ -53,8 +65,9 @@ export default function TasksPageView(props: Props) {
           </button>
         ))}
       </div>
+      <div id="notebook-workspace-panel" role="tabpanel" aria-labelledby={`notebook-view-tab-${tab}`} tabIndex={0}>
       {tab === "my-day" && props.canAccessTasks && (
-        <MyDayView key="my-day" userId={props.userId} currentUserName={props.currentUserName} initialDate={selectedDate} onDateChange={setSelectedDate} showDailyActivity={props.canAccessNotebook} />
+        <MyDayView key="my-day" userId={props.userId} currentUserName={props.currentUserName} initialDate={selectedDate} onDateChange={setSelectedDate} showDailyActivity={false} />
       )}
       {tab === "all-tasks" && props.canAccessTasks && (
         <TasksView
@@ -65,12 +78,16 @@ export default function TasksPageView(props: Props) {
           onClearFocusedTask={props.onClearFocusedTask}
         />
       )}
-      {tab === "week" && props.canAccessNotebook && (
-        <NotebookView key="week" currentUserName={props.currentUserName} userId={props.userId} initialTab="week" hideViewTabs hidePageTitle onOpenDay={(date) => { setSelectedDate(date); setTab("my-day"); }} />
+      {tab === "activity" && props.canAccessNotebook && (
+        <div className="space-y-8">
+          <MyDayView key={`activity-editor-${selectedDate}`} userId={props.userId} currentUserName={props.currentUserName} initialDate={selectedDate} onDateChange={setSelectedDate} activityOnly showDailyActivity />
+          <NotebookView key="activity-history" currentUserName={props.currentUserName} userId={props.userId} initialTab="week" hideViewTabs hidePageTitle onOpenDay={(date) => { setSelectedDate(date); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
+        </div>
       )}
       {tab === "dashboard" && props.canAccessNotebook && (
         <NotebookView key="dashboard" currentUserName={props.currentUserName} userId={props.userId} initialTab="insights" hideViewTabs hidePageTitle />
       )}
+      </div>
     </div>
   );
 }

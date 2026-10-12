@@ -230,11 +230,6 @@ export function NotebookView({ currentUserName, userId, initialDate, initialTab 
     setSaveWarning("");
   }, [selectedDayEntry?.id, selectedDate, member?.id]);
 
-  const weekStart = startOfWeek(selectedDate);
-  const weekDays = useMemo(() => {
-    const mondayFirst = Array.from({ length: 7 }, (_, index) => shiftDate(weekStart, index));
-    return [mondayFirst[6], ...mondayFirst.slice(0, 6)];
-  }, [weekStart]);
   const workdays = useMemo(() => weekdaysInRange(rangeStart, rangeEnd), [rangeStart, rangeEnd]);
 
   const completenessRows = useMemo(() => (payload?.members || []).map((person) => {
@@ -488,7 +483,7 @@ export function NotebookView({ currentUserName, userId, initialDate, initialTab 
           <div className="flex items-center gap-2.5">
             <h1 className="text-2xl font-serif font-bold text-[#003366] italic">Notebook</h1>
           </div>
-          <p className="text-sm text-gray-500 mt-1">Daily activity and team logging completeness from the KPI Monitoring list.</p>
+          <p className="text-sm text-gray-500 mt-1">Review your daily activity and team logging progress.</p>
         </div>}
         <div className="flex items-center gap-2 flex-wrap">
           {activeTab !== "insights" && payload && payload.members.length > 0 && (
@@ -516,7 +511,7 @@ export function NotebookView({ currentUserName, userId, initialDate, initialTab 
         {!hideViewTabs && <div className="inline-flex border border-gray-200 bg-[#FFFCFB]" role="tablist" aria-label="Notebook views">
           {([
             ["today", "Today"],
-            ["week", "Week"],
+            ["week", "Daily activity"],
             ["insights", "Dashboard"],
           ] as const).map(([id, label]) => (
             <button
@@ -550,6 +545,15 @@ export function NotebookView({ currentUserName, userId, initialDate, initialTab 
             <input type="date" value={rangeStart} onChange={(event) => { setRangePreset("custom"); setRangeStart(event.target.value); }} aria-label="Reporting range start" className="h-10 bg-[#FFFCFB] border border-gray-300 px-3 text-sm focus:outline-none focus:border-[#C9AB4C]" />
             <span className="text-sm text-gray-500">to</span>
             <input type="date" value={rangeEnd} onChange={(event) => { setRangePreset("custom"); setRangeEnd(event.target.value); }} aria-label="Reporting range end" className="h-10 bg-[#FFFCFB] border border-gray-300 px-3 text-sm focus:outline-none focus:border-[#C9AB4C]" />
+          </div>
+        ) : activeTab === "week" ? (
+          <div className="flex items-center gap-2 flex-wrap">
+            <select value={rangePreset} onChange={(event) => applyPreset(event.target.value as "this-week" | "last-week" | "this-month" | "last-month" | "custom")} aria-label="Activity period" className="h-10 bg-[#003366] border border-[#003366] px-3 text-sm font-medium text-white focus:outline-none focus:ring-1 focus:ring-[#C9A84C]">
+              <option value="this-week">This week</option><option value="last-week">Last week</option><option value="this-month">This month</option><option value="last-month">Last month</option><option value="custom">Custom range</option>
+            </select>
+            <input type="date" value={rangeStart} onChange={(event) => { setRangePreset("custom"); setRangeStart(event.target.value); }} aria-label="Activity start date" className="h-10 bg-[#FFFCFB] border border-gray-300 px-3 text-sm focus:outline-none focus:border-[#C9AB4C]" />
+            <span className="text-sm text-gray-500">to</span>
+            <input type="date" value={rangeEnd} onChange={(event) => { setRangePreset("custom"); setRangeEnd(event.target.value); }} aria-label="Activity end date" className="h-10 bg-[#FFFCFB] border border-gray-300 px-3 text-sm focus:outline-none focus:border-[#C9AB4C]" />
           </div>
         ) : (
           <div className="flex items-center bg-[#FFFCFB] border border-gray-300">
@@ -620,7 +624,7 @@ export function NotebookView({ currentUserName, userId, initialDate, initialTab 
                   <h3 className="text-lg font-serif italic text-[#003366]">My Day tasks</h3>
                   <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">{selectedDayEntry?.dailyTasks?.length || 0} item{(selectedDayEntry?.dailyTasks?.length || 0) === 1 ? "" : "s"}</span>
                 </div>
-                <p className="mt-1 text-xs text-gray-500">Tasks created in My Day are saved as subtasks of this dated KPI Monitoring record.</p>
+                <p className="mt-1 text-xs text-gray-500">Tasks created in My Day appear in that day’s daily log.</p>
                 {selectedDayEntry?.dailyTasks?.length ? (
                   <ul className="mt-3 divide-y divide-gray-100 border-t border-gray-100">
                     {selectedDayEntry.dailyTasks.map((task) => <li key={task.id} className="flex items-center justify-between gap-3 py-2.5">
@@ -737,50 +741,24 @@ export function NotebookView({ currentUserName, userId, initialDate, initialTab 
       )}
 
       {activeTab === "week" && (
-        <div>
-          <div className="flex items-end justify-between gap-4 mb-4">
-            <div>
-              <h2 className="text-xl">Week of {formatDate(weekStart, { month: "long", day: "numeric", year: "numeric" })}</h2>
-              <p className="text-sm text-gray-500 mt-1">{member?.name || "Team member"} · daily activity overview</p>
-            </div>
-            <span className="text-sm text-gray-500">{weekDays.filter((date) => entries.some((entry) => entry.member.id === member?.id && entry.date === date && entry.hasContent)).length} days logged</span>
+        <section className="border border-gray-200 bg-[#FFFCFB]">
+          <div className="flex flex-wrap items-end justify-between gap-3 border-b border-gray-200 p-4">
+            <div><h2 className="text-xl">Daily activity</h2><p className="mt-1 text-sm text-gray-500">{formatDate(rangeStart, { month: "long", day: "numeric", year: "numeric" })}–{formatDate(rangeEnd, { month: "long", day: "numeric", year: "numeric" })} · {member?.name || "Team member"}</p></div>
+            <span className="text-xs text-gray-500">{entries.filter((entry) => entry.member.id === member?.id && entry.date >= rangeStart && entry.date <= rangeEnd && entry.hasContent).length} days with activity</span>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-12 gap-3 items-start">
-            {weekDays.map((date) => {
-              const dayEntries = entries.filter((entry) => entry.member.id === member?.id && entry.date === date);
-              const total = CATEGORY_META.reduce((sum, category) => sum + dayEntries.reduce((count, entry) => count + itemsFromText(entry.categories[category.key]).length, 0), 0);
-              const isWeekend = [0, 6].includes(fromIso(date).getDay());
-              return (
-                <button
-                  type="button"
-                  key={date}
-                  onClick={() => {
-                    if (hideViewTabs && onOpenDay) onOpenDay(date);
-                    else { setSelectedDate(date); setActiveTab("today"); }
-                  }}
-                  className={`self-start w-full text-left border p-4 transition-colors ${isWeekend ? "xl:col-span-1 bg-[#1B1D1E] text-[#FFFCFB] border-[#1B1D1E] hover:border-[#C9AB4C]" : "xl:col-span-2 bg-[#FFFCFB] hover:border-[#C9AB4C]"} ${date === selectedDate ? "border-[#C9AB4C] shadow-[inset_0_2px_0_#C9AB4C]" : isWeekend ? "" : "border-gray-200"}`}
-                >
-                  <span className={`block text-xs uppercase tracking-wider font-bold ${isWeekend ? "text-white/70" : "text-gray-500"}`}>{formatDate(date, { weekday: "short" })}</span>
-                  <span className={`block text-2xl font-serif font-bold mt-1 ${isWeekend ? "text-white" : "text-[#003366]"}`}>{fromIso(date).getDate()}</span>
-                  {!isWeekend && total ? (
-                    <span className="block mt-4 space-y-3">
-                      {CATEGORY_META.map((category) => {
-                        const tasks = dayEntries.flatMap((entry) => itemsFromText(entry.categories[category.key]));
-                        return tasks.length ? (
-                          <span key={category.key} className="block border-t border-gray-100 pt-2.5">
-                            <span className="flex justify-between text-[11px] font-bold uppercase tracking-wider text-[#003366]"><span>{category.label}</span><span>{tasks.length}</span></span>
-                            {tasks.map((task, index) => <span key={`${task}-${index}`} className="block mt-1.5 text-xs leading-relaxed text-gray-600"><span className="text-[#C9AB4C] mr-1.5">•</span>{task}</span>)}
-                          </span>
-                        ) : null;
-                      })}
-                    </span>
-                  ) : <span className={`block mt-5 text-xs italic ${isWeekend ? "text-white/60" : "text-gray-500"}`}>{isWeekend ? "Weekend" : "Empty log"}</span>}
-                  {!isWeekend && <span className={`block mt-4 pt-3 border-t text-[11px] font-semibold uppercase tracking-wider ${isWeekend ? "border-white/15 text-white/60" : "border-gray-100 text-[#003366]"}`}>{total ? "Edit day" : "Add log"} <span aria-hidden="true">→</span></span>}
-                </button>
-              );
-            })}
+          <div className="divide-y divide-gray-100">
+            {entries.filter((entry) => entry.member.id === member?.id && entry.date >= rangeStart && entry.date <= rangeEnd && entry.hasContent).sort((a, b) => b.date.localeCompare(a.date)).map((entry) => (
+              <article key={entry.id} className="grid gap-3 p-4 md:grid-cols-[180px_1fr]">
+                <div><h3 className="font-semibold text-sm text-[#003366]">{formatDate(entry.date, { weekday: "short", month: "short", day: "numeric", year: "numeric" })}</h3><button type="button" onClick={() => { if (hideViewTabs && onOpenDay) onOpenDay(entry.date); else { setSelectedDate(entry.date); setActiveTab("today"); } }} className="mt-2 text-xs font-semibold text-[#31577D] hover:text-[#003366]">Open this day →</button></div>
+                <div className="grid gap-3 sm:grid-cols-2">{CATEGORY_META.map((category) => {
+                  const items = itemsFromText(entry.categories[category.key]);
+                  return items.length ? <div key={category.key}><h4 className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{category.label}</h4><ul className="mt-1 space-y-1 text-sm leading-relaxed text-slate-700">{items.map((item, index) => <li key={`${item}-${index}`} className="flex gap-2"><span aria-hidden="true" className="text-[#31577D]">•</span><span>{item}</span></li>)}</ul></div> : null;
+                })}</div>
+              </article>
+            ))}
+            {!entries.some((entry) => entry.member.id === member?.id && entry.date >= rangeStart && entry.date <= rangeEnd && entry.hasContent) && <p className="p-8 text-center text-sm text-gray-500">No activity recorded in this period.</p>}
           </div>
-        </div>
+        </section>
       )}
 
       {activeTab === "insights" && (

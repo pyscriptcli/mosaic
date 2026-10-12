@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, Bell, BellOff, CalendarDays, Check, CheckCircle2, ChevronLeft, ChevronRight, ExternalLink, LoaderCircle, Plus, RefreshCw, Save, Trash2, X } from "lucide-react";
+import { AlertCircle, Bold, Bell, BellOff, CalendarDays, Check, CheckCircle2, ChevronLeft, ChevronRight, ExternalLink, Highlighter, Italic, Link2, List, ListOrdered, LoaderCircle, Plus, Quote, RefreshCw, Save, Sparkles, Trash2, Underline, X } from "lucide-react";
 import { getStoredClickUpListId, getStoredClickUpToken } from "@/lib/api";
 
 type DayTask = {
@@ -14,7 +14,7 @@ type DayPayload = {
   notes: string; noteTask: { id: string; name: string; url: string } | null; activity: DailyActivity;
   personalList: { id: string; name: string } | null; completeStatus: string; openStatus: string; notesError?: string;
 };
-type Props = { userId?: string; currentUserName?: string; showDailyActivity?: boolean; initialDate?: string; onDateChange?: (date: string) => void };
+type Props = { userId?: string; currentUserName?: string; showDailyActivity?: boolean; activityOnly?: boolean; initialDate?: string; onDateChange?: (date: string) => void };
 
 const todayIso = () => {
   const date = new Date();
@@ -48,7 +48,7 @@ function requestHeaders(personalList?: { id: string; name: string } | null) {
   return headers;
 }
 
-export default function MyDayView({ userId, currentUserName, showDailyActivity = true, initialDate, onDateChange }: Props) {
+export default function MyDayView({ userId, currentUserName, showDailyActivity = true, activityOnly = false, initialDate, onDateChange }: Props) {
   const [date, setDate] = useState(() => initialDate || todayIso());
   const [payload, setPayload] = useState<DayPayload | null>(null);
   const [loading, setLoading] = useState(true);
@@ -76,6 +76,16 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
   const [settingsReady, setSettingsReady] = useState(false);
   const [personalList, setPersonalList] = useState<DayPayload["personalList"]>(null);
   const [personalListLoading, setPersonalListLoading] = useState(true);
+  const [personalListInput, setPersonalListInput] = useState("");
+  const [personalListError, setPersonalListError] = useState("");
+  const [validatingPersonalList, setValidatingPersonalList] = useState(false);
+  const [taskSummary, setTaskSummary] = useState("");
+  const [summaryState, setSummaryState] = useState<"idle" | "loading" | "error">("idle");
+  const [summaryError, setSummaryError] = useState("");
+  const [notesSize, setNotesSize] = useState<"small" | "normal">("normal");
+  const notesEditor = useRef<HTMLTextAreaElement>(null);
+  const summaryAttempt = useRef("");
+  const tasks = payload?.tasks || [];
   const lastReminderAt = useRef(0);
   const notesTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activityTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -154,6 +164,74 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
     return result;
   }, [date, personalList]);
 
+  const configurePersonalList = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!personalListInput.trim()) return;
+    setValidatingPersonalList(true);
+    setPersonalListError("");
+    try {
+      const response = await fetch("/api/clickup/validate-list", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ input: personalListInput.trim() }) });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.valid || !result.list?.id) throw new Error(result.error || "Choose a list you can access.");
+      const selected = { id: String(result.list.id), name: String(result.list.name || "Personal List") };
+      const existingResponse = await fetch("/api/user/preferences", { cache: "no-store" });
+      const existingBody = await existingResponse.json().catch(() => ({}));
+      const preferences = existingBody.preferences && typeof existingBody.preferences === "object" ? existingBody.preferences : {};
+      const saved = await fetch("/api/user/preferences", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ preferences: { ...preferences, personal_list_id: selected.id, personal_list_name: selected.name } }) });
+      if (!saved.ok) throw new Error("The list was checked but your preference could not be saved.");
+      localStorage.setItem("project_echo_personal_list_id", selected.id);
+      localStorage.setItem("project_echo_personal_list_name", selected.name);
+      setPersonalList(selected);
+      setPayload((current) => current ? { ...current, personalList: selected } : current);
+      setPersonalListInput("");
+    } catch (error) {
+      setPersonalListError(error instanceof Error ? error.message : "The Personal List could not be saved.");
+    } finally {
+      setValidatingPersonalList(false);
+    }
+  };
+
+  const formatNotes = (before: string, after = "", block = false) => {
+    const editor = notesEditor.current;
+    const start = editor?.selectionStart ?? noteDraft.length;
+    const end = editor?.selectionEnd ?? noteDraft.length;
+    const selected = noteDraft.slice(start, end);
+    const insertion = block ? (selected ? selected.split("\n").map((line) => line ? before + line : line).join("\n") : before) : before + (selected || "text") + after;
+    const next = noteDraft.slice(0, start) + insertion + noteDraft.slice(end);
+    setNoteDraft(next);
+    requestAnimationFrame(() => {
+      editor?.focus();
+      const cursor = start + insertion.length;
+      if (!selected && !block) editor?.setSelectionRange(start + before.length, start + before.length + 4); else editor?.setSelectionRange(cursor, cursor);
+    });
+  };
+
+  const generateSummary = useCallback(async () => {
+    if (!tasks.length) { setTaskSummary(""); return; }
+    setSummaryState("loading");
+    setSummaryError("");
+    try {
+      const result = await send({ action: "summary" });
+      const summary = String(result.summary || "").trim();
+      setTaskSummary(summary);
+      if (summary) {
+        setActivityDraft((current) => { const marker = "My Day summary"; const markerIndex = current.adhoc.lastIndexOf(marker); const base = (markerIndex >= 0 ? current.adhoc.slice(0, markerIndex) : current.adhoc).trim(); return { ...current, adhoc: `${base ? `${base}\n\n` : ""}${marker}\n${summary}` }; });
+      }
+      setSummaryState("idle");
+    } catch (error) {
+      setSummaryState("error");
+      setSummaryError(error instanceof Error ? error.message : "A task summary could not be generated.");
+    }
+  }, [send, tasks]);
+
+  useEffect(() => {
+    const taskKey = `${date}:${tasks.map((task) => `${task.id}:${task.name}:${task.description}:${task.status}:${task.completed}`).sort().join("|")}`;
+    if ((!showDailyActivity && !activityOnly) || !tasks.length || !payload || summaryAttempt.current === taskKey) return;
+    if (!summaryAttempt.current && payload.activity.adhoc.includes("My Day summary")) { summaryAttempt.current = taskKey; return; }
+    summaryAttempt.current = taskKey;
+    void generateSummary();
+  }, [date, tasks, payload, generateSummary, showDailyActivity, activityOnly]);
+
   useEffect(() => {
     if (!notesReady.current || personalListLoading || noteDraft === (payload?.notes || "")) return;
     if (notesTimer.current) clearTimeout(notesTimer.current);
@@ -198,7 +276,6 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
     return () => { if (activityTimer.current) clearTimeout(activityTimer.current); };
   }, [activityDraft, payload, saveActivity]);
 
-  const tasks = payload?.tasks || [];
   const notify = useCallback((title: string, body: string) => {
     if (typeof window === "undefined") return;
     if ("Notification" in window && Notification.permission === "granted") {
@@ -277,9 +354,9 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
     <div className="mx-auto max-w-[1440px] space-y-5 pb-8">
       <header className="flex flex-col gap-3 border-b border-slate-200 pb-4 xl:flex-row xl:items-center xl:justify-between">
         <div className="min-w-0">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Notebook · Daily workspace</p>
-          <h1 className="mt-1 font-serif text-3xl italic text-[#003366]">My Day</h1>
-          <p className="mt-1 text-sm text-slate-500">Plan tasks, record daily activity, and keep notes together.</p>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Notebook · {activityOnly ? "Activity log" : "Daily workspace"}</p>
+          <h1 className="mt-1 font-serif text-3xl italic text-[#003366]">{activityOnly ? "Daily activity" : "My Day"}</h1>
+          <p className="mt-1 text-sm text-slate-500">{activityOnly ? "Record and review work completed each day." : "Plan tasks and keep notes together."}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2 xl:justify-end">
           <div className="flex h-9 items-center gap-0.5">
@@ -290,10 +367,7 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
           <label className="flex h-9 items-center gap-2 border border-slate-300 bg-[#FFFCFB] px-2.5 text-sm text-[#003366]">
             <CalendarDays size={14} /><input type="date" value={date} onChange={(event) => setDate(event.target.value)} className="w-[125px] bg-transparent text-xs outline-none" aria-label="Select day" />
           </label>
-          <a href={payload?.dayTask?.url || "https://app.clickup.com/9014981136/v/l/901418075633"} target="_blank" rel="noreferrer" aria-label="Open KPI Monitoring" title="KPI Monitoring" className="inline-flex h-9 items-center gap-1.5 border border-[#003366] px-2.5 text-[10px] font-semibold uppercase tracking-wide text-[#003366] hover:bg-[#003366] hover:text-white">
-            KPI <ExternalLink size={12} />
-          </a>
-          <div className="relative">
+          <div className={activityOnly ? "hidden" : "relative"}>
             <button type="button" onClick={() => setReminderSettingsOpen((open) => !open)} aria-label="Reminder settings" title="Reminder settings" aria-expanded={reminderSettingsOpen} className={`grid h-9 w-9 place-items-center border ${remindersEnabled ? "border-[#003366] bg-[#003366] text-white" : "border-slate-300 bg-[#FFFCFB] text-[#003366] hover:border-[#C9A84C]"}`}>
               {remindersEnabled ? <Bell size={15} /> : <BellOff size={15} />}
             </button>
@@ -309,7 +383,7 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
               </button>
             </div>}
           </div>
-          <button type="button" onClick={() => void loadDay(true)} disabled={refreshing} aria-label="Refresh My Day" title="Refresh" className="grid h-9 w-9 place-items-center border border-slate-300 bg-[#FFFCFB] text-[#003366] hover:border-[#C9A84C] disabled:opacity-50">
+          <button type="button" onClick={() => void loadDay(true)} disabled={refreshing} aria-label={activityOnly ? "Refresh daily activity" : "Refresh My Day"} title="Refresh" className="grid h-9 w-9 place-items-center border border-slate-300 bg-[#FFFCFB] text-[#003366] hover:border-[#C9A84C] disabled:opacity-50">
             <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
           </button>
         </div>
@@ -319,10 +393,11 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
       {error && <div role="alert" className="flex items-start gap-2 border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"><AlertCircle size={16} className="mt-0.5 shrink-0" />{error}</div>}
 
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-12">
-        <section className="space-y-4 xl:col-span-8">
+        <section className={`space-y-4 ${activityOnly ? "xl:col-span-12" : "xl:col-span-8"}`}>
+          {!activityOnly && <>
           <div className="flex flex-wrap items-end justify-between gap-2">
             <div><h2 className="font-serif text-xl italic text-[#003366]">{dateLabel(date)}</h2><p className="mt-1 text-xs text-slate-500">{currentUserName || "Personal schedule"}</p></div>
-            {!loading && <span className="border border-slate-200 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">{payload?.dayTask ? "KPI daily record linked" : "Daily record created when you add a task"}</span>}
+            {!loading && <span className="border border-slate-200 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">{payload?.dayTask ? "Daily log linked" : "Daily log created when you add a task"}</span>}
           </div>
 
           <form onSubmit={saveTask} className="border border-slate-200 bg-[#FFFCFB] p-4">
@@ -350,7 +425,7 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
                 <div className="h-12 motion-safe:animate-pulse border border-slate-100 bg-slate-50" />
               </div>
             </div> :
-              tasks.length === 0 ? <div className="p-8 text-center"><CheckCircle2 size={24} className="mx-auto text-[#C9A84C]" /><p className="mt-2 font-serif text-lg italic text-[#003366]">A clear day</p><p className="mt-1 text-xs text-slate-500">Tasks added here become subtasks of this day in KPI Monitoring.</p></div> :
+              tasks.length === 0 ? <div className="p-8 text-center"><CheckCircle2 size={24} className="mx-auto text-[#C9A84C]" /><p className="mt-2 font-serif text-lg italic text-[#003366]">A clear day</p><p className="mt-1 text-xs text-slate-500">Tasks added here are included in your daily log.</p></div> :
                 <div className="divide-y divide-slate-200">
                   {tasks.map((task) => <div key={task.id} className={`flex gap-3 p-4 ${task.completed ? "bg-slate-50/70" : "bg-[#FFFCFB]"}`}>
                     <button type="button" onClick={() => void updateTask(task.id, { status: task.completed ? payload?.openStatus : payload?.completeStatus })} aria-label={task.completed ? `Mark ${task.name} incomplete` : `Complete ${task.name}`} className="mt-0.5 text-[#003366]">{task.completed ? <CheckCircle2 size={18} className="text-[#C9A84C]" /> : <span className="block h-[18px] w-[18px] border border-slate-400 hover:border-[#003366]" />}</button>
@@ -380,14 +455,16 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
                   </div>)}
                 </div>}
           </div>
+          </>}
           {showDailyActivity && <section className="border border-slate-200 bg-[#FFFCFB]">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-4 py-3">
               <div>
                 <h2 className="font-serif text-lg italic text-[#003366]">Daily activity</h2>
-                <p className="mt-1 text-xs text-slate-500">Saved to this day’s KPI Monitoring record and shown in Notebook.</p>
+                <p className="mt-1 text-xs text-slate-500">Saved with this day’s log and shown in Notebook.</p>
               </div>
-              <span role="status" className="text-[10px] font-semibold text-slate-500">{activitySave === "saved" ? "Saved" : activitySave === "saving" ? "Saving…" : activitySave === "pending" ? "Autosave pending" : "Save failed"}</span>
+              <div className="flex items-center gap-3"><span role="status" className="text-[10px] font-semibold text-slate-500">{activitySave === "saved" ? "Saved" : activitySave === "saving" ? "Saving…" : activitySave === "pending" ? "Autosave pending" : "Save failed"}</span><button type="button" onClick={() => void generateSummary()} disabled={summaryState === "loading" || tasks.length === 0} className="inline-flex min-h-8 items-center gap-1.5 border border-slate-300 px-2.5 text-[10px] font-semibold text-[#003366] hover:border-[#003366] disabled:opacity-50"><Sparkles size={12} />{summaryState === "loading" ? "Summarizing…" : "Refresh summary"}</button></div>
             </div>
+            {(summaryState === "loading" || summaryError || taskSummary) && <div className="border-b border-slate-200 bg-slate-50/70 px-4 py-2 text-xs text-slate-600" role={summaryError ? "alert" : "status"}>{summaryState === "loading" ? "Preparing a task summary…" : summaryError || (taskSummary ? "A bullet summary of your My Day tasks is included in Ad hoc activity." : "")}</div>}
             <div className="grid grid-cols-1 gap-3 p-4 md:grid-cols-2">
               {ACTIVITY_FIELDS.map((field) => (
                 <label key={field.key} className="block min-w-0">
@@ -420,23 +497,29 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
           </section>}
         </section>
 
-        <aside className="space-y-4 xl:col-span-4">
+        {!activityOnly && <aside className="space-y-4 xl:col-span-4">
           <section className="border border-slate-200 bg-[#FFFCFB] p-5">
             <div className="flex items-center justify-between gap-2"><h2 className="font-serif text-lg italic text-[#003366]">Day notes</h2><span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{noteSave === "saved" ? "Saved to Personal List" : noteSave === "saving" ? "Saving…" : noteSave === "pending" ? "Autosave pending" : "Save failed"}</span></div>
-            <p className="mt-2 text-xs leading-relaxed text-slate-500">{personalListLoading ? "Loading your saved Personal List…" : personalList?.id ? `Stored as a dated subtask of Notes in ${personalList.name}.` : "Set a Personal List in Meetings settings to save day notes."}</p>
-            <textarea value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} placeholder="Capture decisions, reminders, or thoughts for this day…" rows={9} disabled={personalListLoading} className="mt-3 w-full resize-y border border-slate-200 bg-[#FFFCFB] p-3 text-sm leading-relaxed text-slate-700 outline-none focus:border-[#C9A84C] disabled:cursor-wait disabled:bg-slate-50" aria-label="Day notes" />
+            <p className="mt-2 text-xs leading-relaxed text-slate-500">{personalListLoading ? "Loading your saved Personal List…" : personalList?.id ? `Stored as a dated subtask of Notes in ${personalList.name}.` : "Choose where your private day notes should be saved."}</p>
+            {!personalListLoading && !personalList?.id && <form onSubmit={configurePersonalList} className="mt-3 border border-slate-200 bg-slate-50 p-3">
+              <label htmlFor="my-day-personal-list" className="block text-xs font-semibold text-[#003366]">Personal List</label>
+              <p className="mt-1 text-[11px] leading-relaxed text-slate-500">Paste a list URL or ID. We’ll verify access and remember your choice for next time.</p>
+              <div className="mt-2 flex gap-2"><input id="my-day-personal-list" value={personalListInput} onChange={(event) => setPersonalListInput(event.target.value)} placeholder="List URL or ID" className="h-9 min-w-0 flex-1 border border-slate-300 bg-white px-2.5 text-xs outline-none focus:border-[#003366]" /><button type="submit" disabled={!personalListInput.trim() || validatingPersonalList} className="h-9 shrink-0 bg-[#003366] px-3 text-xs font-semibold text-white disabled:opacity-50">{validatingPersonalList ? "Checking…" : "Use this list"}</button></div>
+              {personalListError && <p role="alert" className="mt-2 text-xs text-red-700">{personalListError}</p>}
+            </form>}
+            <div className="mt-3 flex flex-wrap items-center gap-1 border border-slate-200 bg-slate-50 px-2 py-1" role="toolbar" aria-label="Day notes formatting" data-note-toolbar onKeyDown={(event) => { if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return; const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>("button:not(:disabled), select:not(:disabled)")); const index = controls.indexOf(document.activeElement as HTMLElement); if (index < 0) return; event.preventDefault(); controls[(index + (event.key === "ArrowRight" ? 1 : -1) + controls.length) % controls.length]?.focus(); }}>
+              {[{ label: "Bold", icon: <Bold size={14} />, before: "**", after: "**" }, { label: "Italic", icon: <Italic size={14} />, before: "_", after: "_" }, { label: "Underline", icon: <Underline size={14} />, before: "<u>", after: "</u>" }, { label: "Bulleted list", icon: <List size={14} />, before: "- ", block: true }, { label: "Numbered list", icon: <ListOrdered size={14} />, before: "1. ", block: true }, { label: "Quote", icon: <Quote size={14} />, before: "> ", block: true }, { label: "Highlight", icon: <Highlighter size={14} />, before: "<mark>", after: "</mark>" }].map((item, index) => <button key={item.label} type="button" tabIndex={index === 0 ? 0 : -1} title={item.label} aria-label={item.label} onMouseDown={(event) => event.preventDefault()} onClick={() => formatNotes(item.before, item.after, item.block)} className="grid h-7 w-7 place-items-center text-slate-600 hover:bg-white hover:text-[#003366]">{item.icon}</button>)}
+              <label className="ml-1 flex h-7 items-center gap-1 border-l border-slate-200 pl-2 text-[10px] text-slate-500">Size <select aria-label="Day notes font size" tabIndex={-1} value={notesSize} onChange={(event) => { const size = event.target.value as "small" | "normal"; setNotesSize(size); if (size === "small") formatNotes("<small>", "</small>"); }} className="bg-transparent text-xs text-[#003366] outline-none"><option value="normal">M</option><option value="small">S</option></select></label>
+              <button type="button" title="Add link" aria-label="Add link" tabIndex={-1} onMouseDown={(event) => event.preventDefault()} onClick={() => { const url = window.prompt("Enter the link URL"); if (url) formatNotes("[", `](${url})`); }} className="grid h-7 w-7 place-items-center text-slate-600 hover:bg-white hover:text-[#003366]"><Link2 size={14} /></button>
+            </div>
+            <textarea ref={notesEditor} value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} placeholder="Capture decisions, reminders, or thoughts for this day…" rows={18} disabled={personalListLoading || !personalList?.id} className="mt-0 w-full resize-y border border-slate-200 border-t-0 bg-[#FFFCFB] p-3 text-sm leading-relaxed text-slate-700 outline-none focus:border-[#C9A84C] disabled:cursor-wait disabled:bg-slate-50" style={{ minHeight: 420, fontSize: notesSize === "small" ? "0.8125rem" : undefined }} aria-label="Day notes. Formatting uses Markdown." />
             {(noteError || payload?.notesError) && <div role="alert" className="mt-2 flex gap-2 text-xs text-red-700"><AlertCircle size={14} className="shrink-0" />{noteError || payload?.notesError}</div>}
             <div className="mt-3 flex items-center justify-between gap-2">
               <span className="text-[10px] text-slate-500">{payload?.noteTask ? <a href={payload.noteTask.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[#31577D]">Open note task <ExternalLink size={11} /></a> : "First save creates Notes and its dated subtask."}</span>
               <button type="button" onClick={() => { if (notesTimer.current) clearTimeout(notesTimer.current); void send({ action: "note", notes: noteDraft }).then((result) => { setPayload((current) => current ? { ...current, notes: noteDraft, noteTask: result.noteTask || current.noteTask } : current); setNoteSave("saved"); setNoteError(""); }).catch((saveError) => { setNoteSave("error"); setNoteError(saveError instanceof Error ? saveError.message : "Notes could not be saved."); }); }} disabled={noteSave === "saving" || personalListLoading || !personalList?.id} className="inline-flex h-9 items-center gap-2 border border-[#003366] px-3 text-xs font-semibold text-[#003366] hover:bg-[#003366] hover:text-white disabled:opacity-50"><Save size={13} />Save now</button>
             </div>
           </section>
-          <section className="border border-slate-200 bg-[#FFFCFB] p-5">
-            <h2 className="font-serif text-lg italic text-[#003366]">KPI Monitoring record</h2>
-            <p className="mt-2 text-xs leading-relaxed text-slate-500">Activity fields and task subtasks are saved on the same dated record used by Notebook.</p>
-            {payload?.dayTask ? <a href={payload.dayTask.url} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-2 border border-[#003366] px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[#003366] hover:bg-[#003366] hover:text-white">Open daily log <ExternalLink size={13} /></a> : <p className="mt-3 text-[11px] text-slate-500">The dated KPI record is created when you save a task or activity.</p>}
-          </section>
-        </aside>
+        </aside>}
       </div>
 
       {reminderOpen && <div className="fixed inset-0 z-[100] grid place-items-center bg-[#003366]/35 p-4" role="presentation">

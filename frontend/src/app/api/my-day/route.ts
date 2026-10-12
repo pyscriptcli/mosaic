@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getTokenFromRequest, getUserFromRequest } from "@/lib/auth";
+import { requireFeature } from "@/lib/access-control-server";
+import { isAskEchoEnabled } from "@/lib/admin-config/store";
+import { summarizeMyDayTasks } from "@/lib/ask-echo/service";
 import {
   DAILY_LOG_LIST_ID, createTask, dateFromTask, ensureDailyTask, fetchAllTasks,
   fetchClickUp, formatDailyName, isValidDate, monthFromTaskName, taskOwner,
@@ -9,7 +12,7 @@ import {
 } from "@/lib/notebookClickup";
 
 type ClickUpTask = RawClickUpTask & {
-  description?: string; description_text?: string; text_content?: string;
+  description?: string; description_text?: string; text_content?: string; markdown_description?: string;
   priority?: { id?: string | number; priority?: string } | null;
   status?: { status?: string; type?: string };
 };
@@ -65,7 +68,7 @@ async function readPersonalNotes(token: string, listId: string, date: string) {
   const parent = tasks.find((task) => !task.parent && task.name?.trim().toLowerCase() === "notes");
   if (!parent) return { parent: null, note: null };
   const note = tasks.find((task) => String(task.parent) === String(parent.id) && dateFromTask(task) === date);
-  return { parent, note: note ? { id: String(note.id), name: note.name || formatDailyName(date), description: note.description_text || note.text_content || note.description || "", url: note.url || `https://app.clickup.com/t/${note.id}` } : null };
+  return { parent, note: note ? { id: String(note.id), name: note.name || formatDailyName(date), description: note.markdown_description || note.description_text || note.text_content || note.description || "", url: note.url || `https://app.clickup.com/t/${note.id}` } : null };
 }
 
 function serializeDayTask(task: ClickUpTask) {
@@ -137,7 +140,7 @@ export async function POST(req: NextRequest) {
 
     if (action === "note") {
       const personalList = await getPersonalList(req);
-      if (!personalList) return NextResponse.json({ error: "Choose a Personal List in Meetings settings before saving notes." }, { status: 400 });
+      if (!personalList) return NextResponse.json({ error: "Choose a Personal List before saving day notes." }, { status: 400 });
       const notes = await readPersonalNotes(token, personalList.id, body.date);
       let parent = notes.parent;
       if (!parent) {
@@ -147,14 +150,31 @@ export async function POST(req: NextRequest) {
       const dateName = formatDailyName(body.date);
       const description = String(body.notes || "");
       if (notes.note) {
-        await clickUpJson(token, `https://api.clickup.com/api/v2/task/${notes.note.id}`, { method: "PUT", body: JSON.stringify({ name: dateName, description }) });
+        await clickUpJson(token, `https://api.clickup.com/api/v2/task/${notes.note.id}`, { method: "PUT", body: JSON.stringify({ name: dateName, markdown_content: description }) });
         return NextResponse.json({ success: true, noteTask: { ...notes.note, name: dateName, description } });
       }
-      const created = await clickUpJson(token, `https://api.clickup.com/api/v2/list/${encodeURIComponent(personalList.id)}/task`, { method: "POST", body: JSON.stringify({ name: dateName, parent: parent.id, description, due_date: new Date(`${body.date}T12:00:00`).getTime(), due_date_time: false }) });
+      const created = await clickUpJson(token, `https://api.clickup.com/api/v2/list/${encodeURIComponent(personalList.id)}/task`, { method: "POST", body: JSON.stringify({ name: dateName, parent: parent.id, markdown_content: description, due_date: new Date(`${body.date}T12:00:00`).getTime(), due_date_time: false }) });
       return NextResponse.json({ success: true, noteTask: { id: String(created.id), name: created.name, description, url: created.url || `https://app.clickup.com/t/${created.id}` } });
     }
 
+    if (action === "summary") {
+      const denied = await requireFeature(req, "ask-echo");
+      if (denied) return denied;
+      if (!(await isAskEchoEnabled())) return NextResponse.json({ error: "AI summaries are currently unavailable." }, { status: 403 });
+    }
     const { tasks, day } = await getKpiContext(token, body.date, req);
+    if (action === "summary") {
+      if (!day) return NextResponse.json({ summary: "" });
+      const dayTasks = tasks.filter((task) => String(task.parent) === String(day.id)).map((task) => ({
+        id: String(task.id), name: String(task.name || "Untitled task"),
+        description: String(task.description_text || task.text_content || task.description || ""),
+        status: String(task.status?.status || ""),
+        completed: task.status?.type === "closed" || /^(complete|completed|closed|done)$/i.test(task.status?.status || ""),
+      }));
+      if (!dayTasks.length) return NextResponse.json({ summary: "" });
+      const summary = await summarizeMyDayTasks(dayTasks, { id: user.id, name: user.username, email: user.email });
+      return NextResponse.json({ summary });
+    }
     if (action === "activity") {
       const categories = categoryPayload(body.categories);
       const context = day
@@ -201,6 +221,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unsupported My Day action." }, { status: 400 });
   } catch (error) {
     console.error("My Day save failed:", error);
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to save this My Day change." }, { status: 502 });
+    const status = Number((error as { status?: number })?.status || 502);
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to save this My Day change." }, { status: status >= 500 ? 502 : status });
   }
 }
