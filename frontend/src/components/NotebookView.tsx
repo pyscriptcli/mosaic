@@ -540,7 +540,7 @@ export function NotebookView({ currentUserName, userId, initialDate }: { current
               <option value="custom">Custom range</option>
             </select>
             <input type="date" value={rangeStart} onChange={(event) => { setRangePreset("custom"); setRangeStart(event.target.value); }} aria-label="Reporting range start" className="h-10 bg-[#FFFCFB] border border-gray-300 px-3 text-sm focus:outline-none focus:border-[#C9AB4C]" />
-            <span className="text-sm text-gray-400">to</span>
+            <span className="text-sm text-gray-500">to</span>
             <input type="date" value={rangeEnd} onChange={(event) => { setRangePreset("custom"); setRangeEnd(event.target.value); }} aria-label="Reporting range end" className="h-10 bg-[#FFFCFB] border border-gray-300 px-3 text-sm focus:outline-none focus:border-[#C9AB4C]" />
           </div>
         ) : (
@@ -563,7 +563,7 @@ export function NotebookView({ currentUserName, userId, initialDate }: { current
                 <div key={category.key} className="bg-[#FFFCFB] border border-gray-200 p-4">
                   <div className="text-xs font-bold uppercase tracking-wider text-gray-500">{category.label}</div>
                   <div className="text-3xl font-serif font-bold text-[#003366] mt-2">{count}</div>
-                  <div className="text-xs text-gray-400 mt-1">recorded item{count === 1 ? "" : "s"}</div>
+                  <div className="text-xs text-gray-500 mt-1">recorded item{count === 1 ? "" : "s"}</div>
                 </div>
               );
             })}
@@ -610,20 +610,20 @@ export function NotebookView({ currentUserName, userId, initialDate }: { current
               <section className="mt-4 border border-gray-200 bg-[#FFFCFB] p-4">
                 <div className="flex items-center justify-between gap-3">
                   <h3 className="text-lg font-serif italic text-[#003366]">My Day tasks</h3>
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">{selectedDayEntry?.dailyTasks?.length || 0} item{(selectedDayEntry?.dailyTasks?.length || 0) === 1 ? "" : "s"}</span>
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">{selectedDayEntry?.dailyTasks?.length || 0} item{(selectedDayEntry?.dailyTasks?.length || 0) === 1 ? "" : "s"}</span>
                 </div>
                 <p className="mt-1 text-xs text-gray-500">Tasks created in My Day are saved as subtasks of this dated KPI Monitoring record.</p>
                 {selectedDayEntry?.dailyTasks?.length ? (
                   <ul className="mt-3 divide-y divide-gray-100 border-t border-gray-100">
                     {selectedDayEntry.dailyTasks.map((task) => <li key={task.id} className="flex items-center justify-between gap-3 py-2.5">
-                      <span className={`text-xs ${task.completed ? "text-gray-400 line-through" : "text-gray-700"}`}>{task.name}</span>
-                      <div className="flex shrink-0 items-center gap-2 text-[10px] text-gray-400">
+                      <span className={`text-xs ${task.completed ? "text-gray-500 line-through" : "text-gray-700"}`}>{task.name}</span>
+                      <div className="flex shrink-0 items-center gap-2 text-[10px] text-gray-500">
                         {task.dueDate && <span>Due {new Date(`${task.dueDate}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>}
                         <a href={task.url} target="_blank" rel="noreferrer" aria-label={`Open ${task.name} in ClickUp`} className="text-[#31577D] hover:text-[#003366]"><ExternalLink size={12} /></a>
                       </div>
                     </li>)}
                   </ul>
-                ) : <p className="mt-3 border-t border-gray-100 pt-3 text-xs text-gray-400">No My Day tasks are linked to this date yet.</p>}
+                ) : <p className="mt-3 border-t border-gray-100 pt-3 text-xs text-gray-500">No My Day tasks are linked to this date yet.</p>}
               </section>
             </section>
 
@@ -635,7 +635,7 @@ export function NotebookView({ currentUserName, userId, initialDate }: { current
                   <a href={selectedDayEntries[0].url} target="_blank" rel="noreferrer" className="mt-4 btn-outline !px-4 !py-2 inline-flex items-center gap-2">
                     Open daily log <ExternalLink size={14} />
                   </a>
-                ) : <p className="text-xs text-gray-400 mt-4">Save an entry to create this date in ClickUp.</p>}
+                ) : <p className="text-xs text-gray-500 mt-4">Save an entry to create this date in ClickUp.</p>}
               </div>
               <div className="bg-[#FFFCFB] border border-gray-200 p-5">
                 <div className="flex items-center justify-between gap-2">
@@ -662,7 +662,7 @@ export function NotebookView({ currentUserName, userId, initialDate }: { current
                         setGenerateFeedback(null);
                       }}
                       disabled={generatingMonth}
-                      className="w-full h-9 bg-white border border-gray-300 px-2.5 text-xs text-[#1b1d1e] focus:outline-none focus:border-[#C9AB4C]"
+                      className="w-full h-9 bg-[#FFFCFB] border border-gray-300 px-2.5 text-xs text-[#1b1d1e] focus:outline-none focus:border-[#C9AB4C]"
                     >
                       {availableMonths.map((m) => (
                         <option key={m.value} value={m.value}>
@@ -763,7 +763,7 @@ export function NotebookView({ currentUserName, userId, initialDate }: { current
                         ) : null;
                       })}
                     </span>
-                  ) : <span className={`block mt-5 text-xs italic ${isWeekend ? "text-white/60" : "text-gray-400"}`}>{isWeekend ? "Weekend" : "Empty log"}</span>}
+                  ) : <span className={`block mt-5 text-xs italic ${isWeekend ? "text-white/60" : "text-gray-500"}`}>{isWeekend ? "Weekend" : "Empty log"}</span>}
                   {!isWeekend && <span className={`block mt-4 pt-3 border-t text-[11px] font-semibold uppercase tracking-wider ${isWeekend ? "border-white/15 text-white/60" : "border-gray-100 text-[#003366]"}`}>{total ? "Edit day" : "Add log"} <span aria-hidden="true">→</span></span>}
                 </button>
               );
@@ -780,9 +780,9 @@ export function NotebookView({ currentUserName, userId, initialDate }: { current
           </div>
 
           <div className="grid grid-cols-2 xl:grid-cols-3 gap-3">
-            <div className="bg-[#FFFCFB] border border-gray-200 p-5"><div className="text-xs uppercase tracking-wider font-bold text-gray-500">Team completeness</div><div className="text-3xl font-serif font-bold text-[#003366] mt-2">{averageCompleteness}%</div><div className="text-xs text-gray-400 mt-1">{submittedLogs} of {expectedLogs} expected logs</div></div>
-            <div className="bg-[#FFFCFB] border border-gray-200 p-5"><div className="text-xs uppercase tracking-wider font-bold text-gray-500">Members tracked</div><div className="text-3xl font-serif font-bold text-[#003366] mt-2">{filteredRows.length}</div><div className="text-xs text-gray-400 mt-1">within the selected view</div></div>
-            <div className="bg-[#FFFCFB] border border-gray-200 p-5"><div className="text-xs uppercase tracking-wider font-bold text-gray-500">Empty logs</div><div className="text-3xl font-serif font-bold text-orange-700 mt-2">{emptyDayLogs}</div><div className="text-xs text-gray-400 mt-1">no daily record found</div></div>
+            <div className="bg-[#FFFCFB] border border-gray-200 p-5"><div className="text-xs uppercase tracking-wider font-bold text-gray-500">Team completeness</div><div className="text-3xl font-serif font-bold text-[#003366] mt-2">{averageCompleteness}%</div><div className="text-xs text-gray-500 mt-1">{submittedLogs} of {expectedLogs} expected logs</div></div>
+            <div className="bg-[#FFFCFB] border border-gray-200 p-5"><div className="text-xs uppercase tracking-wider font-bold text-gray-500">Members tracked</div><div className="text-3xl font-serif font-bold text-[#003366] mt-2">{filteredRows.length}</div><div className="text-xs text-gray-500 mt-1">within the selected view</div></div>
+            <div className="bg-[#FFFCFB] border border-gray-200 p-5"><div className="text-xs uppercase tracking-wider font-bold text-gray-500">Empty logs</div><div className="text-3xl font-serif font-bold text-orange-700 mt-2">{emptyDayLogs}</div><div className="text-xs text-gray-500 mt-1">no daily record found</div></div>
           </div>
 
           <section className="bg-[#FFFCFB] border border-gray-200">
@@ -793,7 +793,7 @@ export function NotebookView({ currentUserName, userId, initialDate }: { current
             <div className="divide-y divide-gray-200">
               {filteredRows.map((row) => (
                 <div key={row.member.id} className="p-4 md:p-5 grid grid-cols-1 md:grid-cols-[minmax(190px,1fr)_minmax(220px,2fr)_100px] gap-4 items-center">
-                  <div className="flex items-center gap-3 min-w-0"><MemberAvatar member={row.member} /><div className="min-w-0"><div className="text-sm font-semibold text-[#1b1d1e] truncate">{row.member.name}</div><div className="text-xs text-gray-400">{row.submittedDates.length} submitted · {row.emptyDays.length} empty logs</div></div></div>
+                  <div className="flex items-center gap-3 min-w-0"><MemberAvatar member={row.member} /><div className="min-w-0"><div className="text-sm font-semibold text-[#1b1d1e] truncate">{row.member.name}</div><div className="text-xs text-gray-500">{row.submittedDates.length} submitted · {row.emptyDays.length} empty logs</div></div></div>
                   <div>
                     <div className="h-2.5 bg-[#FFFCFB] overflow-hidden flex" role="progressbar" aria-label={`${row.member.name} completeness`} aria-valuenow={row.percent} aria-valuemin={0} aria-valuemax={100}>
                       <span className="bg-[#003366] h-full" style={{ width: `${row.percent}%` }} />
@@ -802,7 +802,7 @@ export function NotebookView({ currentUserName, userId, initialDate }: { current
                   <div className="md:text-right"><span className={`text-2xl font-serif font-bold ${row.percent >= 90 ? "text-emerald-700" : row.percent >= 70 ? "text-amber-700" : "text-red-700"}`}>{row.percent}%</span></div>
                 </div>
               ))}
-              {!displayedRows.length && <div className="p-8 text-center text-sm text-gray-400">No team members were found in this list.</div>}
+              {!displayedRows.length && <div className="p-8 text-center text-sm text-gray-500">No team members were found in this list.</div>}
             </div>
           </section>
 
@@ -815,7 +815,7 @@ export function NotebookView({ currentUserName, userId, initialDate }: { current
               <div style={{ minWidth: `${Math.max(720, 210 + workdays.length * 35)}px` }}>
                 <div className="grid gap-1.5 items-end mb-2" style={{ gridTemplateColumns: `190px repeat(${workdays.length}, minmax(28px, 1fr))` }}>
                   <div className="text-xs uppercase tracking-wider font-bold text-gray-500">Team member</div>
-                  {workdays.map((date) => <div key={date} className="text-center"><div className="text-[11px] uppercase text-gray-400">{formatDate(date, { weekday: "narrow" })}</div><div className="text-xs font-bold text-[#003366]">{fromIso(date).getDate()}</div></div>)}
+                  {workdays.map((date) => <div key={date} className="text-center"><div className="text-[11px] uppercase text-gray-500">{formatDate(date, { weekday: "narrow" })}</div><div className="text-xs font-bold text-[#003366]">{fromIso(date).getDate()}</div></div>)}
                 </div>
                 <div className="space-y-1.5">
                   {filteredRows.map((row) => (

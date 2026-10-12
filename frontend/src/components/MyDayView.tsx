@@ -284,7 +284,7 @@ export default function MyDayView({ userId, currentUserName }: Props) {
         ].map(([label, value, detail]) => <div key={String(label)} className="border border-slate-200 bg-[#FFFCFB] p-4">
           <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">{label}</div>
           <div className="mt-1 font-serif text-3xl text-[#003366]">{value}</div>
-          <div className="mt-1 text-xs text-slate-400">{detail}</div>
+          <div className="mt-1 text-xs text-slate-500">{detail}</div>
         </div>)}
       </section>
 
@@ -292,12 +292,12 @@ export default function MyDayView({ userId, currentUserName }: Props) {
         <section className="space-y-4 xl:col-span-8">
           <div className="flex flex-wrap items-end justify-between gap-2">
             <div><h2 className="font-serif text-xl italic text-[#003366]">{dateLabel(date)}</h2><p className="mt-1 text-xs text-slate-500">{currentUserName || "Personal schedule"}</p></div>
-            {loading ? <span className="inline-flex items-center gap-2 text-xs text-slate-400"><LoaderCircle size={14} className="animate-spin" />Loading ClickUp tasks</span> : <span className="border border-slate-200 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">{payload?.dayTask ? "KPI daily record linked" : "Daily record created when you add a task"}</span>}
+            {loading ? <span className="inline-flex items-center gap-2 text-xs text-slate-500"><LoaderCircle size={14} className="animate-spin" />Loading ClickUp tasks</span> : <span className="border border-slate-200 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">{payload?.dayTask ? "KPI daily record linked" : "Daily record created when you add a task"}</span>}
           </div>
 
           <form onSubmit={saveTask} className="border border-slate-200 bg-[#FFFCFB] p-4">
             <div className="flex flex-col gap-2 sm:flex-row">
-              <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Add a task for this day" aria-label="Task name" className="h-10 min-w-0 flex-1 border border-slate-300 bg-white px-3 text-sm outline-none focus:border-[#C9A84C]" />
+              <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Add a task for this day" aria-label="Task name" className="h-10 min-w-0 flex-1 border border-slate-300 bg-[#FFFCFB] px-3 text-sm outline-none focus:border-[#C9A84C]" />
               <button type="submit" disabled={savingTask || !name.trim()} className="inline-flex h-10 items-center justify-center gap-2 bg-[#003366] px-4 text-xs font-semibold uppercase tracking-wide text-white hover:bg-[#00254a] disabled:opacity-50">
                 {savingTask ? <LoaderCircle size={14} className="animate-spin" /> : <Plus size={15} />} Add task
               </button>
@@ -305,14 +305,14 @@ export default function MyDayView({ userId, currentUserName }: Props) {
             <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-[1fr_160px_145px]">
               <input value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Details (optional)" aria-label="Task details" className="h-9 border border-slate-200 px-3 text-xs outline-none focus:border-[#C9A84C]" />
               <label className="flex h-9 items-center gap-2 border border-slate-200 px-2 text-[10px] uppercase tracking-wide text-slate-500"><span>Due</span><input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} className="min-w-0 flex-1 bg-transparent text-xs normal-case tracking-normal text-[#003366] outline-none" /></label>
-              <select value={priority} onChange={(event) => setPriority(event.target.value as DayTask["priority"])} aria-label="Task priority" className="h-9 border border-slate-200 bg-white px-2 text-xs text-[#003366] outline-none focus:border-[#C9A84C]">
+              <select value={priority} onChange={(event) => setPriority(event.target.value as DayTask["priority"])} aria-label="Task priority" className="h-9 border border-slate-200 bg-[#FFFCFB] px-2 text-xs text-[#003366] outline-none focus:border-[#C9A84C]">
                 <option value="urgent">Urgent priority</option><option value="high">High priority</option><option value="normal">Normal priority</option><option value="low">Low priority</option>
               </select>
             </div>
           </form>
 
           <div className="border border-slate-200 bg-[#FFFCFB]">
-            {loading && !payload ? <div className="flex min-h-28 items-center justify-center text-xs text-slate-400"><LoaderCircle size={15} className="mr-2 animate-spin" />Loading day</div> :
+            {loading && !payload ? <div className="flex min-h-28 items-center justify-center text-xs text-slate-500"><LoaderCircle size={15} className="mr-2 animate-spin" />Loading day</div> :
               tasks.length === 0 ? <div className="p-8 text-center"><CheckCircle2 size={24} className="mx-auto text-[#C9A84C]" /><p className="mt-2 font-serif text-lg italic text-[#003366]">A clear day</p><p className="mt-1 text-xs text-slate-500">Tasks added here become subtasks of this day in KPI Monitoring.</p></div> :
                 <div className="divide-y divide-slate-200">
                   {tasks.map((task) => <div key={task.id} className={`flex gap-3 p-4 ${task.completed ? "bg-slate-50/70" : "bg-[#FFFCFB]"}`}>
@@ -323,14 +323,14 @@ export default function MyDayView({ userId, currentUserName }: Props) {
                         <textarea value={String(editDraft.description || "")} onChange={(event) => setEditDraft((draft) => ({ ...draft, description: event.target.value }))} className="min-h-16 w-full resize-y border border-slate-200 px-2 py-1.5 text-xs outline-none focus:border-[#C9A84C]" aria-label="Edit task details" />
                         <div className="flex flex-wrap gap-2">
                           <input type="date" value={String(editDraft.dueDate || "")} onChange={(event) => setEditDraft((draft) => ({ ...draft, dueDate: event.target.value }))} className="h-8 border border-slate-200 px-2 text-xs" aria-label="Edit task due date" />
-                          <select value={String(editDraft.priority || "normal")} onChange={(event) => setEditDraft((draft) => ({ ...draft, priority: event.target.value as DayTask["priority"] }))} className="h-8 border border-slate-200 bg-white px-2 text-xs" aria-label="Edit task priority"><option value="urgent">Urgent</option><option value="high">High</option><option value="normal">Normal</option><option value="low">Low</option></select>
+                          <select value={String(editDraft.priority || "normal")} onChange={(event) => setEditDraft((draft) => ({ ...draft, priority: event.target.value as DayTask["priority"] }))} className="h-8 border border-slate-200 bg-[#FFFCFB] px-2 text-xs" aria-label="Edit task priority"><option value="urgent">Urgent</option><option value="high">High</option><option value="normal">Normal</option><option value="low">Low</option></select>
                           <button type="button" onClick={async () => { await updateTask(task.id, editDraft); setEditingId(""); }} className="inline-flex h-8 items-center gap-1 bg-[#003366] px-3 text-xs font-semibold text-white"><Save size={13} />Save</button>
                           <button type="button" onClick={() => setEditingId("")} className="h-8 border border-slate-200 px-3 text-xs text-slate-600">Cancel</button>
                         </div>
                       </div> : <>
-                        <div className={`font-semibold text-sm ${task.completed ? "text-slate-400 line-through" : "text-[#003366]"}`}>{task.name}</div>
+                        <div className={`font-semibold text-sm ${task.completed ? "text-slate-500 line-through" : "text-[#003366]"}`}>{task.name}</div>
                         {task.description && <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-slate-500">{task.description}</p>}
-                        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] uppercase tracking-wide text-slate-400">
+                        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] uppercase tracking-wide text-slate-500">
                           <span>{task.priority} priority</span>{task.dueDate && <span>Due {new Date(`${task.dueDate}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>}
                           <a href={task.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[#31577D] hover:text-[#003366]">Open task <ExternalLink size={11} /></a>
                         </div>
@@ -338,7 +338,7 @@ export default function MyDayView({ userId, currentUserName }: Props) {
                     </div>
                     <div className="flex shrink-0 items-start gap-1">
                       {editingId !== task.id && <button type="button" onClick={() => { setEditingId(task.id); setEditDraft({ name: task.name, description: task.description, dueDate: task.dueDate, priority: task.priority }); }} className="h-8 border border-slate-200 px-2 text-[10px] font-semibold text-slate-500 hover:border-[#C9A84C] hover:text-[#003366]">Edit</button>}
-                      <button type="button" onClick={() => void deleteTask(task.id)} aria-label={`Delete ${task.name}`} className="grid h-8 w-8 place-items-center border border-slate-200 text-slate-400 hover:border-red-300 hover:text-red-700"><Trash2 size={14} /></button>
+                      <button type="button" onClick={() => void deleteTask(task.id)} aria-label={`Delete ${task.name}`} className="grid h-8 w-8 place-items-center border border-slate-200 text-slate-500 hover:border-red-300 hover:text-red-700"><Trash2 size={14} /></button>
                     </div>
                   </div>)}
                 </div>}
@@ -347,19 +347,19 @@ export default function MyDayView({ userId, currentUserName }: Props) {
 
         <aside className="space-y-4 xl:col-span-4">
           <section className="border border-slate-200 bg-[#FFFCFB] p-5">
-            <div className="flex items-center justify-between gap-2"><h2 className="font-serif text-lg italic text-[#003366]">Day notes</h2><span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{noteSave === "saved" ? "Saved to Personal List" : noteSave === "saving" ? "Saving…" : noteSave === "pending" ? "Autosave pending" : "Save failed"}</span></div>
+            <div className="flex items-center justify-between gap-2"><h2 className="font-serif text-lg italic text-[#003366]">Day notes</h2><span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{noteSave === "saved" ? "Saved to Personal List" : noteSave === "saving" ? "Saving…" : noteSave === "pending" ? "Autosave pending" : "Save failed"}</span></div>
             <p className="mt-2 text-xs leading-relaxed text-slate-500">{personalList?.id ? `Stored as a dated subtask of Notes in ${personalList.name}.` : "Choose a Personal List in Meetings settings to save day notes."}</p>
-            <textarea value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} placeholder="Capture decisions, reminders, or thoughts for this day…" rows={9} className="mt-3 w-full resize-y border border-slate-200 bg-white p-3 text-sm leading-relaxed text-slate-700 outline-none focus:border-[#C9A84C]" aria-label="Day notes" />
+            <textarea value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} placeholder="Capture decisions, reminders, or thoughts for this day…" rows={9} className="mt-3 w-full resize-y border border-slate-200 bg-[#FFFCFB] p-3 text-sm leading-relaxed text-slate-700 outline-none focus:border-[#C9A84C]" aria-label="Day notes" />
             {(noteError || payload?.notesError) && <div role="alert" className="mt-2 flex gap-2 text-xs text-red-700"><AlertCircle size={14} className="shrink-0" />{noteError || payload?.notesError}</div>}
             <div className="mt-3 flex items-center justify-between gap-2">
-              <span className="text-[10px] text-slate-400">{payload?.noteTask ? <a href={payload.noteTask.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[#31577D]">Open note task <ExternalLink size={11} /></a> : "First save creates Notes and its dated subtask."}</span>
+              <span className="text-[10px] text-slate-500">{payload?.noteTask ? <a href={payload.noteTask.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[#31577D]">Open note task <ExternalLink size={11} /></a> : "First save creates Notes and its dated subtask."}</span>
               <button type="button" onClick={() => { if (notesTimer.current) clearTimeout(notesTimer.current); void send({ action: "note", notes: noteDraft }).then((result) => { setPayload((current) => current ? { ...current, notes: noteDraft, noteTask: result.noteTask || current.noteTask } : current); setNoteSave("saved"); setNoteError(""); }).catch((saveError) => { setNoteSave("error"); setNoteError(saveError instanceof Error ? saveError.message : "Notes could not be saved."); }); }} disabled={noteSave === "saving"} className="inline-flex h-9 items-center gap-2 border border-[#003366] px-3 text-xs font-semibold text-[#003366] hover:bg-[#003366] hover:text-white disabled:opacity-50"><Save size={13} />Save now</button>
             </div>
           </section>
           <section className="border border-slate-200 bg-[#FFFCFB] p-5">
             <h2 className="font-serif text-lg italic text-[#003366]">Daily activity source</h2>
             <p className="mt-2 text-xs leading-relaxed text-slate-500">Tasks on this day are subtasks of the dated KPI Monitoring record, so they appear in the Notebook daily activity.</p>
-            {payload?.dayTask ? <a href={payload.dayTask.url} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-2 border border-[#003366] px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[#003366] hover:bg-[#003366] hover:text-white">Open daily log <ExternalLink size={13} /></a> : <p className="mt-3 text-[11px] text-slate-400">The dated KPI record is created with the first task.</p>}
+            {payload?.dayTask ? <a href={payload.dayTask.url} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-2 border border-[#003366] px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[#003366] hover:bg-[#003366] hover:text-white">Open daily log <ExternalLink size={13} /></a> : <p className="mt-3 text-[11px] text-slate-500">The dated KPI record is created with the first task.</p>}
           </section>
           <section className="border border-slate-200 bg-[#FFFCFB] p-5">
             <h2 className="font-serif text-lg italic text-[#003366]">Reminders</h2>
@@ -372,7 +372,7 @@ export default function MyDayView({ userId, currentUserName }: Props) {
 
       {reminderOpen && <div className="fixed inset-0 z-[100] grid place-items-center bg-[#003366]/35 p-4" role="presentation">
         <section role="dialog" aria-modal="true" aria-labelledby="my-day-reminder-title" className="w-full max-w-lg border border-slate-300 bg-[#FFFCFB] p-5 shadow-xl">
-          <div className="flex items-start justify-between gap-4"><div><p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">Reminder</p><h2 id="my-day-reminder-title" className="mt-1 font-serif text-2xl italic text-[#003366]">Check in on your day</h2></div><button type="button" onClick={() => setReminderOpen(false)} aria-label="Close reminder" className="grid h-8 w-8 place-items-center border border-slate-200 text-slate-500"><X size={16} /></button></div>
+          <div className="flex items-start justify-between gap-4"><div><p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Reminder</p><h2 id="my-day-reminder-title" className="mt-1 font-serif text-2xl italic text-[#003366]">Check in on your day</h2></div><button type="button" onClick={() => setReminderOpen(false)} aria-label="Close reminder" className="grid h-8 w-8 place-items-center border border-slate-200 text-slate-500"><X size={16} /></button></div>
           <p className="mt-2 text-xs text-slate-500">{reminderTitle.length ? `${reminderTitle.length} unfinished task${reminderTitle.length === 1 ? "" : "s"} remaining.` : "You have no unfinished tasks. Review your notes or plan ahead."}</p>
           <ul className="mt-4 max-h-56 space-y-2 overflow-y-auto">{reminderTitle.map((title) => <li key={title} className="border-l-2 border-[#C9A84C] py-1 pl-3 text-sm text-[#003366]">{title}</li>)}</ul>
           <div className="mt-5 flex flex-wrap justify-end gap-2 border-t border-slate-200 pt-4">
