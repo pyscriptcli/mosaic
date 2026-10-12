@@ -11,7 +11,7 @@ const ROUTE_BY_VIEW: Partial<Record<NavView, string>> = {
   meetings: "/meetings",
   minutes: "/meetings/notetaker",
   forms: "/forms",
-  "business-analysis": "/business-analysis",
+  "business-analysis": "/it-projects",
 };
 
 export function navRouteForView(view: NavView): string | null {
@@ -31,7 +31,7 @@ export function navViewForPath(pathname: string): NavView | null {
   if (path === "/meetings/notetaker" || path.startsWith("/meetings/notetaker/") || path === "/notetaker" || path.startsWith("/notetaker/") || path === "/minutes" || path.startsWith("/minutes/")) return "minutes";
   if (path === "/meetings" || path.startsWith("/meetings/")) return "meetings";
   if (path === "/forms" || path.startsWith("/forms/")) return "forms";
-  if (path === "/ba" || path.startsWith("/ba/") || path === "/business-analysis" || path.startsWith("/business-analysis/")) return "business-analysis";
+  if (path === "/ba" || path.startsWith("/ba/") || path === "/business-analysis" || path.startsWith("/business-analysis/") || path === "/it-projects" || path.startsWith("/it-projects/")) return "business-analysis";
 
   return null;
 }
