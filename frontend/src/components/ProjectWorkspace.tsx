@@ -819,12 +819,26 @@ function numericSiteValue(value: string | undefined, field: "php" | "months") {
   return /^(?:\d+(?:\.\d*)?|\.\d+)$/.test(normalized) ? normalized : "";
 }
 
+const sitePhpFormatter = new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP", minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+function formatSitePhp(value: string | undefined) {
+  const numericValue = numericSiteValue(value, "php");
+  return numericValue ? sitePhpFormatter.format(Number(numericValue)) : "";
+}
+
+function sanitizeSiteNumber(value: string) {
+  const numericValue = value.replace(/[^\d.]/g, "");
+  const decimalIndex = numericValue.indexOf(".");
+  return decimalIndex < 0 ? numericValue : `${numericValue.slice(0, decimalIndex + 1)}${numericValue.slice(decimalIndex + 1).replace(/\./g, "")}`;
+}
+
 function SubprojectSites({ folderId, listId, listName, canEdit, canManageAllSites }: { folderId: string; listId: string; listName: string; canEdit: boolean; canManageAllSites: boolean }) {
   const [syncing, setSyncing] = useState(false);
   const [loading, setLoading] = useState(false);
   const [syncMessage, setSyncMessage] = useState("");
   const [syncError, setSyncError] = useState("");
   const [saveState, setSaveState] = useState<{ kind: "idle" | "saving" | "saved" | "error"; message: string }>({ kind: "idle", message: "" });
+  const [focusedCurrencyField, setFocusedCurrencyField] = useState<string | null>(null);
   const saveTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const pendingSaves = useRef(new Map<string, () => Promise<void>>());
   const saveVersions = useRef(new Map<string, number>());
@@ -1028,17 +1042,22 @@ function SubprojectSites({ folderId, listId, listName, canEdit, canManageAllSite
           rows={1}
           className="site-cell-editor block min-h-7 w-full resize-none overflow-hidden whitespace-pre-wrap break-words [overflow-wrap:anywhere] border border-transparent bg-transparent px-1.5 py-1 text-xs leading-5 text-slate-700 hover:border-slate-200/70 focus:border-[#C9A33B] focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#C9A33B] read-only:cursor-default read-only:hover:border-transparent disabled:cursor-not-allowed disabled:text-slate-500"
         /> : <input
-          type="number"
-          min="0"
-          step="any"
+          type={field === "pfStructure" ? "number" : "text"}
+          min={field === "pfStructure" ? "0" : undefined}
+          step={field === "pfStructure" ? "any" : undefined}
           inputMode="decimal"
           aria-label={`${editableSiteFieldLabels[field]} for site ${site.siteNo}`}
-          value={field === "pfStructure" ? numericSiteValue(site[field], "months") : numericSiteValue(site[field], "php")}
+          value={field === "pfStructure"
+            ? numericSiteValue(site[field], "months")
+            : field === "amount" || focusedCurrencyField !== `${site.taskId}:${field}`
+              ? formatSitePhp(site[field])
+              : numericSiteValue(site[field], "php")}
           readOnly={!canEdit || field === "amount"}
           title={field === "amount" ? "Calculated from Monthly Rate (Php) × PF months" : undefined}
           disabled={!site.taskId}
-          onChange={(event) => updateSiteField(site, field, event.currentTarget.value)}
-          onBlur={() => flushSiteField(site, field)}
+          onFocus={field === "monthlyRate" ? (event) => { setFocusedCurrencyField(`${site.taskId}:${field}`); event.currentTarget.select(); } : undefined}
+          onChange={(event) => updateSiteField(site, field, field === "monthlyRate" ? sanitizeSiteNumber(event.currentTarget.value) : event.currentTarget.value)}
+          onBlur={() => { flushSiteField(site, field); if (field === "monthlyRate") setFocusedCurrencyField(null); }}
           className="block min-h-7 w-full min-w-0 border border-transparent bg-transparent px-1.5 py-1 text-xs leading-5 tabular-nums text-slate-700 hover:border-slate-200/70 focus:border-[#C9A33B] focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#C9A33B] read-only:cursor-default read-only:hover:border-transparent disabled:cursor-not-allowed disabled:text-slate-500"
         />}
       </td>)}
