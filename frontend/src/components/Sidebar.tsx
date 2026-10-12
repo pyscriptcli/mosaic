@@ -20,7 +20,7 @@ import {
   BriefcaseBusiness,
 } from "lucide-react";
 
-export type NavView = "dashboard" | "project" | "tasks" | "notebook" | "market-insights" | "demands" | "meetings" | "minutes" | "forms" | "delta" | "business-analysis" | "forms-admin";
+export type NavView = "dashboard" | "project" | "tasks" | "notebook" | "reports" | "market-insights" | "demands" | "meetings" | "minutes" | "forms" | "delta" | "business-analysis" | "forms-admin";
 
 interface SidebarProps {
   currentView: NavView;
@@ -117,6 +117,7 @@ export function Sidebar({
       badge: null
     },
     { id: "demands" as NavView, label: "Demands", icon: ClipboardCheck, badge: null },
+    { id: "reports" as NavView, label: "Reports", icon: ChartNoAxesColumnIncreasing, badge: null },
     {
       id: "market-insights" as NavView,
       label: "Market Insights",
@@ -156,7 +157,7 @@ export function Sidebar({
   const sidebarGroups = [
     { id: "personal" as const, label: "Personal Workspace", itemIds: ["business-analysis"] as NavView[] },
     { id: "workspaces" as const, label: "Workspaces", itemIds: ["dashboard", "project", "delta", "tasks"] as NavView[] },
-    { id: "monitoring" as const, label: "Monitoring", itemIds: ["demands", "market-insights"] as NavView[] },
+    { id: "monitoring" as const, label: "Monitoring", itemIds: ["demands", "market-insights", "reports"] as NavView[] },
     { id: "knowledge" as const, label: "Knowledge", itemIds: ["notebook"] as NavView[] },
   ].map((group) => ({
     ...group,

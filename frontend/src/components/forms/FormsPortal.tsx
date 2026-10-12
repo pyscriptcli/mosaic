@@ -37,13 +37,14 @@ import { ALL_FEATURES, FEATURE_CATALOG, type FeatureId } from "@/lib/access-cont
 export type PortalTab = "create" | "track" | "approvals" | "admin";
 export type Role = "owner" | "admin" | "approver" | "requestor";
 export type FormType = "rfp" | "po" | "pcv";
-export type AppPage = "dashboard" | "project" | "tasks" | "notebook" | "market-insights" | "demands" | "meetings" | "minutes" | "forms" | "delta" | "business-analysis";
+export type AppPage = "dashboard" | "project" | "tasks" | "notebook" | "reports" | "market-insights" | "demands" | "meetings" | "minutes" | "forms" | "delta" | "business-analysis";
 
 export const APP_PAGE_LIST: Array<{ id: AppPage; label: string; desc: string }> = [
   { id: "dashboard", label: "Dashboard", desc: "Executive overview & meeting metrics" },
   { id: "project", label: "Project", desc: "Focused project workspace" },
   { id: "tasks", label: "Tasks", desc: "ClickUp tasks portal & action items" },
   { id: "notebook", label: "Notebook", desc: "Daily logs & team completeness dashboard" },
+  { id: "reports", label: "Reports", desc: "Reporting workspace under development" },
   { id: "market-insights", label: "Market Insights", desc: "Weekly brief & shared market source archive" },
   { id: "demands", label: "Demands", desc: "Demand pipeline, table & coverage" },
   { id: "meetings", label: "Meetings", desc: "Archived meetings & transcripts" },

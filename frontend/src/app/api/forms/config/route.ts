@@ -36,8 +36,8 @@ const DEFAULT_CONFIG: FormsConfigData = {
   departments: ["Finance", "Procurement", "Operations", "Human Resources", "Marketing", "IT", "General"],
   mappings: REPOSITORY_FORM_MAPPINGS,
   pagePermissions: [],
-  defaultPageAccess: ["forms", "market-insights", "delta"],
-  sidebarOrder: ["dashboard", "project", "tasks", "notebook", "market-insights", "demands", "meetings", "minutes", "forms", "delta"],
+  defaultPageAccess: ["forms", "market-insights", "delta", "reports"],
+  sidebarOrder: ["dashboard", "project", "tasks", "notebook", "reports", "market-insights", "demands", "meetings", "minutes", "forms", "delta"],
   emailTemplates: [],
   allowedSignInDomains: ["primephilippines.com"],
   aiPolicy: DEFAULT_AI_POLICY,
@@ -78,7 +78,7 @@ export async function GET(req: NextRequest) {
     ? (config.defaultPageAccess as unknown[]).filter((page: unknown): page is string => typeof page === "string")
     : [];
   if (configuredDefaultPages.length === 0) configuredDefaultPages.push("forms");
-  const defaultPages = Array.from(new Set(configuredDefaultPages));
+  const defaultPages = Array.from(new Set([...configuredDefaultPages, "reports"]));
   const defaultFeatures = normalizeFeatures(config.defaultFeatureAccess, ALL_FEATURES);
 
   // If user is not authenticated or not logged in yet, return public default page access policy

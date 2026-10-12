@@ -94,7 +94,8 @@ import {
   Tag,
   MessageCircle,
   Copy,
-  Check
+  Check,
+  ChartNoAxesColumnIncreasing
 } from "lucide-react";
 
 const VENUE_OPTIONS = [
@@ -439,7 +440,7 @@ export default function Home() {
   const [allowedPages, setAllowedPages] = useState<NavView[]>(warmGovernance?.allowedPages || []);
   const [governanceStatus, setGovernanceStatus] = useState<"loading" | "ready" | "error">(warmGovernance ? "ready" : "loading");
   const [sidebarOrder, setSidebarOrder] = useState<NavView[]>([
-    "dashboard", "business-analysis", "project", "tasks", "notebook", "market-insights", "demands", "meetings", "minutes", "forms", "delta",
+    "dashboard", "business-analysis", "project", "tasks", "notebook", "reports", "market-insights", "demands", "meetings", "minutes", "forms", "delta",
   ]);
   const [isAdminUser, setIsAdminUser] = useState(warmGovernance?.isAdmin || false);
   const [askEchoEnabled, setAskEchoEnabled] = useState(warmGovernance?.askEchoEnabled || false);
@@ -1407,6 +1408,18 @@ export default function Home() {
             {/* VIEW: CLICKUP DAILY LOG NOTEBOOK */}
             {currentView === "notebook" && (
               <NotebookView currentUserName={authUser?.username} userId={authUser?.id ? String(authUser.id) : undefined} />
+            )}
+
+            {currentView === "reports" && (
+              <section className="mx-auto flex min-h-[60vh] w-full max-w-5xl items-center justify-center px-5 py-12">
+                <div className="w-full max-w-xl border border-slate-200 border-t-2 border-t-[#C9A84C] bg-[#FFFCFB] px-6 py-8 text-center shadow-sm">
+                  <ChartNoAxesColumnIncreasing aria-hidden="true" className="mx-auto h-8 w-8 text-[#003366]" />
+                  <h1 className="mt-4 font-serif text-2xl italic text-[#003366]">Reports</h1>
+                  <p className="mt-3 text-sm leading-6 text-slate-600">
+                    Under development. We’re exploring technology options and implementation approaches for this workspace.
+                  </p>
+                </div>
+              </section>
             )}
 
             {currentView === "market-insights" && <MarketInsightsView userId={authUser?.id ? String(authUser.id) : undefined} />}
