@@ -26,6 +26,8 @@ import {
   ChevronDown,
   PenTool,
   Check,
+  Eye,
+  Pencil,
 } from 'lucide-react';
 import { useMapStore } from '../../store/useMapStore';
 import { useProjectStore } from '../../store/useProjectStore';
@@ -38,9 +40,10 @@ interface TopToolbarProps {
   embeddedName?: string;
   embeddedStatus?: string;
   embedded?: boolean;
+  onModeChange?: (mode: 'view' | 'edit') => void;
 }
 
-export const TopToolbar: React.FC<TopToolbarProps> = ({ mapInstance, embeddedName, embeddedStatus, embedded = false }) => {
+export const TopToolbar: React.FC<TopToolbarProps> = ({ mapInstance, embeddedName, embeddedStatus, embedded = false, onModeChange }) => {
   const {
     activeTool,
     setActiveTool,
@@ -56,6 +59,8 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({ mapInstance, embeddedNam
     isSunDialOpen,
     toggleSunDial,
     setToast,
+    embeddedMode,
+    setEmbeddedMode,
   } = useMapStore();
 
   const { currentProjectName, updateProjectName, currentProjectId, saveCurrentProject } =
@@ -153,20 +158,29 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({ mapInstance, embeddedNam
           </div>
 
           {/* Undo / Redo */}
-          <button
+          {(!embedded || embeddedMode === 'edit') && <button
             onClick={undo}
             title="Undo (Ctrl+Z)"
             className="w-7 h-7 rounded-full flex items-center justify-center text-zinc-400 hover:text-white hover:bg-white/10 transition"
           >
             <Undo2 className="w-4 h-4 text-zinc-400" strokeWidth={2.2} />
-          </button>
-          <button
+          </button>}
+          {(!embedded || embeddedMode === 'edit') && <button
             onClick={redo}
             title="Redo (Ctrl+Y)"
             className="w-7 h-7 rounded-full flex items-center justify-center text-zinc-400 hover:text-white hover:bg-white/10 transition"
           >
             <Redo2 className="w-4 h-4 text-zinc-400" strokeWidth={2.2} />
-          </button>
+          </button>}
+
+          {embedded && <div className="flex items-center gap-0.5 ml-1 p-0.5 rounded-full border border-white/15 bg-white/[0.04]" role="group" aria-label="Workspace mode">
+            <button type="button" onClick={() => { setEmbeddedMode('view'); onModeChange?.('view'); setOpenFolder(null); }} aria-pressed={embeddedMode === 'view'} title="View mode" className={`h-7 px-2 rounded-full flex items-center gap-1 text-[10px] font-semibold transition ${embeddedMode === 'view' ? 'bg-white text-black' : 'text-zinc-400 hover:text-white'}`}>
+              <Eye className="w-3 h-3" /> View
+            </button>
+            <button type="button" onClick={() => { setEmbeddedMode('edit'); onModeChange?.('edit'); }} aria-pressed={embeddedMode === 'edit'} title="Edit mode" className={`h-7 px-2 rounded-full flex items-center gap-1 text-[10px] font-semibold transition ${embeddedMode === 'edit' ? 'bg-white text-black' : 'text-zinc-400 hover:text-white'}`}>
+              <Pencil className="w-3 h-3" /> Edit
+            </button>
+          </div>}
 
           {/* Save */}
           {!embeddedName && <button
@@ -182,6 +196,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({ mapInstance, embeddedNam
             SECTION 2: DATA & LAYERS (DIRECT ICON-ONLY BUTTONS - MONOCHROME)
            ========================================================================= */}
         <div className="flex items-center gap-1 shrink-0 pr-1.5 border-r border-white/15">
+          {(!embedded || embeddedMode === 'edit') && <>
           {/* Data Browser */}
           <button
             type="button"
@@ -232,6 +247,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({ mapInstance, embeddedNam
           >
             <Radar className={`w-[18px] h-[18px] ${activePanels.tradeArea ? 'text-black' : 'text-zinc-300'}`} strokeWidth={2.1} />
           </button>
+          </>}
 
         </div>
 
@@ -269,7 +285,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({ mapInstance, embeddedNam
         {/* =========================================================================
             SECTION 4: DRAW & 3D TOOLS (ICON-ONLY BUTTON - MONOCHROME)
            ========================================================================= */}
-        <div className="relative shrink-0">
+        {(!embedded || embeddedMode === 'edit') && <div className="relative shrink-0">
           <button
             type="button"
             onClick={() => toggleFlyout('draw')}
@@ -431,7 +447,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({ mapInstance, embeddedNam
               </button>
             </div>
           )}
-        </div>
+        </div>}
 
         {/* =========================================================================
             SECTION 5: STUDIO & STYLING (STUDIO MODE + BASEMAP WITH MAP ICON + FX)

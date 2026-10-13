@@ -139,6 +139,7 @@ interface MapState {
   selectAllLayers: () => void;
   clearLayerSelection: () => void;
   setFeatures: (features: GISFeature[], recordHistory?: boolean) => void;
+  setFeatureDisplayProperties: (updates: Array<{ id: number; visible?: number; showLabel?: boolean }>) => void;
   addFeature: (f: GISFeature) => void;
   updateFeature: (id: number, updater: (f: GISFeature) => GISFeature, committed?: boolean) => void;
   removeFeature: (id: number) => void;
@@ -391,6 +392,28 @@ export const useMapStore = create<MapState>((set, get) => ({
     if (get().embeddedMode === 'view') return;
     if (recordHistory) get().pushHistory();
     set((state) => ({ features, isDirty: true, saveStatus: 'unsaved', changeSequence: state.embeddedMode === 'edit' ? state.changeSequence + 1 : state.changeSequence }));
+  },
+
+  setFeatureDisplayProperties: (updates) => {
+    if (!updates.length) return;
+    const byId = new Map(updates.map(({ id, ...patch }) => [id, patch]));
+    set((state) => {
+      let changed = false;
+      const features = state.features.map((feature) => {
+        const patch = byId.get(feature.id);
+        if (!patch) return feature;
+        changed = true;
+        return { ...feature, props: { ...feature.props, ...patch } };
+      });
+      return changed
+        ? {
+            features,
+            isDirty: true,
+            saveStatus: 'unsaved' as const,
+            changeSequence: state.embeddedMode === 'edit' ? state.changeSequence + 1 : state.changeSequence,
+          }
+        : {};
+    });
   },
 
   addFeature: (f) => {

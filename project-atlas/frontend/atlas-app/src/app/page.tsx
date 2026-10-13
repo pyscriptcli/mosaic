@@ -25,7 +25,7 @@ import { useProjectStore } from '../store/useProjectStore';
 import type { AtlasWorkspaceType } from '../store/useProjectStore';
 import { normalizeGeoJSON } from '../gis/importExport';
 
-export default function WorkspacePage({
+function WorkspacePage({
   workspaceType = 'standalone',
   mosaicProjectId,
   workspaceName,
@@ -55,6 +55,8 @@ export default function WorkspacePage({
   useEffect(() => {
     let mounted = true;
     setWorkspaceReady(false);
+    useMapStore.getState().setEmbeddedMode(workspaceType === 'standalone' ? null : 'view');
+    if (workspaceType !== 'standalone') useMapStore.getState().togglePanel('myLayers', true);
     setWorkspaceScope({ type: workspaceType, mosaicProjectId });
     const loadWorkspace = async () => {
       await fetchProjects();
@@ -231,4 +233,8 @@ export default function WorkspacePage({
       )}
     </main>
   );
+}
+
+export default function Page() {
+  return <WorkspacePage />;
 }

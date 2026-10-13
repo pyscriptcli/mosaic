@@ -113,6 +113,7 @@ export default function EmbeddedGisEditor() {
         cameraRef.current = message.camera;
         setBasemap(message.basemap && Object.hasOwn(ALL_STYLES, message.basemap) ? message.basemap : 'Midnight Blue');
         useMapStore.getState().setEmbeddedMode(message.mode);
+        useMapStore.getState().togglePanel('myLayers', true);
         useMapStore.getState().replaceEmbeddedFeatures(imported.features);
         useMapStore.setState({ currentBasemap: message.basemap && Object.hasOwn(ALL_STYLES, message.basemap) ? message.basemap : 'Midnight Blue', isDirty: false, saveStatus: 'saved', changeSequence: 0 });
         lastChangeSequence.current = 0;
@@ -225,12 +226,20 @@ export default function EmbeddedGisEditor() {
         else map.once('idle', () => window.parent.postMessage(loadedMessage, parentOrigin));
       }
     }} />
+    <TopToolbar
+      mapInstance={mapInstance}
+      embeddedName={projectName}
+      embeddedStatus={hostSyncStatus}
+      embedded
+      onModeChange={(nextMode) => {
+        setMode(nextMode);
+        setStatus(nextMode === 'edit' ? 'Editing enabled' : 'Read-only map');
+      }}
+    />
+    <MyLayersPanel mapInstance={mapInstance} embedded />
     {modeIsEdit ? <>
-      <TopToolbar mapInstance={mapInstance} embeddedName={projectName} embeddedStatus={hostSyncStatus} />
       <DataBrowserPanel mapInstance={mapInstance} onImportClick={() => fileInputRef.current?.click()} />
-      <MyLayersPanel mapInstance={mapInstance} />
       <MapContextMenu />
-      <FeaturePopup />
       <ShapeEditorModal />
       <TradeAreaSidebar mapInstance={mapInstance} />
       <AttributeTableModal />
@@ -243,11 +252,14 @@ export default function EmbeddedGisEditor() {
       <TiltShiftOverlay />
       <HeightCaliperHUD mapInstance={mapInstance} />
       <RadiantBeaconsOverlay />
-    </> : <header className="absolute left-3 top-3 z-[1200] flex items-center gap-3 rounded-xl border border-white/15 bg-[#111820]/95 px-3 py-2 text-white shadow-xl backdrop-blur">
-      <strong className="max-w-48 truncate text-xs">{projectName}</strong><span role="status" className="text-[10px] text-slate-300">Read-only map</span>
-      <select aria-label="Basemap" disabled={!ready} value={basemap} onChange={(event) => { setBasemap(event.target.value); setBasemapStore(event.target.value); }} className="h-8 rounded-md border border-white/15 bg-[#1c2732] px-2 text-[11px]">{Object.keys(ALL_STYLES).map((name) => <option key={name} value={name}>{name}</option>)}</select>
-    </header>}
-    {modeIsEdit && toastMessage && <div className="fixed bottom-6 left-1/2 z-[2000] -translate-x-1/2 rounded-full border border-white/20 bg-[rgba(9,16,24,0.98)] px-4 py-2 text-xs font-semibold text-white shadow-2xl">{toastMessage}</div>}
+    </> : <>
+      <header className="absolute right-3 top-3 z-[1200] flex items-center gap-3 rounded-xl border border-white/15 bg-[#111820]/95 px-3 py-2 text-white shadow-xl backdrop-blur">
+        <span role="status" className="text-[10px] text-slate-300">Read-only map</span>
+        <select aria-label="Basemap" disabled={!ready} value={basemap} onChange={(event) => { setBasemap(event.target.value); setBasemapStore(event.target.value); }} className="h-8 rounded-md border border-white/15 bg-[#1c2732] px-2 text-[11px]">{Object.keys(ALL_STYLES).map((name) => <option key={name} value={name}>{name}</option>)}</select>
+      </header>
+    </>}
+    <FeaturePopup />
+    {toastMessage && <div className="fixed bottom-6 left-1/2 z-[2000] -translate-x-1/2 rounded-full border border-white/20 bg-[rgba(9,16,24,0.98)] px-4 py-2 text-xs font-semibold text-white shadow-2xl">{toastMessage}</div>}
     {!ready && <div className="absolute inset-0 z-[1100] flex items-center justify-center bg-[#0a0d12]/85 text-xs text-white"><span className="rounded-lg border border-white/15 bg-[#111820] px-4 py-3">{status}</span></div>}
   </main>;
 }

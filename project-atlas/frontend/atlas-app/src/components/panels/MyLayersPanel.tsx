@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import {
   FolderTree,
   X,
@@ -26,6 +26,7 @@ import {
   Square as PolygonIcon,
   Type,
   MoreVertical,
+  Focus,
 } from 'lucide-react';
 import { useMapStore } from '../../store/useMapStore';
 import { calcBounds } from '../../gis/polygons';
@@ -63,6 +64,8 @@ export const MyLayersPanel: React.FC<MyLayersPanelProps> = ({ mapInstance, embed
     togglePanel,
     features,
     setFeatures,
+    setFeatureDisplayProperties,
+    embeddedMode,
     customGroups,
     setCustomGroups,
     selectedLayerIds,
@@ -82,13 +85,34 @@ export const MyLayersPanel: React.FC<MyLayersPanelProps> = ({ mapInstance, embed
   const [bulkShape, setBulkShape] = useState('');
   const [bulkSize, setBulkSize] = useState(0.9);
   const [expandedLayerId, setExpandedLayerId] = useState<number | null>(null);
+  const [collapsedTradeAreas, setCollapsedTradeAreas] = useState<Record<string, boolean>>({});
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+  const [soloTradeArea, setSoloTradeArea] = useState<string | null>(null);
+  const soloVisibilitySnapshot = useRef<Map<number, number> | null>(null);
+
+  const tradeAreaGroups = useMemo(() => {
+    const groups = new Map<string, { title: string; ids: number[] }>();
+    for (const feature of features) {
+      const attributes = feature.props?.attributes || {};
+      const areaName = attributes.tradeArea || attributes.tradeAreaName || attributes.groupName;
+      if (!areaName) continue;
+      const number = attributes.tradeAreaNo || attributes.tradeAreaNumber || attributes.taNo;
+      const key = String(number ? `TA ${number}` : areaName);
+      const title = number ? `TA ${number} · ${areaName}` : String(areaName);
+      const group = groups.get(key) || { title, ids: [] };
+      group.ids.push(feature.id);
+      groups.set(key, group);
+    }
+    return [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true }));
+  }, [features]);
 
   // Grouped vs Ungrouped features
   const groupedIds = useMemo(() => {
     const s = new Set<number>();
     Object.values(customGroups).forEach((g) => g.ids.forEach((id) => s.add(id)));
+    tradeAreaGroups.forEach(([, group]) => group.ids.forEach((id) => s.add(id)));
     return s;
-  }, [customGroups]);
+  }, [customGroups, tradeAreaGroups]);
 
   const openNodeIds = useMemo(() => {
     const s = new Set(customGroups['Trade Area Scan']?.ids || []);
@@ -158,9 +182,34 @@ export const MyLayersPanel: React.FC<MyLayersPanelProps> = ({ mapInstance, embed
     const anyVisible = features.some((f) => ids.includes(f.id) && f.props?.visible !== 0);
     const newVis = anyVisible ? 0 : 1;
 
-    setFeatures(
-      features.map((f) => (ids.includes(f.id) ? { ...f, props: { ...f.props, visible: newVis } } : f))
-    );
+    setFeatureDisplayProperties(ids.map((id) => ({ id, visible: newVis })));
+  };
+
+  const handleToggleIdsVisibility = (ids: number[]) => {
+    const anyVisible = features.some((feature) => ids.includes(feature.id) && feature.props.visible !== 0);
+    setFeatureDisplayProperties(ids.map((id) => ({ id, visible: anyVisible ? 0 : 1 })));
+  };
+
+  const handleGroupLabels = (ids: number[], showLabel: boolean) => {
+    setFeatureDisplayProperties(ids.map((id) => ({ id, showLabel })));
+    setToast(`${showLabel ? 'Labels shown' : 'Labels hidden'} for ${ids.length} layer(s)`);
+  };
+
+  const handleSoloGroup = (key: string, ids: number[]) => {
+    if (soloTradeArea === key && soloVisibilitySnapshot.current) {
+      setFeatureDisplayProperties([...soloVisibilitySnapshot.current].map(([id, visible]) => ({ id, visible })));
+      soloVisibilitySnapshot.current = null;
+      setSoloTradeArea(null);
+      setToast('Showing all layers');
+      return;
+    }
+    if (!soloVisibilitySnapshot.current) {
+      soloVisibilitySnapshot.current = new Map(features.map((feature) => [feature.id, feature.props.visible === 0 ? 0 : 1]));
+    }
+    const visibleIds = new Set(ids);
+    setFeatureDisplayProperties(features.map((feature) => ({ id: feature.id, visible: visibleIds.has(feature.id) ? 1 : 0 })));
+    setSoloTradeArea(key);
+    setToast(`Showing only ${tradeAreaGroups.find(([groupKey]) => groupKey === key)?.[1].title || key}`);
   };
 
   const handleBulkStyleApply = (gName: string) => {
@@ -188,21 +237,13 @@ export const MyLayersPanel: React.FC<MyLayersPanelProps> = ({ mapInstance, embed
       return f && f.props?.visible === 0;
     });
     const newVis = allHidden ? 1 : 0;
-    setFeatures(
-      features.map((f) =>
-        selectedLayerIds.includes(f.id) ? { ...f, props: { ...f.props, visible: newVis } } : f
-      )
-    );
+    setFeatureDisplayProperties(selectedLayerIds.map((id) => ({ id, visible: newVis })));
     setToast(allHidden ? 'Selected layers shown' : 'Selected layers hidden');
   };
 
   const handleBulkLabels = (showLabel: boolean) => {
     if (!selectedLayerIds.length) return;
-    setFeatures(
-      features.map((feature) => selectedLayerIds.includes(feature.id)
-        ? { ...feature, props: { ...feature.props, showLabel } }
-        : feature)
-    );
+    setFeatureDisplayProperties(selectedLayerIds.map((id) => ({ id, showLabel })));
     setToast(`${showLabel ? 'Labels shown' : 'Labels hidden'} for ${selectedLayerIds.length} selected layer(s)`);
   };
 
@@ -236,10 +277,11 @@ export const MyLayersPanel: React.FC<MyLayersPanelProps> = ({ mapInstance, embed
     return (
       <div
         key={`${f.id}-${renderIndex}`}
-        draggable
-        onDragStart={(e) => e.dataTransfer.setData('text/plain', String(f.id))}
-        onDragOver={(e) => e.preventDefault()}
+        draggable={embeddedMode !== 'view'}
+        onDragStart={embeddedMode === 'view' ? undefined : (e) => e.dataTransfer.setData('text/plain', String(f.id))}
+        onDragOver={embeddedMode === 'view' ? undefined : (e) => e.preventDefault()}
         onDrop={(e) => {
+          if (embeddedMode === 'view') return;
           e.preventDefault();
           const draggedId = parseInt(e.dataTransfer.getData('text/plain'), 10);
           if (draggedId && draggedId !== f.id) {
@@ -254,12 +296,12 @@ export const MyLayersPanel: React.FC<MyLayersPanelProps> = ({ mapInstance, embed
       >
         <div className="flex items-center gap-1.5 p-2 min-h-[40px]">
           {/* Drag Handle */}
-          <div
+          {embeddedMode !== 'view' && <div
             title="Drag to reorder"
             className="cursor-grab active:cursor-grabbing text-zinc-600 group-hover:text-zinc-400 p-0.5 rounded transition"
           >
             <GripVertical className="w-3.5 h-3.5" />
-          </div>
+          </div>}
 
           {/* Selection Checkbox */}
           <button
@@ -285,18 +327,22 @@ export const MyLayersPanel: React.FC<MyLayersPanelProps> = ({ mapInstance, embed
 
           {/* Inline Editable Layer Title & Subtext */}
           <div className="flex-1 min-w-0 flex flex-col justify-center px-1">
-            <input
-              value={f.name}
-              onChange={(e) =>
-                updateFeature(f.id, (feat) => ({
-                  ...feat,
-                  name: e.target.value,
-                  props: { ...feat.props, attributes: { ...feat.props.attributes, name: e.target.value } },
-                }))
-              }
-              title="Click to rename"
-              className="w-full bg-transparent text-xs font-semibold text-zinc-200 hover:text-white px-1 py-0.5 -mx-1 rounded border border-transparent hover:border-white/10 focus:border-blue-500 focus:bg-black/60 outline-none truncate transition"
-            />
+            {embeddedMode === 'view' ? (
+              <span className="w-full text-xs font-semibold text-zinc-200 px-1 py-0.5 truncate">{f.name}</span>
+            ) : (
+              <input
+                value={f.name}
+                onChange={(e) =>
+                  updateFeature(f.id, (feat) => ({
+                    ...feat,
+                    name: e.target.value,
+                    props: { ...feat.props, attributes: { ...feat.props.attributes, name: e.target.value } },
+                  }))
+                }
+                title="Click to rename"
+                className="w-full bg-transparent text-xs font-semibold text-zinc-200 hover:text-white px-1 py-0.5 -mx-1 rounded border border-transparent hover:border-white/10 focus:border-blue-500 focus:bg-black/60 outline-none truncate transition"
+              />
+            )}
             <div className="flex items-center gap-1.5 text-[10px] text-zinc-500 font-medium">
               <span className="truncate max-w-[140px]">{subInfo}</span>
               {f.props.showLabel && (
@@ -312,10 +358,7 @@ export const MyLayersPanel: React.FC<MyLayersPanelProps> = ({ mapInstance, embed
             {/* Direct Visibility Toggle */}
             <button
               onClick={() =>
-                updateFeature(f.id, (feat) => ({
-                  ...feat,
-                  props: { ...feat.props, visible: isVisible ? 0 : 1 },
-                }))
+                setFeatureDisplayProperties([{ id: f.id, visible: isVisible ? 0 : 1 }])
               }
               title={isVisible ? 'Hide layer' : 'Show layer'}
               className="p-1 rounded-md hover:bg-white/10 text-zinc-400 hover:text-white transition"
@@ -360,17 +403,14 @@ export const MyLayersPanel: React.FC<MyLayersPanelProps> = ({ mapInstance, embed
                   type="checkbox"
                   checked={!!f.props.showLabel}
                   onChange={(e) =>
-                    updateFeature(f.id, (feat) => ({
-                      ...feat,
-                      props: { ...feat.props, showLabel: e.target.checked },
-                    }))
+                    setFeatureDisplayProperties([{ id: f.id, showLabel: e.target.checked }])
                   }
                   className="w-3.5 h-3.5 accent-blue-600 rounded cursor-pointer"
                 />
                 <span className="font-medium text-zinc-300">Show Map Label</span>
               </label>
 
-              <div className="flex items-center gap-1.5">
+              {embeddedMode !== 'view' && <div className="flex items-center gap-1.5">
                 <span className="text-[10px] text-zinc-500 uppercase tracking-wider">Position</span>
                 <select
                   value={f.props.labelPos || 'center'}
@@ -388,11 +428,11 @@ export const MyLayersPanel: React.FC<MyLayersPanelProps> = ({ mapInstance, embed
                   <option value="left">Left</option>
                   <option value="right">Right</option>
                 </select>
-              </div>
+              </div>}
             </div>
 
             <div className="flex items-center gap-1.5 pt-1 border-t border-white/[0.06]">
-              <button
+              {embeddedMode !== 'view' && <button
                 onClick={() => {
                   setSelectedId(f.id);
                   setEditMode(true, f.id);
@@ -402,7 +442,7 @@ export const MyLayersPanel: React.FC<MyLayersPanelProps> = ({ mapInstance, embed
               >
                 <Pencil className="w-3 h-3 text-blue-400" />
                 <span>Edit Shape</span>
-              </button>
+              </button>}
 
               <button
                 onClick={() => {
@@ -415,13 +455,13 @@ export const MyLayersPanel: React.FC<MyLayersPanelProps> = ({ mapInstance, embed
                 <span>Attributes</span>
               </button>
 
-              <button
+              {embeddedMode !== 'view' && <button
                 onClick={() => removeFeature(f.id)}
                 title="Delete layer"
                 className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 transition border border-rose-500/20"
               >
                 <Trash2 className="w-3.5 h-3.5" />
-              </button>
+              </button>}
             </div>
           </div>
         )}
@@ -490,25 +530,25 @@ export const MyLayersPanel: React.FC<MyLayersPanelProps> = ({ mapInstance, embed
               <>
                 <button onClick={() => handleBulkLabels(true)} className="px-2 py-1 rounded-lg bg-white/[0.05] hover:bg-white/10 text-zinc-300 border border-white/10 text-[11px] transition font-medium" title={`Show labels for ${selectedLayerIds.length} selected layer(s)`}>Show labels</button>
                 <button onClick={() => handleBulkLabels(false)} className="px-2 py-1 rounded-lg bg-white/[0.05] hover:bg-white/10 text-zinc-300 border border-white/10 text-[11px] transition font-medium" title={`Hide labels for ${selectedLayerIds.length} selected layer(s)`}>Hide labels</button>
-                <button
+                {embeddedMode !== 'view' && <button
                   onClick={handleBulkDeleteSelected}
                   className="px-2 py-1 bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 rounded-lg flex items-center gap-1 text-[11px] transition font-medium"
                   title={`Delete ${selectedLayerIds.length} selected layer(s)`}
                 >
                   <Trash2 className="w-3 h-3 text-rose-400" />
                   <span>Delete ({selectedLayerIds.length})</span>
-                </button>
+                </button>}
               </>
             )}
           </div>
           <div className="flex items-center gap-1.5">
-            <button
+            {embeddedMode !== 'view' && <button
               onClick={handleAddGroup}
               className="px-2 py-1 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 rounded-lg font-medium flex items-center gap-1 text-[11px] transition border border-blue-500/30"
             >
               <Plus className="w-3 h-3" />
               <span>Group</span>
-            </button>
+            </button>}
             <button
               onClick={handleBulkHideUnhide}
               className="px-2 py-1 bg-white/[0.05] hover:bg-white/10 border border-white/10 rounded-lg text-zinc-300 text-[11px] transition font-medium"
@@ -521,18 +561,60 @@ export const MyLayersPanel: React.FC<MyLayersPanelProps> = ({ mapInstance, embed
 
       {/* Scrollable Layers List */}
       <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-3">
+        {tradeAreaGroups.map(([key, group]) => {
+          const groupFeatures = filteredFeatures.filter((feature) => group.ids.includes(feature.id));
+          const isCollapsed = !!collapsedTradeAreas[key];
+          const anyVisible = features.some((feature) => group.ids.includes(feature.id) && feature.props.visible !== 0);
+          const allLabeled = groupFeatures.length > 0 && groupFeatures.every((feature) => !!feature.props.showLabel);
+          return (
+            <section key={`trade-area-${key}`} className="bg-black/30 border border-amber-400/25 rounded-2xl overflow-hidden shadow-sm">
+              <header className="flex items-center justify-between gap-2 p-2.5 bg-amber-400/[0.07]">
+                <button
+                  type="button"
+                  onClick={() => setCollapsedTradeAreas((state) => ({ ...state, [key]: !state[key] }))}
+                  className="flex items-center gap-2 min-w-0 text-left"
+                  aria-expanded={!isCollapsed}
+                >
+                  {isCollapsed ? <ChevronRight className="w-3.5 h-3.5 shrink-0" /> : <ChevronDown className="w-3.5 h-3.5 shrink-0" />}
+                  <span className="font-semibold text-xs text-white truncate">{group.title}</span>
+                  <span className="text-[10px] text-zinc-400 font-mono">{group.ids.length}</span>
+                </button>
+                <div className="flex items-center gap-0.5 shrink-0">
+                  <button type="button" onClick={() => handleGroupLabels(group.ids, !allLabeled)} title={allLabeled ? 'Hide labels for this trade area' : 'Show labels for this trade area'} aria-label={allLabeled ? 'Hide trade area labels' : 'Show trade area labels'} className="p-1.5 rounded-lg hover:bg-white/10 text-zinc-300">
+                    <Type className={`w-3.5 h-3.5 ${allLabeled ? 'text-amber-300' : ''}`} />
+                  </button>
+                  <button type="button" onClick={() => handleToggleIdsVisibility(group.ids)} title={anyVisible ? 'Hide this trade area' : 'Show this trade area'} aria-label={anyVisible ? 'Hide trade area' : 'Show trade area'} className="p-1.5 rounded-lg hover:bg-white/10 text-zinc-300">
+                    {anyVisible ? <Eye className="w-3.5 h-3.5 text-blue-400" /> : <EyeOff className="w-3.5 h-3.5 text-zinc-500" />}
+                  </button>
+                  <button type="button" onClick={() => handleSoloGroup(key, group.ids)} title={soloTradeArea === key ? 'Restore all trade areas' : 'Show only this trade area'} aria-label={soloTradeArea === key ? 'Restore all trade areas' : `Show only ${group.title}`} className={`p-1.5 rounded-lg hover:bg-white/10 ${soloTradeArea === key ? 'text-amber-300 bg-amber-300/10' : 'text-zinc-300'}`}>
+                    <Focus className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </header>
+              {!isCollapsed && <div className="p-2 flex flex-col gap-1.5">
+                {groupFeatures.length ? groupFeatures.map((feature, index) => renderLayerCard(feature, index)) : (
+                  <div className="p-3 text-center text-[11px] text-zinc-500">No matching layers</div>
+                )}
+              </div>}
+            </section>
+          );
+        })}
+
         {/* Custom Groups */}
         {Object.entries(customGroups)
           .filter(([gName]) => gName !== 'Trade Area Scan')
           .map(([gName, grp]) => {
-            const groupFeats = filteredFeatures.filter((f) => grp.ids.includes(f.id));
+            const tradeAreaIds = new Set(tradeAreaGroups.flatMap(([, group]) => group.ids));
+            const groupFeats = filteredFeatures.filter((f) => grp.ids.includes(f.id) && !tradeAreaIds.has(f.id));
             const isStylingOpen = stylingGroupId === gName;
+            const isGroupCollapsed = embeddedMode === 'view' ? (collapsedGroups[gName] ?? grp.collapsed) : grp.collapsed;
 
             return (
               <div
                 key={gName}
-                onDragOver={(e) => e.preventDefault()}
+                onDragOver={embeddedMode === 'view' ? undefined : (e) => e.preventDefault()}
                 onDrop={(e) => {
+                  if (embeddedMode === 'view') return;
                   e.preventDefault();
                   const id = parseInt(e.dataTransfer.getData('text/plain'), 10);
                   if (id) {
@@ -546,25 +628,27 @@ export const MyLayersPanel: React.FC<MyLayersPanelProps> = ({ mapInstance, embed
                 <div className="flex items-center justify-between p-2.5 bg-white/[0.04] hover:bg-white/[0.07] transition">
                   <div className="flex items-center gap-1.5 flex-1 min-w-0">
                     <button
-                      onClick={() => handleToggleGroupCollapse(gName)}
+                      onClick={() => embeddedMode === 'view'
+                        ? setCollapsedGroups((state) => ({ ...state, [gName]: !isGroupCollapsed }))
+                        : handleToggleGroupCollapse(gName)}
                       className="p-1 rounded text-zinc-400 hover:text-white transition"
                     >
-                      {grp.collapsed ? (
+                      {isGroupCollapsed ? (
                         <ChevronRight className="w-3.5 h-3.5" />
                       ) : (
                         <ChevronDown className="w-3.5 h-3.5" />
                       )}
                     </button>
-                    <input
+                    {embeddedMode === 'view' ? <span className="font-semibold text-xs text-white truncate">{gName}</span> : <input
                       value={gName}
                       onChange={(e) => handleRenameGroup(gName, e.target.value)}
                       className="bg-transparent font-semibold text-xs text-white outline-none w-32 border-b border-transparent focus:border-blue-500 px-0.5"
-                    />
+                    />}
                     <span className="text-[10px] text-zinc-500 font-mono">({groupFeats.length})</span>
                   </div>
 
                   <div className="flex items-center gap-1">
-                    <button
+                    {embeddedMode !== 'view' && <button
                       onClick={() => setStylingGroupId(isStylingOpen ? null : gName)}
                       title="Bulk style group markers"
                       className={`p-1.5 rounded-lg border transition ${
@@ -574,7 +658,7 @@ export const MyLayersPanel: React.FC<MyLayersPanelProps> = ({ mapInstance, embed
                       }`}
                     >
                       <Palette className="w-3.5 h-3.5" />
-                    </button>
+                    </button>}
                     <button
                       onClick={() => handleToggleGroupEye(gName)}
                       title="Toggle group visibility"
@@ -583,12 +667,19 @@ export const MyLayersPanel: React.FC<MyLayersPanelProps> = ({ mapInstance, embed
                       <Eye className="w-3.5 h-3.5" />
                     </button>
                     <button
+                      onClick={() => handleGroupLabels(grp.ids, !features.filter((feature) => grp.ids.includes(feature.id)).every((feature) => !!feature.props.showLabel))}
+                      title="Toggle labels for this group"
+                      className="p-1.5 rounded-lg hover:bg-white/10 text-zinc-400 hover:text-white transition"
+                    >
+                      <Type className="w-3.5 h-3.5" />
+                    </button>
+                    {embeddedMode !== 'view' && <button
                       onClick={() => handleDeleteGroup(gName)}
                       title="Delete group"
                       className="p-1.5 rounded-lg hover:bg-rose-500/20 text-zinc-400 hover:text-rose-400 transition"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    </button>}
                   </div>
                 </div>
 
@@ -662,7 +753,7 @@ export const MyLayersPanel: React.FC<MyLayersPanelProps> = ({ mapInstance, embed
                 )}
 
                 {/* Group Items */}
-                {!grp.collapsed && (
+                {!isGroupCollapsed && (
                   <div className="p-2 flex flex-col gap-1.5">
                     {groupFeats.length ? (
                       groupFeats.map((feature, index) => renderLayerCard(feature, index))
