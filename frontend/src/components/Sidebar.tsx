@@ -17,7 +17,7 @@ import {
   ClipboardCheck,
   ChartNoAxesColumnIncreasing,
   BriefcaseBusiness,
-  Map,
+  Map as MapIcon,
 } from "lucide-react";
 
 export type NavView = "dashboard" | "project" | "tasks" | "notebook" | "reports" | "market-insights" | "demands" | "meetings" | "minutes" | "maps" | "forms" | "delta" | "business-analysis" | "forms-admin";
@@ -128,7 +128,7 @@ export function Sidebar({
       label: "Notetaker",
       icon: Mic,
     },
-    { id: "maps" as NavView, label: "Maps", icon: Map, badge: null },
+    { id: "maps" as NavView, label: "Maps", icon: MapIcon, badge: null },
     {
       id: "notebook" as NavView,
       label: "Notebook",
