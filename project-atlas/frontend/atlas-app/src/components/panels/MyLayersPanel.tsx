@@ -288,7 +288,7 @@ export const MyLayersPanel: React.FC<MyLayersPanelProps> = ({ mapInstance, embed
             setFeatures(reorderFeatures(features, draggedId, f.id));
           }
         }}
-        className={`group relative rounded-xl border transition-all duration-150 ${
+        className={`group relative shrink-0 rounded-xl border transition-all duration-150 ${
           isSelected
             ? 'bg-blue-950/25 border-blue-500/40 shadow-sm shadow-blue-900/20'
             : 'bg-white/[0.03] hover:bg-white/[0.06] border-white/[0.08] hover:border-white/20'
@@ -560,14 +560,14 @@ export const MyLayersPanel: React.FC<MyLayersPanelProps> = ({ mapInstance, embed
       </div>
 
       {/* Scrollable Layers List */}
-      <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-3">
+      <div className="flex-1 min-h-0 overflow-y-auto p-3 flex flex-col gap-3">
         {tradeAreaGroups.map(([key, group]) => {
           const groupFeatures = filteredFeatures.filter((feature) => group.ids.includes(feature.id));
           const isCollapsed = collapsedTradeAreas[key] ?? true;
           const anyVisible = features.some((feature) => group.ids.includes(feature.id) && feature.props.visible !== 0);
           const allLabeled = groupFeatures.length > 0 && groupFeatures.every((feature) => !!feature.props.showLabel);
           return (
-            <section key={`trade-area-${key}`} className="bg-black/30 border border-amber-400/25 rounded-2xl overflow-hidden shadow-sm">
+            <section key={`trade-area-${key}`} className="shrink-0 bg-black/30 border border-amber-400/25 rounded-2xl overflow-hidden shadow-sm">
               <header className="flex items-center justify-between gap-2 p-2.5 bg-amber-400/[0.07]">
                 <button
                   type="button"
@@ -606,6 +606,7 @@ export const MyLayersPanel: React.FC<MyLayersPanelProps> = ({ mapInstance, embed
           .map(([gName, grp]) => {
             const tradeAreaIds = new Set(tradeAreaGroups.flatMap(([, group]) => group.ids));
             const groupFeats = filteredFeatures.filter((f) => grp.ids.includes(f.id) && !tradeAreaIds.has(f.id));
+            if (embeddedMode === 'view' && groupFeats.length === 0) return null;
             const isStylingOpen = stylingGroupId === gName;
             const isGroupCollapsed = embeddedMode === 'view' ? (collapsedGroups[gName] ?? grp.collapsed) : grp.collapsed;
 
@@ -622,7 +623,7 @@ export const MyLayersPanel: React.FC<MyLayersPanelProps> = ({ mapInstance, embed
                     setToast(`Moved to "${gName}"`);
                   }
                 }}
-                className="bg-black/30 border border-white/10 rounded-2xl overflow-hidden shadow-sm"
+                className="shrink-0 bg-black/30 border border-white/10 rounded-2xl overflow-hidden shadow-sm"
               >
                 {/* Group Header */}
                 <div className="flex items-center justify-between p-2.5 bg-white/[0.04] hover:bg-white/[0.07] transition">

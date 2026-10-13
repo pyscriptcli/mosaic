@@ -47,6 +47,8 @@ export default function WorkspacePage({
     setActiveTool,
     closeContextMenu,
   } = useMapStore();
+  const embeddedMode = useMapStore((state) => state.embeddedMode);
+  const canEditWorkspace = workspaceType === 'standalone' || embeddedMode === 'edit';
 
   const { fetchProjects, saveCurrentProject, setWorkspaceScope } = useProjectStore();
 
@@ -194,20 +196,20 @@ export default function WorkspacePage({
       />
 
       {/* Left Panels */}
-      <DataBrowserPanel
+      {canEditWorkspace && <DataBrowserPanel
         mapInstance={mapInstance}
         embedded={workspaceType !== 'standalone'}
         onImportClick={() => fileInputRef.current?.click()}
-      />
+      />}
       <MyLayersPanel mapInstance={mapInstance} embedded={workspaceType !== 'standalone'} />
 
       {/* Context Menu & Feature Inspection Popup */}
-      <MapContextMenu />
+      {canEditWorkspace && <MapContextMenu />}
       <FeaturePopup />
 
       {/* Floating Modals & Sidebars */}
-      <ShapeEditorModal />
-      <TradeAreaSidebar mapInstance={mapInstance} embedded={workspaceType !== 'standalone'} />
+      {canEditWorkspace && <ShapeEditorModal />}
+      {canEditWorkspace && <TradeAreaSidebar mapInstance={mapInstance} embedded={workspaceType !== 'standalone'} />}
       <AttributeTableModal />
       <BasemapModal mapInstance={mapInstance} />
       <WorkspaceLauncherModal />

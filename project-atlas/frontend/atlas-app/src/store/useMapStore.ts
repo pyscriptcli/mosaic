@@ -408,8 +408,10 @@ export const useMapStore = create<MapState>((set, get) => ({
       return changed
         ? {
             features,
-            isDirty: true,
-            saveStatus: 'unsaved' as const,
+            // Visibility and labels remain usable as local display controls in
+            // View mode, but must not mark the host project as edited.
+            isDirty: state.embeddedMode === 'view' ? state.isDirty : true,
+            saveStatus: state.embeddedMode === 'view' ? state.saveStatus : 'unsaved' as const,
             changeSequence: state.embeddedMode === 'edit' ? state.changeSequence + 1 : state.changeSequence,
           }
         : {};
