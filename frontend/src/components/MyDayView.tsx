@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, Bold, Bell, BellOff, CalendarDays, Check, CheckCircle2, ChevronLeft, ChevronRight, ExternalLink, Highlighter, Italic, Link2, List, ListOrdered, LoaderCircle, Plus, Quote, RefreshCw, Save, Sparkles, Trash2, Underline, X } from "lucide-react";
+import { AlertCircle, Bold, Bell, BellOff, CalendarDays, Check, CheckCircle2, ChevronLeft, ChevronRight, ExternalLink, Highlighter, Italic, Link2, List, ListOrdered, LoaderCircle, Plus, Quote, Redo2, RefreshCw, Save, Sparkles, Trash2, Underline, Undo2, X } from "lucide-react";
 import { getStoredClickUpListId, getStoredClickUpToken } from "@/lib/api";
 
 type DayTask = {
@@ -36,6 +36,71 @@ const ACTIVITY_FIELDS: Array<{ key: keyof DailyActivity; label: string }> = [
 ];
 const EMPTY_ACTIVITY: DailyActivity = { client: "", admin: "", adhoc: "", meetings: "" };
 
+function escapeNotesHtml(value: string) {
+  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
+}
+
+function notesMarkdownToHtml(value: string) {
+  const inline = (text: string) => escapeNotesHtml(text)
+    .replace(/&lt;(\/?)(u|mark|small)&gt;/gi, "<$1$2>")
+    .replace(/\[([^\]]+)\]\(((?:https?:\/\/|mailto:)[^\s)]+)\)/gi, '<a href="$2">$1</a>')
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/_(.+?)_/g, "<em>$1</em>");
+  const lines = value.split(/\r?\n/);
+  const blocks: string[] = [];
+  let index = 0;
+  while (index < lines.length) {
+    if (!lines[index].trim()) { index += 1; continue; }
+    if (/^\s*[-*]\s+/.test(lines[index])) {
+      const items: string[] = [];
+      while (index < lines.length && /^\s*[-*]\s+/.test(lines[index])) items.push(`<li>${inline(lines[index++].replace(/^\s*[-*]\s+/, ""))}</li>`);
+      blocks.push(`<ul>${items.join("")}</ul>`);
+      continue;
+    }
+    if (/^\s*\d+[.)]\s+/.test(lines[index])) {
+      const items: string[] = [];
+      while (index < lines.length && /^\s*\d+[.)]\s+/.test(lines[index])) items.push(`<li>${inline(lines[index++].replace(/^\s*\d+[.)]\s+/, ""))}</li>`);
+      blocks.push(`<ol>${items.join("")}</ol>`);
+      continue;
+    }
+    if (/^\s*>\s?/.test(lines[index])) {
+      const quoted: string[] = [];
+      while (index < lines.length && /^\s*>\s?/.test(lines[index])) quoted.push(`<div>${inline(lines[index++].replace(/^\s*>\s?/, ""))}</div>`);
+      blocks.push(`<blockquote>${quoted.join("")}</blockquote>`);
+      continue;
+    }
+    const paragraph: string[] = [];
+    while (index < lines.length && lines[index].trim() && !/^\s*(?:[-*]\s+|\d+[.)]\s+|>\s?)/.test(lines[index])) paragraph.push(lines[index++]);
+    blocks.push(`<div>${paragraph.map(inline).join("<br>")}</div>`);
+  }
+  return blocks.join("");
+}
+
+function notesHtmlToMarkdown(root: HTMLElement) {
+  const inline = (node: Node): string => {
+    if (node.nodeType === Node.TEXT_NODE) return node.textContent || "";
+    if (!(node instanceof HTMLElement)) return "";
+    if (node.tagName === "BR") return "\n";
+    const content = Array.from(node.childNodes, inline).join("");
+    if (node.tagName === "STRONG" || node.tagName === "B") return `**${content}**`;
+    if (node.tagName === "EM" || node.tagName === "I") return `_${content}_`;
+    if (node.tagName === "U") return `<u>${content}</u>`;
+    if (node.tagName === "MARK" || node.style.backgroundColor) return `<mark>${content}</mark>`;
+    if (node.tagName === "SMALL" || (node.tagName === "FONT" && node.getAttribute("size") === "2")) return `<small>${content}</small>`;
+    if (node.tagName === "A") return `[${content}](${node.getAttribute("href") || ""})`;
+    return content;
+  };
+  const blocks = Array.from(root.childNodes).map((node) => {
+    if (node instanceof HTMLElement && (node.tagName === "UL" || node.tagName === "OL")) {
+      const ordered = node.tagName === "OL";
+      return Array.from(node.children).filter((item) => item.tagName === "LI").map((item, index) => `${ordered ? `${index + 1}.` : "-"} ${inline(item).trim()}`).join("\n");
+    }
+    if (node instanceof HTMLElement && node.tagName === "BLOCKQUOTE") return inline(node).split("\n").map((line) => line ? `> ${line}` : ">").join("\n");
+    return inline(node).trim();
+  });
+  return blocks.filter(Boolean).join("\n").replace(/\n{3,}/g, "\n\n");
+}
+
 function requestHeaders(personalList?: { id: string; name: string } | null) {
   const headers = new Headers({ "Content-Type": "application/json" });
   const token = getStoredClickUpToken();
@@ -52,6 +117,7 @@ function requestHeaders(personalList?: { id: string; name: string } | null) {
 export default function MyDayView({ userId, currentUserName, showDailyActivity = true, activityOnly = false, initialDate, onDateChange }: Props) {
   const [date, setDate] = useState(() => initialDate || todayIso());
   const [payload, setPayload] = useState<DayPayload | null>(null);
+  const [optimisticTasks, setOptimisticTasks] = useState<DayTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
@@ -86,9 +152,14 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
   const [summaryState, setSummaryState] = useState<"idle" | "loading" | "error">("idle");
   const [summaryError, setSummaryError] = useState("");
   const [notesSize, setNotesSize] = useState<"small" | "normal">("normal");
-  const notesEditor = useRef<HTMLTextAreaElement>(null);
+  const notesEditor = useRef<HTMLDivElement>(null);
+  const notesSelection = useRef<Range | null>(null);
   const reminderDialog = useRef<HTMLElement>(null);
-  const tasks = payload?.tasks ?? EMPTY_TASKS;
+  const tasks = useMemo(() => {
+    const loadedTasks = payload?.tasks ?? EMPTY_TASKS;
+    const loadedIds = new Set(loadedTasks.map((task) => task.id));
+    return [...optimisticTasks.filter((task) => !loadedIds.has(task.id)), ...loadedTasks];
+  }, [optimisticTasks, payload?.tasks]);
   const reminderIntervalSeconds = Math.max(1, Number(reminderHours || 0) * 3600 + Number(reminderMinutes || 0) * 60 + Number(reminderSeconds || 0));
   const lastReminderAt = useRef(0);
   const notesTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -138,9 +209,11 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || "My Day could not be loaded.");
       setPayload(body);
+      setOptimisticTasks((current) => current.filter((task) => !body.tasks?.some((loaded: DayTask) => loaded.id === task.id)));
       setPersonalList(body.personalList || null);
       setPersonalListLoading(false);
       setNoteDraft(body.notes || "");
+      if (notesEditor.current && document.activeElement !== notesEditor.current) notesEditor.current.innerHTML = notesMarkdownToHtml(body.notes || "");
       setNoteSave("saved");
       setNoteError(body.notesError || "");
       setActivityDraft(body.activity || EMPTY_ACTIVITY);
@@ -200,19 +273,36 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
     }
   };
 
-  const formatNotes = (before: string, after = "", block = false) => {
+  const handleNotesInput = () => {
     const editor = notesEditor.current;
-    const start = editor?.selectionStart ?? noteDraft.length;
-    const end = editor?.selectionEnd ?? noteDraft.length;
-    const selected = noteDraft.slice(start, end);
-    const insertion = block ? (selected ? selected.split("\n").map((line) => line ? before + line : line).join("\n") : before) : before + (selected || "text") + after;
-    const next = noteDraft.slice(0, start) + insertion + noteDraft.slice(end);
-    setNoteDraft(next);
-    requestAnimationFrame(() => {
-      editor?.focus();
-      const cursor = start + insertion.length;
-      if (!selected && !block) editor?.setSelectionRange(start + before.length, start + before.length + 4); else editor?.setSelectionRange(cursor, cursor);
-    });
+    if (editor) setNoteDraft(notesHtmlToMarkdown(editor));
+  };
+
+  const rememberNotesSelection = () => {
+    const editor = notesEditor.current;
+    const selection = window.getSelection();
+    if (!editor || !selection?.rangeCount || !editor.contains(selection.anchorNode)) return;
+    notesSelection.current = selection.getRangeAt(0).cloneRange();
+  };
+
+  const formatNotes = (command: string, value?: string) => {
+    const editor = notesEditor.current;
+    if (!editor) return;
+    if (document.activeElement !== editor && notesSelection.current && editor.contains(notesSelection.current.commonAncestorContainer)) {
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(notesSelection.current);
+    }
+    editor.focus();
+    if (command === "createLink" && value) {
+      const href = /^(https?:\/\/|mailto:)/i.test(value) ? value : `https://${value}`;
+      if (!/^https?:\/\/|^mailto:/i.test(href)) return;
+      document.execCommand(command, false, href);
+    } else {
+      document.execCommand(command, false, value);
+    }
+    handleNotesInput();
+    rememberNotesSelection();
   };
 
   const generateSummary = useCallback(async () => {
@@ -323,9 +413,17 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
     setSavingTask(true);
     setError("");
     try {
-      await send({ action: "create", name: name.trim(), description, dueDate, priority });
+      const result = await send({ action: "create", name: name.trim(), description, dueDate, priority, dayTaskId: payload?.dayTask?.id });
+      if (result.task && typeof result.task === "object") {
+        const createdTask = result.task as DayTask;
+        setOptimisticTasks((current) => [createdTask, ...current.filter((task) => task.id !== createdTask.id)]);
+        setPayload((current) => current ? {
+          ...current,
+          dayTask: result.dayTask || current.dayTask,
+          tasks: [createdTask, ...current.tasks.filter((task) => task.id !== createdTask.id)],
+        } : current);
+      }
       setName(""); setDescription(""); setDueDate(date); setPriority("normal");
-      await loadDay(true);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Task could not be created.");
     } finally { setSavingTask(false); }
@@ -517,11 +615,14 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
               {personalListError && <p role="alert" className="mt-2 text-xs text-red-700">{personalListError}</p>}
             </form>}
             <div className="mt-3 flex flex-wrap items-center gap-1 border border-slate-200 bg-slate-50 px-2 py-1" role="toolbar" aria-label="Day notes formatting" data-note-toolbar onKeyDown={(event) => { if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return; const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>("button:not(:disabled), select:not(:disabled)")); const index = controls.indexOf(document.activeElement as HTMLElement); if (index < 0) return; event.preventDefault(); controls[(index + (event.key === "ArrowRight" ? 1 : -1) + controls.length) % controls.length]?.focus(); }}>
-              {[{ label: "Bold", icon: <Bold size={14} />, before: "**", after: "**" }, { label: "Italic", icon: <Italic size={14} />, before: "_", after: "_" }, { label: "Underline", icon: <Underline size={14} />, before: "<u>", after: "</u>" }, { label: "Bulleted list", icon: <List size={14} />, before: "- ", block: true }, { label: "Numbered list", icon: <ListOrdered size={14} />, before: "1. ", block: true }, { label: "Quote", icon: <Quote size={14} />, before: "> ", block: true }, { label: "Highlight", icon: <Highlighter size={14} />, before: "<mark>", after: "</mark>" }].map((item, index) => <button key={item.label} type="button" tabIndex={index === 0 ? 0 : -1} title={item.label} aria-label={item.label} onMouseDown={(event) => event.preventDefault()} onClick={() => formatNotes(item.before, item.after, item.block)} className="grid h-7 w-7 place-items-center text-slate-600 hover:bg-white hover:text-[#003366]">{item.icon}</button>)}
-              <label className="ml-1 flex h-7 items-center gap-1 border-l border-slate-200 pl-2 text-[10px] text-slate-500">Size <select aria-label="Day notes font size" tabIndex={-1} value={notesSize} onChange={(event) => { const size = event.target.value as "small" | "normal"; setNotesSize(size); if (size === "small") formatNotes("<small>", "</small>"); }} className="bg-transparent text-xs text-[#003366] outline-none"><option value="normal">M</option><option value="small">S</option></select></label>
-              <button type="button" title="Add link" aria-label="Add link" tabIndex={-1} onMouseDown={(event) => event.preventDefault()} onClick={() => { const url = window.prompt("Enter the link URL"); if (url) formatNotes("[", `](${url})`); }} className="grid h-7 w-7 place-items-center text-slate-600 hover:bg-white hover:text-[#003366]"><Link2 size={14} /></button>
+              <button type="button" title="Undo" aria-label="Undo" tabIndex={0} onMouseDown={(event) => { rememberNotesSelection(); event.preventDefault(); }} onClick={() => formatNotes("undo")} className="grid h-7 w-7 place-items-center text-slate-600 hover:bg-white hover:text-[#003366]"><Undo2 size={14} /></button>
+              <button type="button" title="Redo" aria-label="Redo" tabIndex={-1} onMouseDown={(event) => { rememberNotesSelection(); event.preventDefault(); }} onClick={() => formatNotes("redo")} className="grid h-7 w-7 place-items-center text-slate-600 hover:bg-white hover:text-[#003366]"><Redo2 size={14} /></button>
+              <span aria-hidden="true" className="mx-1 h-5 border-l border-slate-200" />
+              {[{ label: "Bold", icon: <Bold size={14} />, command: "bold" }, { label: "Italic", icon: <Italic size={14} />, command: "italic" }, { label: "Underline", icon: <Underline size={14} />, command: "underline" }, { label: "Bulleted list", icon: <List size={14} />, command: "insertUnorderedList" }, { label: "Numbered list", icon: <ListOrdered size={14} />, command: "insertOrderedList" }, { label: "Quote", icon: <Quote size={14} />, command: "formatBlock" }, { label: "Highlight", icon: <Highlighter size={14} />, command: "hiliteColor" }].map((item) => <button key={item.label} type="button" tabIndex={-1} title={item.label} aria-label={item.label} onMouseDown={(event) => { rememberNotesSelection(); event.preventDefault(); }} onClick={() => formatNotes(item.command, item.command === "formatBlock" ? "BLOCKQUOTE" : item.command === "hiliteColor" ? "#fff2b3" : undefined)} className="grid h-7 w-7 place-items-center text-slate-600 hover:bg-white hover:text-[#003366]">{item.icon}</button>)}
+              <label className="ml-1 flex h-7 items-center gap-1 border-l border-slate-200 pl-2 text-[10px] text-slate-500">Size <select aria-label="Day notes font size" tabIndex={-1} value={notesSize} onMouseDown={rememberNotesSelection} onChange={(event) => { const size = event.target.value as "small" | "normal"; setNotesSize(size); formatNotes("fontSize", size === "small" ? "2" : "3"); }} className="bg-transparent text-xs text-[#003366] outline-none"><option value="normal">M</option><option value="small">S</option></select></label>
+              <button type="button" title="Add link" aria-label="Add link" tabIndex={-1} onMouseDown={(event) => event.preventDefault()} onClick={() => { const url = window.prompt("Enter the link URL"); if (url) formatNotes("createLink", url.trim()); }} className="grid h-7 w-7 place-items-center text-slate-600 hover:bg-white hover:text-[#003366]"><Link2 size={14} /></button>
             </div>
-            <textarea ref={notesEditor} value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} placeholder="Capture decisions, reminders, or thoughts for this day…" rows={18} disabled={personalListLoading || !personalList?.id} className="mt-0 w-full resize-y border border-slate-200 border-t-0 bg-[#FFFCFB] p-3 text-sm leading-relaxed text-slate-700 outline-none focus:border-[#C9A84C] disabled:cursor-wait disabled:bg-slate-50" style={{ minHeight: 420, fontSize: notesSize === "small" ? "0.8125rem" : undefined }} aria-label="Day notes. Formatting uses Markdown." />
+            <div ref={notesEditor} contentEditable={!personalListLoading && Boolean(personalList?.id)} suppressContentEditableWarning role="textbox" aria-multiline="true" aria-label="Day notes" aria-disabled={personalListLoading || !personalList?.id} data-placeholder="Capture decisions, reminders, or thoughts for this day…" onInput={handleNotesInput} onMouseUp={rememberNotesSelection} onKeyUp={rememberNotesSelection} onBlur={() => { rememberNotesSelection(); handleNotesInput(); }} onPaste={(event) => { event.preventDefault(); document.execCommand("insertText", false, event.clipboardData.getData("text/plain")); handleNotesInput(); }} className="mt-0 min-h-[420px] w-full resize-y overflow-y-auto whitespace-pre-wrap break-words border border-slate-200 border-t-0 bg-[#FFFCFB] p-3 text-sm leading-relaxed text-slate-700 outline-none focus:border-[#C9A84C] empty:before:content-[attr(data-placeholder)] empty:before:text-slate-400 [&_ol]:list-decimal [&_ol]:pl-5 [&_ul]:list-disc [&_ul]:pl-5 [&_blockquote]:border-l-2 [&_blockquote]:border-[#C9A84C] [&_blockquote]:pl-3 [&_a]:text-[#31577D] [&_a]:underline [&_strong]:font-bold [&_em]:italic [&_mark]:bg-amber-100 [&_small]:text-xs" style={{ fontSize: notesSize === "small" ? "0.8125rem" : undefined }} />
             {(noteError || payload?.notesError) && <div role="alert" className="mt-2 flex gap-2 text-xs text-red-700"><AlertCircle size={14} className="shrink-0" />{noteError || payload?.notesError}</div>}
             <div className="mt-3 flex items-center justify-between gap-2">
               <span className="text-[10px] text-slate-500">{payload?.noteTask ? <a href={payload.noteTask.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[#31577D]">Open note task <ExternalLink size={11} /></a> : "First save creates Notes and its dated subtask."}</span>

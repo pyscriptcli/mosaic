@@ -121,6 +121,34 @@ async function getKpiContext(token: string, date: string, req: NextRequest) {
   return { tasks, day };
 }
 
+async function getDailyTaskById(token: string, id: string, date: string, req: NextRequest) {
+  if (!id) return null;
+  const stagedRows = await readStagedMosaicRecords(clickUpScope(token), "notebook", DAILY_LOG_LIST_ID);
+  const staged = stagedRows.find((row) => String(row.clickup_id || row.record_id) === id || String(row.record_id) === id);
+  if (staged?.is_deleted) return null;
+  const stagedData = staged?.record_data && typeof staged.record_data === "object"
+    ? staged.record_data as Record<string, unknown>
+    : null;
+  let task: ClickUpTask;
+  if (stagedData) {
+    task = { ...stagedData, id: String(staged?.clickup_id || staged?.record_id || id) } as ClickUpTask;
+  } else {
+    task = await clickUpJson(token, `https://api.clickup.com/api/v2/task/${encodeURIComponent(id)}?include_markdown_description=true`) as ClickUpTask;
+  }
+  if (dateFromTask(task) !== date || String(task.list?.id || staged?.list_id || "") !== DAILY_LOG_LIST_ID || !task.parent) return null;
+
+  const parentId = String(task.parent);
+  const stagedParent = stagedRows.find((row) => String(row.clickup_id || row.record_id) === parentId || String(row.record_id) === parentId);
+  const parentData = stagedParent?.record_data && typeof stagedParent.record_data === "object"
+    ? stagedParent.record_data as Record<string, unknown>
+    : null;
+  const parent = parentData
+    ? { ...parentData, id: String(stagedParent?.clickup_id || stagedParent?.record_id || parentId) } as ClickUpTask
+    : await clickUpJson(token, `https://api.clickup.com/api/v2/task/${encodeURIComponent(parentId)}`) as ClickUpTask;
+  const byId = new Map<string, RawClickUpTask>([[String(task.id), task], [String(parent.id), parent]]);
+  return monthFromTaskName(parent.name) === date.slice(0, 7) && userMatches(task, byId, getUserFromRequest(req)) ? task : null;
+}
+
 export async function GET(req: NextRequest) {
   const token = getTokenFromRequest(req);
   const date = req.nextUrl.searchParams.get("date") || "";
@@ -194,7 +222,17 @@ export async function POST(req: NextRequest) {
       if (denied) return denied;
       if (!(await isAskEchoEnabled())) return NextResponse.json({ error: "AI summaries are currently unavailable." }, { status: 403 });
     }
-    const { tasks, day } = await getKpiContext(token, body.date, req);
+    let tasks: ClickUpTask[] = [];
+    let day: ClickUpTask | undefined;
+    if (action === "create" && typeof body.dayTaskId === "string") {
+      try { day = await getDailyTaskById(token, body.dayTaskId, body.date, req) || undefined; }
+      catch { /* Fall back to the full context lookup if the supplied day is stale. */ }
+    }
+    if (!day) {
+      const context = await getKpiContext(token, body.date, req);
+      tasks = context.tasks;
+      day = context.day;
+    }
     if (action === "summary") {
       if (!day) return NextResponse.json({ summary: "" });
       const dayTasks = tasks.filter((task) => String(task.parent) === String(day.id)).map((task) => ({
