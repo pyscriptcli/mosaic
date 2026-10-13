@@ -58,7 +58,7 @@ function messageIsValid(value: unknown): value is ParentMessage {
 export default function EmbeddedGisEditor() {
   const [mapInstance, setMapInstance] = useState<any>(null);
   const [status, setStatus] = useState('Waiting for project data…');
-  const [mode, setMode] = useState<Mode>('view');
+  const [mode, setMode] = useState<Mode>('edit');
   const [ready, setReady] = useState(false);
   const [sessionId, setSessionId] = useState('');
   const [basemap, setBasemap] = useState('Midnight Blue');
@@ -226,16 +226,7 @@ export default function EmbeddedGisEditor() {
         else map.once('idle', () => window.parent.postMessage(loadedMessage, parentOrigin));
       }
     }} />
-    <TopToolbar
-      mapInstance={mapInstance}
-      embeddedName={projectName}
-      embeddedStatus={hostSyncStatus}
-      embedded
-      onModeChange={(nextMode) => {
-        setMode(nextMode);
-        setStatus(nextMode === 'edit' ? 'Editing enabled' : 'Read-only map');
-      }}
-    />
+    <TopToolbar mapInstance={mapInstance} embeddedName={projectName} embeddedStatus={hostSyncStatus} embedded />
     <MyLayersPanel mapInstance={mapInstance} embedded />
     {modeIsEdit ? <>
       <DataBrowserPanel mapInstance={mapInstance} onImportClick={() => fileInputRef.current?.click()} />

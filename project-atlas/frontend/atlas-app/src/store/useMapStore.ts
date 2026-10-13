@@ -139,7 +139,7 @@ interface MapState {
   selectAllLayers: () => void;
   clearLayerSelection: () => void;
   setFeatures: (features: GISFeature[], recordHistory?: boolean) => void;
-  setFeatureDisplayProperties: (updates: Array<{ id: number; visible?: number; showLabel?: boolean }>) => void;
+  setFeatureDisplayProperties: (updates: Array<{ id: number; visible?: number; showLabel?: boolean; labelMode?: 'static' | 'zoomed' }>) => void;
   addFeature: (f: GISFeature) => void;
   updateFeature: (id: number, updater: (f: GISFeature) => GISFeature, committed?: boolean) => void;
   removeFeature: (id: number) => void;

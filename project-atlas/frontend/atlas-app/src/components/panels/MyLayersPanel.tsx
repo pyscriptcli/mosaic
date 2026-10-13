@@ -27,6 +27,7 @@ import {
   Type,
   MoreVertical,
   Focus,
+  Crosshair,
 } from 'lucide-react';
 import { useMapStore } from '../../store/useMapStore';
 import { calcBounds } from '../../gis/polygons';
@@ -88,6 +89,7 @@ export const MyLayersPanel: React.FC<MyLayersPanelProps> = ({ mapInstance, embed
   const [collapsedTradeAreas, setCollapsedTradeAreas] = useState<Record<string, boolean>>({});
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [soloTradeArea, setSoloTradeArea] = useState<string | null>(null);
+  const [labelSettingsGroup, setLabelSettingsGroup] = useState<string | null>(null);
   const soloVisibilitySnapshot = useRef<Map<number, number> | null>(null);
 
   const tradeAreaGroups = useMemo(() => {
@@ -193,6 +195,27 @@ export const MyLayersPanel: React.FC<MyLayersPanelProps> = ({ mapInstance, embed
   const handleGroupLabels = (ids: number[], showLabel: boolean) => {
     setFeatureDisplayProperties(ids.map((id) => ({ id, showLabel })));
     setToast(`${showLabel ? 'Labels shown' : 'Labels hidden'} for ${ids.length} layer(s)`);
+  };
+
+  const handleGroupLabelMode = (ids: number[], labelMode: 'static' | 'zoomed') => {
+    setFeatureDisplayProperties(ids.map((id) => ({ id, labelMode, showLabel: true })));
+    setLabelSettingsGroup(null);
+    setToast(labelMode === 'static' ? 'Trade area labels always shown' : 'Trade area labels shown at zoom 14+');
+  };
+
+  const handleZoomToGroup = (ids: number[]) => {
+    if (!mapInstance) return;
+    const bounds = ids
+      .map((id) => features.find((feature) => feature.id === id))
+      .filter((feature): feature is GISFeature => Boolean(feature))
+      .map(calcBounds)
+      .filter((featureBounds): featureBounds is NonNullable<typeof featureBounds> => Boolean(featureBounds));
+    if (!bounds.length) return;
+    const combinedBounds: [[number, number], [number, number]] = [
+      [Math.min(...bounds.map((areaBounds) => areaBounds[0][0])), Math.min(...bounds.map((areaBounds) => areaBounds[0][1]))],
+      [Math.max(...bounds.map((areaBounds) => areaBounds[1][0])), Math.max(...bounds.map((areaBounds) => areaBounds[1][1]))],
+    ];
+    mapInstance.fitBounds(combinedBounds, { padding: 60, maxZoom: 18 });
   };
 
   const handleSoloGroup = (key: string, ids: number[]) => {
@@ -563,6 +586,7 @@ export const MyLayersPanel: React.FC<MyLayersPanelProps> = ({ mapInstance, embed
       <div className="flex-1 min-h-0 overflow-y-auto p-3 flex flex-col gap-3">
         {tradeAreaGroups.map(([key, group]) => {
           const groupFeatures = filteredFeatures.filter((feature) => group.ids.includes(feature.id));
+          const labelOptionsId = `trade-area-label-options-${key.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
           const isCollapsed = collapsedTradeAreas[key] ?? true;
           const anyVisible = features.some((feature) => group.ids.includes(feature.id) && feature.props.visible !== 0);
           const allLabeled = groupFeatures.length > 0 && groupFeatures.every((feature) => !!feature.props.showLabel);
@@ -580,17 +604,31 @@ export const MyLayersPanel: React.FC<MyLayersPanelProps> = ({ mapInstance, embed
                   <span className="text-[10px] text-zinc-400 font-mono">{group.ids.length}</span>
                 </button>
                 <div className="flex items-center gap-0.5 shrink-0">
-                  <button type="button" onClick={() => handleGroupLabels(group.ids, !allLabeled)} title={allLabeled ? 'Hide labels for this trade area' : 'Show labels for this trade area'} aria-label={allLabeled ? 'Hide trade area labels' : 'Show trade area labels'} className="p-1.5 rounded-lg hover:bg-white/10 text-zinc-300">
+                  <button type="button" onClick={() => handleGroupLabels(group.ids, !allLabeled)} title={allLabeled ? 'Hide labels for this trade area' : 'Show labels for this trade area'} aria-label={allLabeled ? 'Hide trade area labels' : 'Show trade area labels'} className="p-1.5 rounded-lg hover:bg-white/10 text-zinc-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300">
                     <Type className={`w-3.5 h-3.5 ${allLabeled ? 'text-amber-300' : ''}`} />
+                  </button>
+                  <button type="button" onClick={() => setLabelSettingsGroup((current) => current === key ? null : key)} aria-expanded={labelSettingsGroup === key} aria-controls={labelSettingsGroup === key ? labelOptionsId : undefined} title="Label display options" aria-label={`Label display options for ${group.title}`} className="p-1.5 rounded-lg hover:bg-white/10 text-zinc-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300">
+                    <MoreVertical className="w-3.5 h-3.5" />
                   </button>
                   <button type="button" onClick={() => handleToggleIdsVisibility(group.ids)} title={anyVisible ? 'Hide this trade area' : 'Show this trade area'} aria-label={anyVisible ? 'Hide trade area' : 'Show trade area'} className="p-1.5 rounded-lg hover:bg-white/10 text-zinc-300">
                     {anyVisible ? <Eye className="w-3.5 h-3.5 text-blue-400" /> : <EyeOff className="w-3.5 h-3.5 text-zinc-500" />}
+                  </button>
+                  <button type="button" onClick={() => handleZoomToGroup(group.ids)} title={`Zoom to ${group.title}`} aria-label={`Zoom to ${group.title}`} className="p-1.5 rounded-lg hover:bg-white/10 text-zinc-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300">
+                    <Crosshair className="w-3.5 h-3.5" />
                   </button>
                   <button type="button" onClick={() => handleSoloGroup(key, group.ids)} title={soloTradeArea === key ? 'Restore all trade areas' : 'Show only this trade area'} aria-label={soloTradeArea === key ? 'Restore all trade areas' : `Show only ${group.title}`} className={`p-1.5 rounded-lg hover:bg-white/10 ${soloTradeArea === key ? 'text-amber-300 bg-amber-300/10' : 'text-zinc-300'}`}>
                     <Focus className="w-3.5 h-3.5" />
                   </button>
                 </div>
               </header>
+              {labelSettingsGroup === key && <div id={labelOptionsId} role="group" aria-label={`${group.title} label display`} className="mx-2 mb-2 rounded-xl border border-white/10 bg-[#111820] p-1.5">
+                <button type="button" onClick={() => handleGroupLabelMode(group.ids, 'static')} className={`w-full rounded-lg px-2.5 py-2 text-left text-[11px] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 ${groupFeatures.every((feature) => feature.props.labelMode !== 'zoomed') ? 'bg-amber-400/15 text-amber-200' : 'text-zinc-200 hover:bg-white/10'}`}>
+                  Static labels
+                </button>
+                <button type="button" onClick={() => handleGroupLabelMode(group.ids, 'zoomed')} className={`w-full rounded-lg px-2.5 py-2 text-left text-[11px] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 ${groupFeatures.some((feature) => feature.props.labelMode === 'zoomed') ? 'bg-amber-400/15 text-amber-200' : 'text-zinc-200 hover:bg-white/10'}`}>
+                  Only when zoomed (14+)
+                </button>
+              </div>}
               {!isCollapsed && <div className="p-2 flex flex-col gap-1.5">
                 {groupFeatures.length ? groupFeatures.map((feature, index) => renderLayerCard(feature, index)) : (
                   <div className="p-3 text-center text-[11px] text-zinc-500">No matching layers</div>

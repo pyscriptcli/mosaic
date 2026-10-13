@@ -37,7 +37,7 @@ export function computeLabelFeature(f: GISFeature): any | null {
   return {
     type: 'Feature',
     geometry: { type: 'Point', coordinates: coords },
-    properties: { labelText },
+    properties: { labelText, labelMode: f.props.labelMode || 'static' },
   };
 }
 

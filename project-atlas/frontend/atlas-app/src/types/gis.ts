@@ -70,6 +70,7 @@ export interface FeatureProps {
   fillOpacity?: number;
   showLabel?: boolean;
   labelPos?: 'center' | 'top' | 'bottom' | 'left' | 'right';
+  labelMode?: 'static' | 'zoomed';
   iconSize?: number;
   iconSizeMode?: 'static' | 'dynamic';
   visible?: number; // 1 or 0 for MapLibre expression multiplication

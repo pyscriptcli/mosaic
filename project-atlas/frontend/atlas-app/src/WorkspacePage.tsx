@@ -57,7 +57,7 @@ export default function WorkspacePage({
   useEffect(() => {
     let mounted = true;
     setWorkspaceReady(false);
-    useMapStore.getState().setEmbeddedMode(workspaceType === 'standalone' ? null : 'view');
+    useMapStore.getState().setEmbeddedMode(workspaceType === 'standalone' ? null : 'edit');
     if (workspaceType !== 'standalone') useMapStore.getState().togglePanel('myLayers', true);
     setWorkspaceScope({ type: workspaceType, mosaicProjectId });
     const loadWorkspace = async () => {

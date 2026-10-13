@@ -924,6 +924,28 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({ onMapReady }) => {
         id: 'draw-poly-labels',
         type: 'symbol',
         source: 'label-src',
+        filter: ['!=', ['coalesce', ['get', 'labelMode'], 'static'], 'zoomed'],
+        layout: {
+          visibility: 'visible',
+          'text-field': ['get', 'labelText'],
+          'text-font': ['Noto Sans Regular'],
+          'text-size': 13,
+          'text-allow-overlap': true,
+          'text-anchor': 'center',
+          'text-justify': 'center',
+        },
+        paint: {
+          'text-color': '#ffffff',
+          'text-halo-color': '#0a1628',
+          'text-halo-width': 2,
+        },
+      });
+      map.addLayer({
+        id: 'draw-zoomed-labels',
+        type: 'symbol',
+        source: 'label-src',
+        minzoom: 14,
+        filter: ['==', ['get', 'labelMode'], 'zoomed'],
         layout: {
           visibility: 'visible',
           'text-field': ['get', 'labelText'],
@@ -1003,6 +1025,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({ onMapReady }) => {
       'open-node-cluster-points',
       'open-node-cluster-count',
       'draw-poly-labels',
+      'draw-zoomed-labels',
       'draw-poi-labels',
       'draw-text',
       'draw-marker',

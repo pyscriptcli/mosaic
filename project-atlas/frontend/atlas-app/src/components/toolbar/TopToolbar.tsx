@@ -26,8 +26,6 @@ import {
   ChevronDown,
   PenTool,
   Check,
-  Eye,
-  Pencil,
   Maximize2,
   Minimize2,
 } from 'lucide-react';
@@ -42,10 +40,9 @@ interface TopToolbarProps {
   embeddedName?: string;
   embeddedStatus?: string;
   embedded?: boolean;
-  onModeChange?: (mode: 'view' | 'edit') => void;
 }
 
-export const TopToolbar: React.FC<TopToolbarProps> = ({ mapInstance, embeddedName, embeddedStatus, embedded = false, onModeChange }) => {
+export const TopToolbar: React.FC<TopToolbarProps> = ({ mapInstance, embeddedName, embeddedStatus, embedded = false }) => {
   const {
     activeTool,
     setActiveTool,
@@ -62,19 +59,16 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({ mapInstance, embeddedNam
     toggleSunDial,
     setToast,
     embeddedMode,
-    setEmbeddedMode,
   } = useMapStore();
 
   const { currentProjectName, updateProjectName, currentProjectId, saveCurrentProject } =
     useProjectStore();
   const displayProjectName = embeddedName || currentProjectName;
-  const activeEmbeddedMode = embeddedMode ?? (embedded ? 'view' : null);
 
   // Active flyout: 'draw' | 'studio' | null (Data tools are direct individual buttons now)
   const [openFolder, setOpenFolder] = useState<'draw' | 'studio' | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const toolbarRef = useRef<HTMLDivElement | null>(null);
-  const modeGroupRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const updateFullscreenState = () => {
@@ -97,22 +91,6 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({ mapInstance, embeddedNam
     } catch {
       setToast('Fullscreen is unavailable in this browser.');
     }
-  };
-
-  const selectEmbeddedMode = (mode: 'view' | 'edit') => {
-    setEmbeddedMode(mode);
-    onModeChange?.(mode);
-    setOpenFolder(null);
-  };
-
-  const handleModeKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return;
-    event.preventDefault();
-    const nextMode = activeEmbeddedMode === 'edit' ? 'view' : 'edit';
-    selectEmbeddedMode(nextMode);
-    requestAnimationFrame(() => {
-      modeGroupRef.current?.querySelector<HTMLButtonElement>(`[data-mode="${nextMode}"]`)?.focus();
-    });
   };
 
   // Close flyouts on click outside
@@ -569,14 +547,6 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({ mapInstance, embeddedNam
         <button type="button" onClick={toggleFullscreen} title={isFullscreen ? 'Exit fullscreen' : 'Open fullscreen'} aria-label={isFullscreen ? 'Exit fullscreen' : 'Open fullscreen'} className="inline-flex h-9 w-9 items-center justify-center rounded-full text-zinc-300 transition hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#C9A84C]">
           {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
         </button>
-        <div ref={modeGroupRef} onKeyDown={handleModeKeyDown} className="flex items-center gap-0.5 rounded-full border border-white/10 bg-white/[0.04] p-0.5" role="radiogroup" aria-label="Map mode">
-          <button type="button" data-mode="view" role="radio" tabIndex={activeEmbeddedMode === 'view' ? 0 : -1} onClick={() => selectEmbeddedMode('view')} aria-checked={activeEmbeddedMode === 'view'} title="View mode: inspect the map and adjust temporary layer visibility and labels" className={`h-8 px-2.5 rounded-full flex items-center gap-1 text-[10px] font-semibold transition ${activeEmbeddedMode === 'view' ? 'bg-white text-black' : 'text-zinc-400 hover:text-white'}`}>
-            <Eye className="w-3 h-3" /> View
-          </button>
-          <button type="button" data-mode="edit" role="radio" tabIndex={activeEmbeddedMode === 'edit' ? 0 : -1} onClick={() => selectEmbeddedMode('edit')} aria-checked={activeEmbeddedMode === 'edit'} title="Edit mode: change map features and project data" className={`h-8 px-2.5 rounded-full flex items-center gap-1 text-[10px] font-semibold transition ${activeEmbeddedMode === 'edit' ? 'bg-white text-black' : 'text-zinc-400 hover:text-white'}`}>
-            <Pencil className="w-3 h-3" /> Edit
-          </button>
-        </div>
       </div>}
 
       {/* Floating Marker Options Bar when placing a marker */}
