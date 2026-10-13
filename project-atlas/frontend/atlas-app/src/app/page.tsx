@@ -134,6 +134,22 @@ export default function WorkspacePage({
       const currentFeatures = useMapStore.getState().features;
       const maxId = currentFeatures.reduce((m, f) => Math.max(m, f.id || 0), 0);
       const imported = normalizeGeoJSON(geojson, maxId);
+      const groupedFeatures = imported.reduce<Record<string, number[]>>((groups, feature) => {
+        const tradeArea = feature.props.attributes?.tradeArea?.trim();
+        if (tradeArea) groups[tradeArea] = [...(groups[tradeArea] || []), feature.id];
+        return groups;
+      }, {});
+      if (Object.keys(groupedFeatures).length) {
+        const currentGroups = useMapStore.getState().customGroups;
+        const nextGroups = { ...currentGroups };
+        for (const [groupName, ids] of Object.entries(groupedFeatures)) {
+          nextGroups[groupName] = {
+            collapsed: currentGroups[groupName]?.collapsed ?? false,
+            ids: [...new Set([...(currentGroups[groupName]?.ids || []), ...ids])],
+          };
+        }
+        useMapStore.getState().setCustomGroups(nextGroups, false);
+      }
       useMapStore.getState().setFeatures([...currentFeatures, ...imported]);
       const saved = await useProjectStore.getState().saveCurrentProject(mapInstance);
       setToast(saved

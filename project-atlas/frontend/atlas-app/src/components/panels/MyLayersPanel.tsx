@@ -196,6 +196,16 @@ export const MyLayersPanel: React.FC<MyLayersPanelProps> = ({ mapInstance, embed
     setToast(allHidden ? 'Selected layers shown' : 'Selected layers hidden');
   };
 
+  const handleBulkLabels = (showLabel: boolean) => {
+    if (!selectedLayerIds.length) return;
+    setFeatures(
+      features.map((feature) => selectedLayerIds.includes(feature.id)
+        ? { ...feature, props: { ...feature.props, showLabel } }
+        : feature)
+    );
+    setToast(`${showLabel ? 'Labels shown' : 'Labels hidden'} for ${selectedLayerIds.length} selected layer(s)`);
+  };
+
   const handleBulkDeleteSelected = () => {
     if (!selectedLayerIds.length) return;
     const count = selectedLayerIds.length;
@@ -467,8 +477,8 @@ export const MyLayersPanel: React.FC<MyLayersPanelProps> = ({ mapInstance, embed
         </div>
 
         {/* Action Controls Bar */}
-        <div className="flex items-center justify-between text-[11px]">
-          <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
+          <div className="flex flex-wrap items-center gap-1.5">
             <button
               onClick={selectAllLayers}
               className="px-2 py-1 rounded-lg bg-white/[0.05] hover:bg-white/10 text-zinc-300 hover:text-white transition font-medium flex items-center gap-1.5 border border-white/10"
@@ -477,14 +487,18 @@ export const MyLayersPanel: React.FC<MyLayersPanelProps> = ({ mapInstance, embed
               <span>Select All</span>
             </button>
             {selectedLayerIds.length > 0 && (
-              <button
-                onClick={handleBulkDeleteSelected}
-                className="px-2 py-1 bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 rounded-lg flex items-center gap-1 text-[11px] transition font-medium"
-                title={`Delete ${selectedLayerIds.length} selected layer(s)`}
-              >
-                <Trash2 className="w-3 h-3 text-rose-400" />
-                <span>Delete ({selectedLayerIds.length})</span>
-              </button>
+              <>
+                <button onClick={() => handleBulkLabels(true)} className="px-2 py-1 rounded-lg bg-white/[0.05] hover:bg-white/10 text-zinc-300 border border-white/10 text-[11px] transition font-medium" title={`Show labels for ${selectedLayerIds.length} selected layer(s)`}>Show labels</button>
+                <button onClick={() => handleBulkLabels(false)} className="px-2 py-1 rounded-lg bg-white/[0.05] hover:bg-white/10 text-zinc-300 border border-white/10 text-[11px] transition font-medium" title={`Hide labels for ${selectedLayerIds.length} selected layer(s)`}>Hide labels</button>
+                <button
+                  onClick={handleBulkDeleteSelected}
+                  className="px-2 py-1 bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 rounded-lg flex items-center gap-1 text-[11px] transition font-medium"
+                  title={`Delete ${selectedLayerIds.length} selected layer(s)`}
+                >
+                  <Trash2 className="w-3 h-3 text-rose-400" />
+                  <span>Delete ({selectedLayerIds.length})</span>
+                </button>
+              </>
             )}
           </div>
           <div className="flex items-center gap-1.5">

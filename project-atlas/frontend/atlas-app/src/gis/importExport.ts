@@ -1,5 +1,30 @@
 import { GISFeature } from '../types/gis';
 
+const STYLE_PROPERTIES = new Set([
+  'fillColor', 'fillOpacity', 'borderColor', 'borderOpacity', 'color', 'width', 'visible',
+  'styleUrl', 'kmlLineColor', 'kmlPolyColor',
+]);
+
+function importedAttributes(properties: Record<string, unknown>, name: string): Record<string, string> {
+  const nested = properties.attributes && typeof properties.attributes === 'object'
+    ? properties.attributes as Record<string, unknown>
+    : {};
+  const attributes: Record<string, string> = {};
+
+  for (const [key, value] of Object.entries({ ...properties, ...nested })) {
+    if (STYLE_PROPERTIES.has(key) || value == null || typeof value === 'object') continue;
+    attributes[key] = String(value);
+  }
+
+  attributes.name = name;
+  return attributes;
+}
+
+function numericProperty(value: unknown, fallback: number, min = Number.NEGATIVE_INFINITY, max = Number.POSITIVE_INFINITY) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.min(max, Math.max(min, parsed)) : fallback;
+}
+
 /**
  * Normalizes GeoJSON FeatureCollection into standard Project Atlas GISFeature items
  */
@@ -16,9 +41,10 @@ export function normalizeGeoJSON(geojson: any, nextFidStart: number): GISFeature
     const id = ++curId;
 
     if (geom.type === 'Point') {
+      const name = props.siteName || props.name || `Marker ${id}`;
       normalized.push({
         id,
-        name: props.name || `Marker ${id}`,
+        name,
         kind: 'marker',
         geometry: geom,
         props: {
@@ -27,42 +53,44 @@ export function normalizeGeoJSON(geojson: any, nextFidStart: number): GISFeature
           iconSize: 0.9,
           visible: 1,
           osmTags: props,
-          attributes: { name: props.name || `Marker ${id}` },
+          attributes: importedAttributes(props, name),
         },
       });
     } else if (geom.type === 'LineString' || geom.type === 'MultiLineString') {
       const isRoute = !!(props.route_mode || props.routeMode);
+      const name = props.siteName || props.name || `${isRoute ? 'Route' : 'Line'} ${id}`;
       normalized.push({
         id,
-        name: props.name || (isRoute ? `Route ${id}` : `Polyline ${id}`),
+        name,
         kind: isRoute ? 'route' : 'polyline',
         geometry: geom,
         props: {
           color: props.color || '#38bdf8',
           borderColor: props.color || '#38bdf8',
-          width: 4,
-          borderOpacity: 0.9,
+          width: numericProperty(props.width, 4, 0.1),
+          borderOpacity: numericProperty(props.borderOpacity, 0.9, 0, 1),
           visible: 1,
           routeMode: props.route_mode || props.routeMode || 'driving',
           waypoints: geom.coordinates,
-          attributes: { name: props.name || `Line ${id}` },
+          attributes: importedAttributes(props, name),
         },
       });
     } else if (geom.type === 'Polygon' || geom.type === 'MultiPolygon') {
+      const name = props.siteName || props.name || `Polygon ${id}`;
       normalized.push({
         id,
-        name: props.name || `Polygon ${id}`,
+        name,
         kind: 'polygon',
         geometry: geom,
         props: {
           color: props.color || '#e8b84a',
           borderColor: props.borderColor || props.color || '#e8b84a',
-          borderOpacity: 0.9,
-          width: 3,
+          borderOpacity: numericProperty(props.borderOpacity, 0.9, 0, 1),
+          width: numericProperty(props.width, 3, 0.1),
           fillColor: props.fillColor || '#e8b84a',
-          fillOpacity: 0.35,
+          fillOpacity: numericProperty(props.fillOpacity, 0.35, 0, 1),
           visible: 1,
-          attributes: { name: props.name || `Polygon ${id}` },
+          attributes: importedAttributes(props, name),
         },
       });
     }
