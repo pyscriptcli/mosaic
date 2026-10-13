@@ -168,7 +168,9 @@ export function Sidebar({
 
   const renderNavItem = (item: (typeof navItems)[number], nested = false) => {
     const Icon = item.icon;
-    const isActive = currentView === item.id || (item.id === "notebook" && currentView === "tasks");
+    const isActive = currentView === item.id
+      || (item.id === "notebook" && currentView === "tasks")
+      || (item.id === "meetings" && currentView === "minutes");
     return (
       <button
         key={item.id}
@@ -181,7 +183,7 @@ export function Sidebar({
           isActive
             ? "bg-[#FFFCFB] text-[#003366] border-l-4 border-[#C9A84C]"
             : "text-[#FFFCFB] hover:bg-[#174778] border-l-4 border-transparent"
-        } ${effectiveCollapsed ? "justify-center !ml-0 !w-full !px-0" : ""}`}
+        } ${effectiveCollapsed ? "justify-center !ml-0 !w-full !px-0 !border-l-0" : ""}`}
       >
         <Icon size={18} className={`shrink-0 ${isActive ? "text-[#C9A84C]" : "text-[#D7E3EF]"}`} />
         {!effectiveCollapsed && <span className="truncate">{item.label}</span>}
@@ -286,8 +288,8 @@ export function Sidebar({
                         )}
                       </div>
                     )}
-                    {(effectiveCollapsed || expandedSections.meetings) && notetakerItem && (
-                      <div className={effectiveCollapsed ? "" : "ml-3 border-l border-[#31577D]"}>
+                    {!effectiveCollapsed && expandedSections.meetings && notetakerItem && (
+                      <div className="ml-3 border-l border-[#31577D]">
                         {renderNavItem(notetakerItem, true)}
                       </div>
                     )}
