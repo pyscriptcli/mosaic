@@ -23,7 +23,7 @@ import {
 } from "lucide-react";
 
 const PROJECT_URL = "https://app.clickup.com/9014981136/v/o/f/901414174663";
-const ProjectMapEmbed = dynamic(() => import("@/components/ProjectMapEmbed"), { ssr: false, loading: () => <section role="status" className="flex min-h-72 items-center justify-center border border-slate-200 bg-white text-xs text-slate-500"><LoaderCircle className="mr-2 h-4 w-4 animate-spin text-[#003366]" />Loading map editor</section> });
+const EmbeddedAtlasWorkspace = dynamic(() => import("@/components/EmbeddedAtlasWorkspace"), { ssr: false, loading: () => <section role="status" className="flex min-h-[560px] items-center justify-center border border-slate-200 bg-[#0a1628] text-xs text-white"><LoaderCircle className="mr-2 h-4 w-4 animate-spin" />Loading map editor</section> });
 type View = "overview" | "calendar" | "activity" | "map";
 
 interface ProjectList {
@@ -1543,7 +1543,7 @@ export function ProjectWorkspace({ userId }: { userId?: string }) {
         </section>
           : data && view === "calendar" ? <CalendarView folderId={data.folder.id} tasks={tasks} lists={data.lists} members={data.members} defaultAssignees={data.defaultAssignees} onTaskChange={updateProjectTask} loadingTasks={data.lists.some((list) => !data.loadedTaskListIds?.includes(list.id))} canEdit />
           : data && view === "activity" ? <ProjectActivityFeed folderId={data.folder.id} lists={data.lists} />
-          : data && view === "map" ? <ProjectMapEmbed projectName={data.folder.name} /> : null}
+          : data && view === "map" ? <div className="h-[min(76vh,900px)] min-h-[560px] overflow-hidden border border-slate-200"><EmbeddedAtlasWorkspace workspaceType="mosaic_project" mosaicProjectId={data.folder.id} /></div> : null}
     </section>
   );
 }

@@ -194,6 +194,8 @@ export interface LayerVisibilities {
 
 export interface MapProject {
   id: string;
+  workspace_type?: 'standalone' | 'mosaic' | 'mosaic_project';
+  mosaic_project_id?: string | null;
   name: string;
   created_at?: string;
   updated_at?: string;

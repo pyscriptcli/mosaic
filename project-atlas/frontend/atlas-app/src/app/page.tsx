@@ -22,9 +22,16 @@ import { HeightCaliperHUD } from '../components/viewport/HeightCaliperHUD';
 import { RadiantBeaconsOverlay } from '../components/viewport/RadiantBeaconsOverlay';
 import { useMapStore } from '../store/useMapStore';
 import { useProjectStore } from '../store/useProjectStore';
+import type { AtlasWorkspaceType } from '../store/useProjectStore';
 import { normalizeGeoJSON } from '../gis/importExport';
 
-export default function WorkspacePage() {
+export default function WorkspacePage({
+  workspaceType = 'standalone',
+  mosaicProjectId,
+}: {
+  workspaceType?: AtlasWorkspaceType;
+  mosaicProjectId?: string;
+} = {}) {
   const [mapInstance, setMapInstance] = useState<any>(null);
   const [workspaceReady, setWorkspaceReady] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -41,19 +48,21 @@ export default function WorkspacePage() {
     setFeatures,
   } = useMapStore();
 
-  const { fetchProjects, saveCurrentProject } = useProjectStore();
+  const { fetchProjects, saveCurrentProject, setWorkspaceScope } = useProjectStore();
 
   // Load the saved workspace before mounting MapLibre so its first style is
   // the user's saved basemap instead of the store's default style.
   useEffect(() => {
     let mounted = true;
+    setWorkspaceReady(false);
+    setWorkspaceScope({ type: workspaceType, mosaicProjectId });
     fetchProjects().finally(() => {
       if (mounted) setWorkspaceReady(true);
     });
     return () => {
       mounted = false;
     };
-  }, [fetchProjects]);
+  }, [fetchProjects, setWorkspaceScope, workspaceType, mosaicProjectId]);
 
   // Auto-save every 20 seconds if dirty
   useEffect(() => {
@@ -118,7 +127,7 @@ export default function WorkspacePage() {
   };
 
   return (
-    <main className="app-shell relative w-screen h-screen overflow-hidden bg-transparent">
+    <main className="app-shell project-atlas-shell relative h-full w-full min-h-0 overflow-hidden bg-transparent">
       {!workspaceReady ? (
         <div className="absolute inset-0 z-[10000] flex items-center justify-center bg-[#0a0d12] text-[#f5f5f7]">
           <div className="flex items-center gap-3 rounded-2xl bg-white/90 px-5 py-4 shadow-lg ring-1 ring-white/10">

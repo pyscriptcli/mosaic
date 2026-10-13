@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --hostname 127.0.0.1",
-    "build": "next build",
+    "dev": "node scripts/link-atlas-dependencies.mjs && next dev --hostname 127.0.0.1",
+    "build": "node scripts/link-atlas-dependencies.mjs && next build",
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run"
@@ -14,9 +14,11 @@
     "@google/generative-ai": "^0.24.1",
     "@napi-rs/canvas": "^1.0.9",
     "@supabase/supabase-js": "^2.116.0",
+    "@turf/turf": "7.2.0",
     "@types/canvas-confetti": "^1.9.0",
     "@types/nodemailer": "^8.0.1",
     "canvas-confetti": "^1.9.4",
+    "clsx": "2.1.1",
     "docx": "^9.7.1",
     "exceljs": "^4.4.0",
     "html-to-image": "^1.11.13",
@@ -25,11 +27,15 @@
     "jszip": "^3.10.1",
     "lucide-react": "^1.42.0",
     "mammoth": "^1.12.2",
+    "maplibre-gl": "5.1.1",
+    "mediabunny": "1.61.3",
     "next": "16.3.4",
     "nodemailer": "^10.0.2",
     "pdfjs-dist": "^6.3.289",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "tailwind-merge": "3.0.2",
+    "zustand": "5.0.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

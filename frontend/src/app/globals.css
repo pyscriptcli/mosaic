@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@source "../../../project-atlas/frontend/atlas-app/src/**/*.{js,ts,jsx,tsx,mdx}";
 
 @theme {
   --color-bg-primary: #fffcfb;
@@ -12,6 +13,11 @@
   --color-mosaic-warm-white: #fffcfb;
   --color-mosaic-gray: #181d1e;
   --color-mosaic-deep-ink: #0c0c0e;
+  --color-atlas-bg: #0a1628;
+  --color-atlas-surface: #111d2e;
+  --color-atlas-primary: #316dca;
+  --color-atlas-accent: #d9b451;
+  --color-atlas-muted: #adbac7;
   --mosaic-radius: 0px;
   
   --font-display: var(--font-cormorant), Georgia, serif;
@@ -20,6 +26,17 @@
   --font-sans: var(--font-montserrat), Arial, Helvetica, sans-serif;
   --font-impact: var(--font-bebas), Impact, sans-serif;
   --font-bebas: var(--font-bebas), Impact, sans-serif;
+}
+
+.project-atlas-shell {
+  color: #f5f5f7;
+  color-scheme: dark;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  isolation: isolate;
+}
+
+.project-atlas-shell .maplibregl-popup-content {
+  color: #1f2937;
 }
 
 :root {
