@@ -470,7 +470,7 @@ export const MyLayersPanel: React.FC<MyLayersPanelProps> = ({ mapInstance, embed
   };
 
   return (
-    <div className={`${embedded ? 'absolute top-4 left-4 bottom-4' : 'fixed top-16 left-4 bottom-4'} w-96 z-[999] bg-zinc-950/90 border border-white/15 rounded-2xl shadow-2xl backdrop-blur-2xl flex flex-col overflow-hidden text-xs text-zinc-300`}>
+    <div className={`${embedded ? 'absolute top-20 left-4 bottom-4' : 'fixed top-16 left-4 bottom-4'} w-96 max-w-[calc(100vw_-_2rem)] z-[999] bg-zinc-950/95 border border-white/15 rounded-2xl shadow-2xl backdrop-blur-2xl flex flex-col overflow-hidden text-xs text-zinc-300`}>
       {/* Panel Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 bg-white/[0.02]">
         <div className="flex items-center gap-2">
@@ -563,7 +563,7 @@ export const MyLayersPanel: React.FC<MyLayersPanelProps> = ({ mapInstance, embed
       <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-3">
         {tradeAreaGroups.map(([key, group]) => {
           const groupFeatures = filteredFeatures.filter((feature) => group.ids.includes(feature.id));
-          const isCollapsed = !!collapsedTradeAreas[key];
+          const isCollapsed = collapsedTradeAreas[key] ?? true;
           const anyVisible = features.some((feature) => group.ids.includes(feature.id) && feature.props.visible !== 0);
           const allLabeled = groupFeatures.length > 0 && groupFeatures.every((feature) => !!feature.props.showLabel);
           return (

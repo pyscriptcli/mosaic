@@ -28,6 +28,8 @@ import {
   Check,
   Eye,
   Pencil,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
 import { useMapStore } from '../../store/useMapStore';
 import { useProjectStore } from '../../store/useProjectStore';
@@ -69,7 +71,25 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({ mapInstance, embeddedNam
 
   // Active flyout: 'draw' | 'studio' | null (Data tools are direct individual buttons now)
   const [openFolder, setOpenFolder] = useState<'draw' | 'studio' | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const toolbarRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const updateFullscreenState = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener('fullscreenchange', updateFullscreenState);
+    return () => document.removeEventListener('fullscreenchange', updateFullscreenState);
+  }, []);
+
+  const toggleFullscreen = async () => {
+    const fullscreenTarget = toolbarRef.current?.closest('.project-atlas-shell') as HTMLElement | null;
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else if (fullscreenTarget) await fullscreenTarget.requestFullscreen();
+      else await document.documentElement.requestFullscreen();
+    } catch {
+      setToast('Fullscreen is unavailable in this browser.');
+    }
+  };
 
   // Close flyouts on click outside
   useEffect(() => {
@@ -172,15 +192,6 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({ mapInstance, embeddedNam
           >
             <Redo2 className="w-4 h-4 text-zinc-400" strokeWidth={2.2} />
           </button>}
-
-          {embedded && <div className="flex items-center gap-0.5 ml-1 p-0.5 rounded-full border border-white/15 bg-white/[0.04]" role="group" aria-label="Workspace mode">
-            <button type="button" onClick={() => { setEmbeddedMode('view'); onModeChange?.('view'); setOpenFolder(null); }} aria-pressed={embeddedMode === 'view'} title="View mode" className={`h-7 px-2 rounded-full flex items-center gap-1 text-[10px] font-semibold transition ${embeddedMode === 'view' ? 'bg-white text-black' : 'text-zinc-400 hover:text-white'}`}>
-              <Eye className="w-3 h-3" /> View
-            </button>
-            <button type="button" onClick={() => { setEmbeddedMode('edit'); onModeChange?.('edit'); }} aria-pressed={embeddedMode === 'edit'} title="Edit mode" className={`h-7 px-2 rounded-full flex items-center gap-1 text-[10px] font-semibold transition ${embeddedMode === 'edit' ? 'bg-white text-black' : 'text-zinc-400 hover:text-white'}`}>
-              <Pencil className="w-3 h-3" /> Edit
-            </button>
-          </div>}
 
           {/* Save */}
           {!embeddedName && <button
@@ -529,6 +540,20 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({ mapInstance, embeddedNam
           )}
         </div>
       </div>
+
+      {embedded && <div className="absolute top-4 right-4 z-[1100] flex items-center gap-1.5 rounded-full border border-white/15 bg-black/85 p-1 shadow-xl backdrop-blur-xl">
+        <button type="button" onClick={toggleFullscreen} title={isFullscreen ? 'Exit fullscreen' : 'Open fullscreen'} aria-label={isFullscreen ? 'Exit fullscreen' : 'Open fullscreen'} className="inline-flex h-8 w-8 items-center justify-center rounded-full text-zinc-300 transition hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#C9A84C]">
+          {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+        </button>
+        <div className="flex items-center gap-0.5 rounded-full border border-white/10 bg-white/[0.04] p-0.5" role="group" aria-label="Workspace mode">
+          <button type="button" onClick={() => { setEmbeddedMode('view'); onModeChange?.('view'); setOpenFolder(null); }} aria-pressed={embeddedMode === 'view'} title="View mode" className={`h-7 px-2.5 rounded-full flex items-center gap-1 text-[10px] font-semibold transition ${embeddedMode === 'view' ? 'bg-white text-black' : 'text-zinc-400 hover:text-white'}`}>
+            <Eye className="w-3 h-3" /> View
+          </button>
+          <button type="button" onClick={() => { setEmbeddedMode('edit'); onModeChange?.('edit'); }} aria-pressed={embeddedMode === 'edit'} title="Edit mode" className={`h-7 px-2.5 rounded-full flex items-center gap-1 text-[10px] font-semibold transition ${embeddedMode === 'edit' ? 'bg-white text-black' : 'text-zinc-400 hover:text-white'}`}>
+            <Pencil className="w-3 h-3" /> Edit
+          </button>
+        </div>
+      </div>}
 
       {/* Floating Marker Options Bar when placing a marker */}
       {activeTool === 'marker' && (
