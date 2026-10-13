@@ -18,6 +18,7 @@ import {
   ChartNoAxesColumnIncreasing,
   BriefcaseBusiness,
   Map as MapIcon,
+  ExternalLink,
 } from "lucide-react";
 
 export type NavView = "dashboard" | "project" | "tasks" | "notebook" | "reports" | "market-insights" | "demands" | "meetings" | "minutes" | "maps" | "forms" | "delta" | "business-analysis" | "forms-admin";
@@ -292,7 +293,34 @@ export function Sidebar({
                       </div>
                     )}
                     {!meetingsItem && notetakerItem && renderNavItem(notetakerItem)}
-                    {mapsItem && renderNavItem(mapsItem)}
+                    {mapsItem && (
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => onSelectView("maps")}
+                          onPointerEnter={() => onPreloadView?.("maps")}
+                          onFocus={() => onPreloadView?.("maps")}
+                          title={effectiveCollapsed ? "Maps" : undefined}
+                          aria-current={currentView === "maps" ? "page" : undefined}
+                          className={`min-w-0 flex-1 flex items-center gap-2.5 px-2.5 py-2 text-xs font-normal uppercase tracking-[0.15em] transition-colors ${
+                            currentView === "maps" ? "text-[#FFFCFB]" : "text-[#9FB8CE] hover:text-[#FFFCFB]"
+                          } ${effectiveCollapsed ? "justify-center px-0" : ""}`}
+                        >
+                          <MapIcon size={18} className="shrink-0" />
+                          {!effectiveCollapsed && <span className="truncate">Maps</span>}
+                        </button>
+                        <a
+                          href="/maps/project-atlas"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          aria-label="Open Maps in a new tab"
+                          title="Open Maps in a new tab"
+                          className="inline-flex h-8 w-8 shrink-0 items-center justify-center text-[#9FB8CE] transition-colors hover:bg-[#174778] hover:text-[#FFFCFB] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#C9A84C]"
+                        >
+                          <ExternalLink size={14} aria-hidden="true" />
+                        </a>
+                      </div>
+                    )}
                   </div>
                 )}
               </section>
