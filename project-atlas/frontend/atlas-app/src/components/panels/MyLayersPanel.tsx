@@ -420,39 +420,67 @@ export const MyLayersPanel: React.FC<MyLayersPanelProps> = ({ mapInstance, embed
         {/* Secondary Controls Tray (Labels, Edit, Attributes, Delete) */}
         {isExpanded && (
           <div className="px-3 py-2.5 bg-black/40 border-t border-white/[0.08] rounded-b-xl flex flex-col gap-2 animate-in fade-in duration-100">
-            <div className="flex items-center justify-between text-[11px] text-zinc-400">
-              <label className="flex items-center gap-1.5 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={!!f.props.showLabel}
-                  onChange={(e) =>
-                    setFeatureDisplayProperties([{ id: f.id, showLabel: e.target.checked }])
-                  }
-                  className="w-3.5 h-3.5 accent-blue-600 rounded cursor-pointer"
-                />
-                <span className="font-medium text-zinc-300">Show Map Label</span>
-              </label>
-
-              {embeddedMode !== 'view' && <div className="flex items-center gap-1.5">
-                <span className="text-[10px] text-zinc-500 uppercase tracking-wider">Position</span>
-                <select
-                  value={f.props.labelPos || 'center'}
-                  onChange={(e) =>
-                    updateFeature(f.id, (feat) => ({
-                      ...feat,
-                      props: { ...feat.props, labelPos: e.target.value as any },
-                    }))
-                  }
-                  className="bg-zinc-900 border border-white/15 rounded-md px-1.5 py-0.5 text-[10px] text-zinc-200 outline-none focus:border-blue-500"
-                >
-                  <option value="center">Center</option>
-                  <option value="top">Top</option>
-                  <option value="bottom">Bottom</option>
-                  <option value="left">Left</option>
-                  <option value="right">Right</option>
-                </select>
-              </div>}
-            </div>
+            <details className="group/labels rounded-lg border border-white/[0.08] bg-white/[0.02]">
+              <summary className="flex cursor-pointer list-none items-center gap-2 px-2.5 py-2 text-[11px] text-zinc-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400">
+                <ChevronRight className="h-3 w-3 text-zinc-500 transition-transform group-open/labels:rotate-90" />
+                <span className="flex-1 font-medium">Label options</span>
+                <span className="text-[10px] text-zinc-500">{f.props.showLabel ? (f.props.labelMode === 'zoomed' ? 'Zoomed' : 'Shown') : 'Hidden'}</span>
+              </summary>
+              <div className="flex flex-col gap-2 border-t border-white/[0.06] px-2.5 py-2.5 text-[11px] text-zinc-400">
+                <label className="flex items-center justify-between gap-3 cursor-pointer">
+                  <span className="font-medium text-zinc-300">Show map label</span>
+                  <input
+                    type="checkbox"
+                    checked={!!f.props.showLabel}
+                    onChange={(e) => setFeatureDisplayProperties([{ id: f.id, showLabel: e.target.checked }])}
+                    className="h-3.5 w-3.5 accent-blue-600 rounded cursor-pointer"
+                  />
+                </label>
+                <label className="flex items-center justify-between gap-3">
+                  <span>Display</span>
+                  <select
+                    value={f.props.labelMode || 'static'}
+                    onChange={(e) => setFeatureDisplayProperties([{ id: f.id, labelMode: e.target.value as 'static' | 'zoomed', showLabel: true }])}
+                    className="bg-zinc-900 border border-white/15 rounded-md px-1.5 py-1 text-[10px] text-zinc-200 outline-none focus:border-blue-500"
+                  >
+                    <option value="static">Always</option>
+                    <option value="zoomed">Only when zoomed (14+)</option>
+                  </select>
+                </label>
+                {embeddedMode !== 'view' && <>
+                  <label className="flex items-center justify-between gap-3">
+                    <span>Label text</span>
+                    <input
+                      type="text"
+                      value={f.props.attributes?.label_text || ''}
+                      placeholder={f.name || 'Use layer name'}
+                      onChange={(e) => updateFeature(f.id, (feat) => {
+                        const attributes = { ...feat.props.attributes };
+                        if (e.target.value) attributes.label_text = e.target.value;
+                        else delete attributes.label_text;
+                        return { ...feat, props: { ...feat.props, attributes } };
+                      })}
+                      aria-label="Map label text"
+                      className="w-36 bg-zinc-900 border border-white/15 rounded-md px-1.5 py-1 text-[10px] text-zinc-200 outline-none focus:border-blue-500"
+                    />
+                  </label>
+                  <label className="flex items-center justify-between gap-3">
+                    <span>Position</span>
+                    <select
+                      value={f.props.labelPos || 'center'}
+                      onChange={(e) => updateFeature(f.id, (feat) => ({ ...feat, props: { ...feat.props, labelPos: e.target.value as GISFeature['props']['labelPos'] } }))}
+                      className="bg-zinc-900 border border-white/15 rounded-md px-1.5 py-1 text-[10px] text-zinc-200 outline-none focus:border-blue-500"
+                    >
+                      <option value="center">Center</option>
+                      <option value="top">Above</option>
+                      <option value="bottom">Below</option>
+                      <option value="left">Left</option>
+                      <option value="right">Right</option>
+                    </select>
+                  </label>
+                </>}
+              </div>
+            </details>
 
             <div className="flex items-center gap-1.5 pt-1 border-t border-white/[0.06]">
               {embeddedMode !== 'view' && <button

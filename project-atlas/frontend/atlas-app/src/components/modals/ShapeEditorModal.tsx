@@ -1369,40 +1369,65 @@ export const ShapeEditorModal: React.FC = () => {
         </>
       )}
 
-      {/* Label display */}
-      <div className="flex items-center justify-between border-t border-white/5 pt-2">
-        <span>Show On-Map Label</span>
-        <input
-          type="checkbox"
-          checked={!!f.props.showLabel}
-          onChange={(e) =>
-            updateFeature(f.id, (feat) => ({
-              ...feat,
-              props: { ...feat.props, showLabel: e.target.checked },
-            }))
-          }
-          className="accent-blue-600 w-4 h-4 rounded cursor-pointer"
-        />
-      </div>
-      <div className="flex items-center justify-between">
-        <span>Label Position</span>
-        <select
-          value={f.props.labelPos || 'center'}
-          onChange={(e) =>
-            updateFeature(f.id, (feat) => ({
-              ...feat,
-              props: { ...feat.props, labelPos: e.target.value as any },
-            }))
-          }
-          className="bg-black/40 border border-white/15 rounded-lg px-2 py-1 text-white outline-none"
-        >
-          <option value="center">Center</option>
-          <option value="top">Above</option>
-          <option value="bottom">Below</option>
-          <option value="left">Left</option>
-          <option value="right">Right</option>
-        </select>
-      </div>
+      <details className="border-t border-white/10 pt-2">
+        <summary className="flex cursor-pointer list-none items-center gap-2 py-2 font-semibold text-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400">
+          <Tag className="h-4 w-4 text-zinc-400" />
+          <span className="flex-1">Label options</span>
+          <span className="text-xs font-normal text-gray-400">{f.props.showLabel ? 'Shown' : 'Hidden'}</span>
+        </summary>
+        <div className="flex flex-col gap-2 pb-2 text-xs">
+          <label className="flex items-center justify-between">
+            <span>Show on map</span>
+            <input
+              type="checkbox"
+              checked={!!f.props.showLabel}
+              onChange={(e) => updateFeature(f.id, (feat) => ({ ...feat, props: { ...feat.props, showLabel: e.target.checked } }))}
+              className="accent-blue-600 w-4 h-4 rounded cursor-pointer"
+            />
+          </label>
+          <label className="flex items-center justify-between gap-3">
+            <span>Display</span>
+            <select
+              value={f.props.labelMode || 'static'}
+              onChange={(e) => updateFeature(f.id, (feat) => ({ ...feat, props: { ...feat.props, labelMode: e.target.value as 'static' | 'zoomed', showLabel: true } }))}
+              className="bg-black/40 border border-white/15 rounded-lg px-2 py-1 text-white outline-none"
+            >
+              <option value="static">Always</option>
+              <option value="zoomed">Only when zoomed (14+)</option>
+            </select>
+          </label>
+          <label className="flex items-center justify-between gap-3">
+            <span>Label text</span>
+            <input
+              type="text"
+              value={f.props.attributes?.label_text || ''}
+              placeholder={f.name || 'Use layer name'}
+              aria-label="Map label text"
+              onChange={(e) => updateFeature(f.id, (feat) => {
+                const attributes = { ...feat.props.attributes };
+                if (e.target.value) attributes.label_text = e.target.value;
+                else delete attributes.label_text;
+                return { ...feat, props: { ...feat.props, attributes } };
+              })}
+              className="w-36 bg-black/40 border border-white/15 rounded-lg px-2 py-1 text-white outline-none"
+            />
+          </label>
+          <label className="flex items-center justify-between gap-3">
+            <span>Position</span>
+            <select
+              value={f.props.labelPos || 'center'}
+              onChange={(e) => updateFeature(f.id, (feat) => ({ ...feat, props: { ...feat.props, labelPos: e.target.value as 'center' | 'top' | 'bottom' | 'left' | 'right' } }))}
+              className="bg-black/40 border border-white/15 rounded-lg px-2 py-1 text-white outline-none"
+            >
+              <option value="center">Center</option>
+              <option value="top">Above</option>
+              <option value="bottom">Below</option>
+              <option value="left">Left</option>
+              <option value="right">Right</option>
+            </select>
+          </label>
+        </div>
+      </details>
 
       {/* Route Specifics */}
       {isRoute && (
