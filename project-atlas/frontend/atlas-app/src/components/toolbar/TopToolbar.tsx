@@ -37,9 +37,10 @@ interface TopToolbarProps {
   mapInstance: any;
   embeddedName?: string;
   embeddedStatus?: string;
+  embedded?: boolean;
 }
 
-export const TopToolbar: React.FC<TopToolbarProps> = ({ mapInstance, embeddedName, embeddedStatus }) => {
+export const TopToolbar: React.FC<TopToolbarProps> = ({ mapInstance, embeddedName, embeddedStatus, embedded = false }) => {
   const {
     activeTool,
     setActiveTool,
@@ -108,7 +109,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({ mapInstance, embeddedNam
       <div
         ref={toolbarRef}
         data-atlas-topbar
-        className="fixed top-4 left-1/2 -translate-x-1/2 z-[1000] bg-black/90 border border-white/15 rounded-full px-3 py-1.5 flex items-center gap-1.5 shadow-2xl backdrop-blur-xl text-zinc-200 select-none"
+        className={`${embedded ? 'absolute' : 'fixed'} top-4 left-1/2 -translate-x-1/2 z-[1000] bg-black/90 border border-white/15 rounded-full px-3 py-1.5 flex items-center gap-1.5 shadow-2xl backdrop-blur-xl text-zinc-200 select-none`}
       >
         {/* =========================================================================
             SECTION 1: WORKSPACE & HISTORY

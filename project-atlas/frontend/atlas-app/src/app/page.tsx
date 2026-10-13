@@ -152,6 +152,7 @@ export default function WorkspacePage({
       {/* Top Floating Pill Toolbar */}
       <TopToolbar
         mapInstance={mapInstance}
+        embedded={workspaceType !== 'standalone'}
       />
 
       {/* Left Panels */}
