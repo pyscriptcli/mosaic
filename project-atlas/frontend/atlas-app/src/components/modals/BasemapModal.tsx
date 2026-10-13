@@ -10,8 +10,6 @@ interface BasemapModalProps {
   mapInstance: any;
 }
 
-const isSatelliteOrOsm = (name: string) => /satellite|osm/i.test(name);
-
 const BASEMAP_PREVIEWS: Record<string, {
   bg: string;
   water: string;
@@ -140,6 +138,13 @@ const INITIAL_VALUES = Object.fromEntries(
   ])
 ) as Record<string, number>;
 
+const DEFAULT_LAYER_OPACITY: Record<string, number> = {
+  backgroundOpacity: 100,
+  buildingsOpacity: 30,
+};
+
+Object.assign(INITIAL_VALUES, DEFAULT_LAYER_OPACITY);
+
 function scaleLineWidth(width: any, scale: number) {
   if (typeof width === 'number') return width * scale;
   if (!Array.isArray(width)) return width;
@@ -197,7 +202,9 @@ export const BasemapModal: React.FC<BasemapModalProps> = ({ mapInstance }) => {
         if ('opacity' in layer) paint[layer.opacity] = mapInstance.getPaintProperty(layer.id, layer.opacity) ?? 1;
         basePaint.set(layer.id, paint);
       }
-      if (group.opacity && !touchedOpacityRef.current.has(group.id)) {
+      if (group.id in DEFAULT_LAYER_OPACITY) {
+        opacityDefaults[`${group.id}Opacity`] = DEFAULT_LAYER_OPACITY[`${group.id}Opacity`];
+      } else if (group.opacity && !touchedOpacityRef.current.has(group.id)) {
         const opacities = group.layers
           .map((layer) => basePaint.get(layer.id)?.[layer.opacity])
           .filter((opacity): opacity is number => typeof opacity === 'number');
@@ -207,10 +214,6 @@ export const BasemapModal: React.FC<BasemapModalProps> = ({ mapInstance }) => {
         }
       }
     }
-    if (isSatelliteOrOsm(currentBasemap)) {
-      opacityDefaults['buildingsOpacity'] = 0;
-      opacityDefaults['backgroundOpacity'] = 0;
-    }
     basePaintRef.current = basePaint;
     mixedOpacityRef.current = mixedOpacityGroups;
     if (Object.keys(styleColors).length) setColors((current) => ({ ...current, ...styleColors }));
@@ -218,31 +221,12 @@ export const BasemapModal: React.FC<BasemapModalProps> = ({ mapInstance }) => {
     setStyleVersion((version) => version + 1);
   }, [mapInstance, currentBasemap]);
 
-  // When switching to Satellite or OSM, ensure buildings and background are 0 by default
-  useEffect(() => {
-    if (!mapInstance) return;
-    if (isSatelliteOrOsm(currentBasemap)) {
-      touchedOpacityRef.current.add('buildings');
-      touchedOpacityRef.current.add('background');
-      setValues((current) => ({
-        ...current,
-        buildingsOpacity: 0,
-        backgroundOpacity: 0,
-      }));
-      try {
-        if (mapInstance.getLayer('bg')) mapInstance.setPaintProperty('bg', 'background-opacity', 0);
-        if (mapInstance.getLayer('building-2d')) mapInstance.setPaintProperty('building-2d', 'fill-opacity', 0);
-        if (mapInstance.getLayer('building-3d')) mapInstance.setPaintProperty('building-3d', 'fill-extrusion-opacity', 0);
-      } catch {}
-    }
-  }, [currentBasemap, mapInstance]);
-
   useEffect(() => {
     if (!Array.isArray(mapInstance?.getStyle?.()?.layers)) return;
     const failures: Record<string, boolean> = {};
     // Keep each control independent if one layer rejects its paint update.
     for (const group of STYLE_CONTROLS) {
-      if (!touchedOpacityRef.current.has(group.id)) continue;
+      if (!touchedOpacityRef.current.has(group.id) && !(group.id in DEFAULT_LAYER_OPACITY)) continue;
       for (const layer of group.layers) {
         const base = basePaintRef.current.get(layer.id);
         if (!base || !('opacity' in layer) || base[layer.opacity] == null || !mapInstance.getLayer(layer.id)) continue;

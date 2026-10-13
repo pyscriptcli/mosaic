@@ -64,7 +64,7 @@ export const THEMES: Record<string, ThemeColors> = {
     rail: "#facc15", rd_express: "#ffaa00", rd_major: "#ffffff",
     rd_secondary: "#ffffff", rd_tertiary: "#e2e8f0", rd_min_md: "#cbd5e1",
     rd_min_lo: "#94a3b8", rd_path: "#cbd5e1", rd_case: "#000000",
-    sec_opacity: 0.85, ter_opacity: 0.7, building_opacity: 0,
+    sec_opacity: 0.85, ter_opacity: 0.7, building_opacity: 0.3,
     boundary: "#ff1e1e", muted: "#cbd5e1",
   },
   "OSM": {
@@ -74,7 +74,7 @@ export const THEMES: Record<string, ThemeColors> = {
     rail: "#787878", rd_express: "#ffaa00", rd_major: "#e8b84a",
     rd_secondary: "#c99c37", rd_tertiary: "#ffffff", rd_min_md: "#ffffff",
     rd_min_lo: "#ffffff", rd_path: "#ffffff", rd_case: "#b0a89d",
-    sec_opacity: 0.85, ter_opacity: 0.7, building_opacity: 0,
+    sec_opacity: 0.85, ter_opacity: 0.7, building_opacity: 0.3,
     boundary: "#ff1e1e", muted: "#716b61",
   },
 };
@@ -237,14 +237,14 @@ export const ESRI_SATELLITE_TILES = [
 
 /** Satellite imagery with the same editable OpenFreeMap vector layers used by
  * the vector basemaps. Defaults to crystal-clear Google Satellite clean tiles (lyrs=s, maxzoom 22)
- * with background and buildings set to 0 by default so roads and high-zoom views are sharp and editable.
+ * with background opacity 100% and buildings opacity 30% by default.
  */
 export function satelliteVectorStyle(
   tileUrls: string[] = GOOGLE_SATELLITE_TILES,
   maxzoom = 22
 ) {
   const vector = vectorStyle(THEMES["Satellite"]);
-  const satellite = rasterStyle(tileUrls, "#000000", maxzoom, 0);
+  const satellite = rasterStyle(tileUrls, "#000000", maxzoom, 1);
   const vectorLayers = vector.layers.filter((layer: any) =>
     !["bg", "landcover", "landuse", "park", "water", "waterway"].includes(layer.id)
   );
@@ -258,7 +258,7 @@ export function satelliteVectorStyle(
 
 /** OpenStreetMap raster basemap with editable vector road and label layers on top.
  * Enables road color, thickness, opacity editing and visibility toggles on top of OSM,
- * with background and buildings set to 0 by default.
+ * with background opacity 100% and buildings opacity 30% by default.
  */
 export function osmVectorStyle() {
   const vector = vectorStyle(THEMES["OSM"]);
@@ -266,7 +266,7 @@ export function osmVectorStyle() {
     ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
     "#f2efe9",
     19,
-    0
+    1
   );
   const vectorLayers = vector.layers.filter((layer: any) =>
     !["bg", "landcover", "landuse", "park", "water", "waterway"].includes(layer.id)
