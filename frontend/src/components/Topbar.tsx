@@ -8,7 +8,6 @@ import {
   Calendar, 
   FileText, 
   ArrowRight, 
-  Plus, 
   Mic, 
   CheckSquare,
   LayoutDashboard,
@@ -34,7 +33,6 @@ interface TopbarProps {
   onOpenSearch?: () => void;
   onSelectMeeting: (meetingId: string) => void;
   onSelectTask?: (taskId: string) => void;
-  onNewMeeting: () => void;
   onOpenStudio: () => void;
   onGoToNotetaker: () => void;
   onNavigateToPage?: (page: "dashboard" | "project" | "meetings" | "tasks" | "notebook" | "market-insights" | "demands" | "minutes" | "forms" | "forms-admin") => void;
@@ -42,7 +40,6 @@ interface TopbarProps {
   isAdmin?: boolean;
   askEchoEnabled?: boolean;
   allowedFeatures?: string[];
-  canRecord?: boolean;
   studioRecording?: {
     active?: boolean;
     isMinimized: boolean;
@@ -60,7 +57,6 @@ export function Topbar({
   onOpenSearch,
   onSelectMeeting,
   onSelectTask,
-  onNewMeeting,
   onOpenStudio,
   onGoToNotetaker,
   onNavigateToPage,
@@ -68,7 +64,6 @@ export function Topbar({
   isAdmin,
   askEchoEnabled = false,
   allowedFeatures,
-  canRecord = true,
   studioRecording,
 }: TopbarProps) {
   const formatMeetingClock = (seconds: number) => {
@@ -84,6 +79,8 @@ export function Topbar({
   const [syncError, setSyncError] = useState("");
   const [manualSyncing, setManualSyncing] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
+  const [syncDetailsOpen, setSyncDetailsOpen] = useState(false);
+  const [syncItems, setSyncItems] = useState<Array<{ id?: string; label: string; state: "syncing" | "synced" | "error" }>>([]);
   const previousSyncState = useRef(syncState);
   const searchContainerRef = useRef<HTMLDivElement>(null);
 
@@ -102,6 +99,7 @@ export function Topbar({
       if (previousState === "syncing" && nextState === "synced") {
         window.dispatchEvent(new CustomEvent("mosaic-clickup-sync-complete"));
         void refreshBrowserPageQueries(userId);
+        setSyncItems((items) => items.map((item) => ({ ...item, state: "synced" })));
       }
     } catch (error) {
       setSyncState("error");
@@ -143,18 +141,35 @@ export function Topbar({
     setManualSyncing(true);
     setSyncState("syncing");
     setSyncError("");
+    setSyncDetailsOpen(true);
     const pending = getPendingClickUpMutationCount(userId);
     setSyncPendingCount(pending);
+    setSyncItems([
+      { label: "ClickUp lists", state: "syncing" },
+      ...(pending > 0 ? [{ label: `${pending} saved task change${pending === 1 ? "" : "s"}`, state: "syncing" as const }] : []),
+    ]);
     void flushClickUpMutationQueue(userId, setSyncPendingCount);
     try {
-      const listIds = [localStorage.getItem("project_echo_clickup_list_id"), localStorage.getItem("project_echo_personal_list_id")].filter((value): value is string => Boolean(value));
-      const response = await fetch("/api/integrations/clickup/sync", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ listIds }) });
+      const taskListId = localStorage.getItem("project_echo_clickup_list_id");
+      const personalListId = localStorage.getItem("project_echo_personal_list_id");
+      const listIds = [taskListId, personalListId].filter((value): value is string => Boolean(value));
+      const listLabels: Record<string, string> = {};
+      if (taskListId) listLabels[taskListId] = "Tasks";
+      if (personalListId) listLabels[personalListId] = "Personal notes";
+      const response = await fetch("/api/integrations/clickup/sync", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ listIds, listLabels }) });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "Manual sync could not be started.");
+      if (Array.isArray(data.items)) {
+        setSyncItems([
+          ...data.items.map((item: { id?: unknown; label?: unknown }) => ({ id: typeof item.id === "string" ? item.id : undefined, label: typeof item.label === "string" ? item.label : "ClickUp list", state: "syncing" as const })),
+          ...(pending > 0 ? [{ label: `${pending} saved task change${pending === 1 ? "" : "s"}`, state: "syncing" as const }] : []),
+        ]);
+      }
       await refreshSyncStatus();
     } catch (error) {
       setSyncState("error");
       setSyncError(error instanceof Error ? error.message : "Manual sync could not be started.");
+      setSyncItems((items) => items.map((item) => ({ ...item, state: "error" })));
     } finally {
       setManualSyncing(false);
     }
@@ -276,8 +291,43 @@ export function Topbar({
 
   return (
     <header className="sticky top-0 z-30 h-14 bg-[#FFFCFB]/95 backdrop-blur-sm border-b border-[#003366]/15 px-4 md:px-8 flex items-center justify-between gap-4 transition-colors">
-      {/* Left balance spacer so middle search remains centered */}
-      <div className="hidden xl:block w-72 shrink-0" />
+      {/* Left controls: sync status and live sync details */}
+      <div className="relative flex w-auto shrink-0 items-center gap-2 xl:w-72">
+        {userId && (() => {
+          const effectiveState = !isOnline ? "error" : syncPendingCount > 0 && syncState === "synced" ? "syncing" : syncState;
+          const label = effectiveState === "synced" ? "Synced" : effectiveState === "syncing" || effectiveState === "checking" ? "Syncing" : "Sync issue";
+          const tone = effectiveState === "synced" ? "text-emerald-700 hover:bg-emerald-50" : effectiveState === "error" ? "text-red-700 hover:bg-red-50" : "text-amber-700 hover:bg-amber-50";
+          const dot = effectiveState === "synced" ? "bg-emerald-600" : effectiveState === "error" ? "bg-red-600" : "bg-amber-500";
+          return (
+            <>
+              <button type="button" onClick={() => void runManualSync()} disabled={manualSyncing} aria-label={`Sync now. ${label}${syncPendingCount ? `, ${syncPendingCount} pending` : ""}`} title={syncError || `${label}${syncPendingCount ? ` · ${syncPendingCount} pending` : ""}. Click to sync now.`} className={`inline-flex min-h-9 items-center gap-1.5 border border-slate-200 px-2.5 text-[11px] font-semibold transition-colors disabled:cursor-wait disabled:opacity-70 ${tone}`}>
+                <span aria-hidden="true" className={`h-2 w-2 shrink-0 rounded-full ${dot}`} />
+                <RefreshCw aria-hidden="true" size={13} className={effectiveState === "syncing" || manualSyncing ? "animate-spin" : ""} />
+                <span>{label}</span>
+              </button>
+              {syncDetailsOpen && (
+                <section role="status" aria-live="polite" className="absolute left-0 top-full z-50 mt-2 w-[min(22rem,calc(100vw-2rem))] border border-[#003366]/20 bg-[#FFFCFB] p-3 text-[#1b1d1e] shadow-lg">
+                  <div className="flex items-center justify-between gap-3 border-b border-[#003366]/10 pb-2">
+                    <h2 className="text-xs font-semibold text-[#003366]">{syncState === "error" ? "Sync needs attention" : syncState === "synced" && !manualSyncing ? "Sync complete" : "Syncing in background"}</h2>
+                    <button type="button" onClick={() => setSyncDetailsOpen(false)} aria-label="Close sync details" className="p-1 text-slate-500 hover:text-[#003366]"><X size={14} /></button>
+                  </div>
+                  <p className="py-2 text-[11px] text-slate-600">{syncState === "error" ? syncError || "Some changes could not be synced." : syncState === "synced" && !manualSyncing ? "The requested lists and saved changes are up to date." : "Your app stays available while these items sync."}</p>
+                  <ul className="space-y-1.5">
+                    {syncItems.map((item) => (
+                      <li key={`${item.id || item.label}`} className="flex items-center gap-2 text-[11px]">
+                        <span aria-hidden="true" className={`h-2 w-2 shrink-0 rounded-full ${item.state === "synced" ? "bg-emerald-600" : item.state === "error" ? "bg-red-600" : "bg-amber-500 animate-pulse"}`} />
+                        <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                        <span className={`shrink-0 text-[10px] ${item.state === "synced" ? "text-emerald-700" : item.state === "error" ? "text-red-700" : "text-amber-700"}`}>{item.state === "synced" ? "Done" : item.state === "error" ? "Retry needed" : "Working"}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  {(syncState === "syncing" || manualSyncing) && <div className="mt-3 h-1 overflow-hidden bg-amber-100"><div className="h-full w-2/3 animate-pulse bg-amber-500" /></div>}
+                </section>
+              )}
+            </>
+          );
+        })()}
+      </div>
 
       {/* Middle: Centered Spotlight Search Container */}
       <div ref={searchContainerRef} className="relative w-full max-w-md mx-auto">
@@ -461,32 +511,13 @@ export function Topbar({
         )}
       </div>
 
-      {/* Right Controls: New Meeting and Ask Echo */}
+      {/* Right controls */}
       <div className="flex items-center gap-2.5 shrink-0">
-        {userId && (() => {
-          const effectiveState = !isOnline ? "error" : syncPendingCount > 0 && syncState === "synced" ? "syncing" : syncState;
-          const label = effectiveState === "synced" ? "Synced" : effectiveState === "syncing" || effectiveState === "checking" ? "Syncing" : "Sync issue";
-          const tone = effectiveState === "synced" ? "text-emerald-700 hover:bg-emerald-50" : effectiveState === "error" ? "text-red-700 hover:bg-red-50" : "text-amber-700 hover:bg-amber-50";
-          const dot = effectiveState === "synced" ? "bg-emerald-600" : effectiveState === "error" ? "bg-red-600" : "bg-amber-500";
-          return <button type="button" onClick={() => void runManualSync()} disabled={manualSyncing} aria-label={`Sync now. ${label}${syncPendingCount ? `, ${syncPendingCount} pending` : ""}`} title={syncError || `${label}${syncPendingCount ? ` · ${syncPendingCount} pending` : ""}. Click to sync now.`} className={`inline-flex min-h-9 items-center gap-1.5 border border-slate-200 px-2.5 text-[11px] font-semibold transition-colors disabled:cursor-wait disabled:opacity-70 ${tone}`}><span aria-hidden="true" className={`h-2 w-2 shrink-0 rounded-full ${dot}`} /><RefreshCw aria-hidden="true" size={13} className={effectiveState === "syncing" || manualSyncing ? "animate-spin" : ""} /><span className="hidden sm:inline">{label}</span></button>;
-        })()}
-        
-        {/* New Meeting Integrated Control Group */}
-        {canRecord && (isAdmin || !allowedPages || allowedPages.includes("meetings") || allowedPages.includes("minutes")) && (
-        <div className="inline-flex items-center rounded-none border border-[#C9AB4C] bg-transparent shadow-2xs overflow-hidden">
-          {/* Main "New Meeting" Transparent Button with Gold Border */}
-          <button
-            type="button"
-            onClick={studioRecording?.active ? studioRecording.onRestore : onNewMeeting}
-            className={`px-3 py-1.5 text-xs font-bold uppercase tracking-wider transition-colors flex items-center gap-1.5 ${studioRecording?.active ? "bg-[#003366] text-white" : "text-[#003366] hover:bg-[#C9AB4C]/15"}`}
-            title={studioRecording?.active ? "Open current meeting" : "Start New Meeting"}
-            aria-label={studioRecording?.active ? `${studioRecording.isPaused ? "Paused" : "Recording"} ${formatMeetingClock(studioRecording.elapsedSeconds)}` : "New Meeting"}
-          >
-            {studioRecording?.active ? <span className={`h-2 w-2 rounded-full ${studioRecording.isPaused ? "bg-amber-400" : "bg-red-500 animate-pulse"}`} /> : <Plus size={13} className="text-[#C9AB4C]" />}
-            <span>{studioRecording?.active ? `${studioRecording.isPaused ? "Paused" : "Recording"} ${formatMeetingClock(studioRecording.elapsedSeconds)}` : "New Meeting"}</span>
+        {studioRecording?.active && (
+          <button type="button" onClick={studioRecording.onRestore} className="inline-flex items-center gap-1.5 border border-[#C9AB4C] bg-[#003366] px-3 py-1.5 text-xs font-bold text-white" title="Open current meeting" aria-label={`${studioRecording.isPaused ? "Paused" : "Recording"} ${formatMeetingClock(studioRecording.elapsedSeconds)}`}>
+            <span className={`h-2 w-2 rounded-full ${studioRecording.isPaused ? "bg-amber-400" : "bg-red-500 animate-pulse"}`} />
+            <span>{studioRecording.isPaused ? "Paused" : "Recording"} {formatMeetingClock(studioRecording.elapsedSeconds)}</span>
           </button>
-
-        </div>
         )}
 
         {/* Ask Echo trigger */}

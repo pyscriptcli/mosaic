@@ -1279,15 +1279,6 @@ export default function Home() {
               setCurrentView("tasks");
             }
           }}
-          onNewMeeting={() => {
-            if (isPageAllowed("minutes")) {
-              setCurrentView("minutes");
-              setStage("Input");
-              setIsStudioOpen(true);
-              setStudioMode("fullscreen");
-              window.setTimeout(() => window.dispatchEvent(new CustomEvent("echo-start-meeting")), 0);
-            }
-          }}
           onOpenStudio={() => {
             if (isPageAllowed("minutes")) {
               setIsStudioOpen(true);
@@ -1306,7 +1297,6 @@ export default function Home() {
           isAdmin={isAdminUser}
           askEchoEnabled={askEchoEnabled}
           allowedFeatures={allowedFeatures}
-          canRecord={allowedFeatures.includes("notetaker-record")}
           studioRecording={{
             active: studioRecorder.status === "recording" || studioRecorder.status === "paused",
             isMinimized: isStudioOpen && studioMode === "minimized" && (studioRecorder.status === "recording" || studioRecorder.status === "paused"),

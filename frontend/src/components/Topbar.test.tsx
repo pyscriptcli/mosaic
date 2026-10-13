@@ -7,7 +7,6 @@ const baseProps = {
   meetings: [],
   onOpenUniversalEcho: vi.fn(),
   onSelectMeeting: vi.fn(),
-  onNewMeeting: vi.fn(),
   onOpenStudio: vi.fn(),
   onGoToNotetaker: vi.fn(),
 };
