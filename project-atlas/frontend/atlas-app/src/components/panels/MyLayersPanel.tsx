@@ -34,6 +34,7 @@ import { GISFeature } from '../../types/gis';
 
 interface MyLayersPanelProps {
   mapInstance: any;
+  embedded?: boolean;
 }
 
 const getFeatureKindIcon = (kind: string) => {
@@ -56,7 +57,7 @@ const getFeatureKindIcon = (kind: string) => {
   }
 };
 
-export const MyLayersPanel: React.FC<MyLayersPanelProps> = ({ mapInstance }) => {
+export const MyLayersPanel: React.FC<MyLayersPanelProps> = ({ mapInstance, embedded = false }) => {
   const {
     activePanels,
     togglePanel,
@@ -419,7 +420,7 @@ export const MyLayersPanel: React.FC<MyLayersPanelProps> = ({ mapInstance }) => 
   };
 
   return (
-    <div className="fixed top-16 left-4 bottom-4 w-96 z-[999] bg-zinc-950/90 border border-white/15 rounded-2xl shadow-2xl backdrop-blur-2xl flex flex-col overflow-hidden text-xs text-zinc-300">
+    <div className={`${embedded ? 'absolute top-4 left-4 bottom-4' : 'fixed top-16 left-4 bottom-4'} w-96 z-[999] bg-zinc-950/90 border border-white/15 rounded-2xl shadow-2xl backdrop-blur-2xl flex flex-col overflow-hidden text-xs text-zinc-300`}>
       {/* Panel Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 bg-white/[0.02]">
         <div className="flex items-center gap-2">

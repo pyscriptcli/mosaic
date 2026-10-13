@@ -28,9 +28,11 @@ import { normalizeGeoJSON } from '../gis/importExport';
 export default function WorkspacePage({
   workspaceType = 'standalone',
   mosaicProjectId,
+  workspaceName,
 }: {
   workspaceType?: AtlasWorkspaceType;
   mosaicProjectId?: string;
+  workspaceName?: string;
 } = {}) {
   const [mapInstance, setMapInstance] = useState<any>(null);
   const [workspaceReady, setWorkspaceReady] = useState(false);
@@ -44,8 +46,6 @@ export default function WorkspacePage({
     redo,
     setActiveTool,
     closeContextMenu,
-    features,
-    setFeatures,
   } = useMapStore();
 
   const { fetchProjects, saveCurrentProject, setWorkspaceScope } = useProjectStore();
@@ -56,13 +56,20 @@ export default function WorkspacePage({
     let mounted = true;
     setWorkspaceReady(false);
     setWorkspaceScope({ type: workspaceType, mosaicProjectId });
-    fetchProjects().finally(() => {
+    const loadWorkspace = async () => {
+      await fetchProjects();
+      if (!mounted) return;
+      const projectState = useProjectStore.getState();
+      if (workspaceType === 'mosaic_project' && !projectState.currentProjectId) {
+        await projectState.createProject(workspaceName);
+      }
       if (mounted) setWorkspaceReady(true);
-    });
+    };
+    void loadWorkspace();
     return () => {
       mounted = false;
     };
-  }, [fetchProjects, setWorkspaceScope, workspaceType, mosaicProjectId]);
+  }, [fetchProjects, setWorkspaceScope, workspaceType, mosaicProjectId, workspaceName]);
 
   // Auto-save every 20 seconds if dirty
   useEffect(() => {
@@ -114,11 +121,24 @@ export default function WorkspacePage({
       const data = JSON.parse(text);
       const geojson = data.type === 'FeatureCollection' ? data : { type: 'FeatureCollection', features: [data] };
 
-      const maxId = features.reduce((m, f) => Math.max(m, f.id || 0), 0);
-      const imported = normalizeGeoJSON(geojson, maxId);
+      if (!Array.isArray(geojson.features) || geojson.features.length === 0) {
+        setToast('Import failed: No GeoJSON features found.');
+        return;
+      }
 
-      setFeatures([...features, ...imported]);
-      setToast(`Imported ${imported.length} spatial features successfully!`);
+      const projectState = useProjectStore.getState();
+      if (!projectState.currentProjectId) {
+        await projectState.createProject(file.name.replace(/\.[^.]+$/, ''));
+      }
+
+      const currentFeatures = useMapStore.getState().features;
+      const maxId = currentFeatures.reduce((m, f) => Math.max(m, f.id || 0), 0);
+      const imported = normalizeGeoJSON(geojson, maxId);
+      useMapStore.getState().setFeatures([...currentFeatures, ...imported]);
+      const saved = await useProjectStore.getState().saveCurrentProject(mapInstance);
+      setToast(saved
+        ? `Imported ${imported.length} features and saved the project.`
+        : `Imported ${imported.length} features locally; cloud save failed.`);
     } catch (err: any) {
       setToast('Import failed: Ensure valid GeoJSON format.');
     } finally {
@@ -158,9 +178,10 @@ export default function WorkspacePage({
       {/* Left Panels */}
       <DataBrowserPanel
         mapInstance={mapInstance}
+        embedded={workspaceType !== 'standalone'}
         onImportClick={() => fileInputRef.current?.click()}
       />
-      <MyLayersPanel mapInstance={mapInstance} />
+      <MyLayersPanel mapInstance={mapInstance} embedded={workspaceType !== 'standalone'} />
 
       {/* Context Menu & Feature Inspection Popup */}
       <MapContextMenu />
@@ -168,7 +189,7 @@ export default function WorkspacePage({
 
       {/* Floating Modals & Sidebars */}
       <ShapeEditorModal />
-      <TradeAreaSidebar mapInstance={mapInstance} />
+      <TradeAreaSidebar mapInstance={mapInstance} embedded={workspaceType !== 'standalone'} />
       <AttributeTableModal />
       <BasemapModal mapInstance={mapInstance} />
       <WorkspaceLauncherModal />

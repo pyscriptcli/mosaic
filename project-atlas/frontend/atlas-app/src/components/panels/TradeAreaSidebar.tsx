@@ -389,6 +389,7 @@ const MAX_SEARCH_AREAS = 5;
 
 interface TradeAreaSidebarProps {
   mapInstance: any;
+  embedded?: boolean;
 }
 
 interface QAMessage {
@@ -408,7 +409,7 @@ interface SearchBuilderMessage {
   content: string;
 }
 
-export const TradeAreaSidebar: React.FC<TradeAreaSidebarProps> = ({ mapInstance }) => {
+export const TradeAreaSidebar: React.FC<TradeAreaSidebarProps> = ({ mapInstance, embedded = false }) => {
   const {
     activePanels,
     togglePanel,
@@ -1847,7 +1848,7 @@ export const TradeAreaSidebar: React.FC<TradeAreaSidebarProps> = ({ mapInstance 
   if (!activePanels.tradeArea) return null;
 
   return (
-    <div className="fixed top-16 left-4 bottom-4 w-[480px] max-w-[calc(100vw-2rem)] z-[1000] bg-zinc-950/85 border border-white/10 rounded-3xl shadow-[0_24px_80px_rgba(0,0,0,0.9)] backdrop-blur-2xl flex flex-col overflow-hidden text-xs text-zinc-300 animate-in fade-in slide-in-from-left-4 select-none">
+    <div className={`${embedded ? 'absolute top-4 left-4 bottom-4 max-w-[calc(100%-2rem)]' : 'fixed top-16 left-4 bottom-4 max-w-[calc(100vw-2rem)]'} w-[480px] z-[1000] bg-zinc-950/85 border border-white/10 rounded-3xl shadow-[0_24px_80px_rgba(0,0,0,0.9)] backdrop-blur-2xl flex flex-col overflow-hidden text-xs text-zinc-300 animate-in fade-in slide-in-from-left-4 select-none`}>
       {/* Top Header Bar */}
       <div className="flex items-center justify-between px-5 py-3.5 border-b border-white/10 shrink-0 bg-white/[0.02]">
         <div className="flex items-center gap-3">

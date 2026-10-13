@@ -1543,7 +1543,7 @@ export function ProjectWorkspace({ userId }: { userId?: string }) {
         </section>
           : data && view === "calendar" ? <CalendarView folderId={data.folder.id} tasks={tasks} lists={data.lists} members={data.members} defaultAssignees={data.defaultAssignees} onTaskChange={updateProjectTask} loadingTasks={data.lists.some((list) => !data.loadedTaskListIds?.includes(list.id))} canEdit />
           : data && view === "activity" ? <ProjectActivityFeed folderId={data.folder.id} lists={data.lists} />
-          : data && view === "map" ? <div className="h-[min(76vh,900px)] min-h-[560px] overflow-hidden border border-slate-200"><EmbeddedAtlasWorkspace workspaceType="mosaic_project" mosaicProjectId={data.folder.id} /></div> : null}
+            : data && view === "map" ? <div className="h-[min(76vh,900px)] min-h-[560px] overflow-hidden border border-slate-200"><EmbeddedAtlasWorkspace workspaceType="mosaic_project" mosaicProjectId={data.folder.id} workspaceName={data.folder.name} /></div> : null}
     </section>
   );
 }

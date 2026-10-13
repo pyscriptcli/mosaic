@@ -14,11 +14,13 @@ import { useMapStore } from '../../store/useMapStore';
 interface DataBrowserPanelProps {
   onImportClick: () => void;
   mapInstance: any;
+  embedded?: boolean;
 }
 
 export const DataBrowserPanel: React.FC<DataBrowserPanelProps> = ({
   onImportClick,
   mapInstance,
+  embedded = false,
 }) => {
   const {
     activePanels,
@@ -175,7 +177,7 @@ export const DataBrowserPanel: React.FC<DataBrowserPanelProps> = ({
   };
 
   return (
-    <div className="fixed top-16 left-4 bottom-4 w-96 z-[999] bg-[rgba(9,16,24,0.97)] border border-white/15 rounded-3xl p-4 shadow-2xl backdrop-blur-xl flex flex-col overflow-hidden text-xs text-gray-300">
+    <div className={`${embedded ? 'absolute top-4 left-4 bottom-4' : 'fixed top-16 left-4 bottom-4'} w-96 z-[999] bg-[rgba(9,16,24,0.97)] border border-white/15 rounded-3xl p-4 shadow-2xl backdrop-blur-xl flex flex-col overflow-hidden text-xs text-gray-300`}>
       {/* Header */}
       <div className="flex items-center justify-between pb-3 border-b border-white/10">
         <div className="flex items-center gap-2 font-bold text-white text-sm">

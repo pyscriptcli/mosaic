@@ -6,9 +6,11 @@ import type { AtlasWorkspaceType } from "../../../project-atlas/frontend/atlas-a
 export default function EmbeddedAtlasWorkspace({
   workspaceType,
   mosaicProjectId,
+  workspaceName,
 }: {
   workspaceType: Exclude<AtlasWorkspaceType, "standalone">;
   mosaicProjectId?: string;
+  workspaceName?: string;
 }) {
-  return <WorkspacePage workspaceType={workspaceType} mosaicProjectId={mosaicProjectId} />;
+  return <WorkspacePage workspaceType={workspaceType} mosaicProjectId={mosaicProjectId} workspaceName={workspaceName} />;
 }
