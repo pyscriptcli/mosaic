@@ -185,19 +185,23 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       currentProjectName: p.name,
     });
 
-    const mapStore = useMapStore.getState();
-    mapStore.setFeatures(p.features || [], false);
-    mapStore.setCustomGroups(
-      p.custom_groups || { "Trade Area Scan": { collapsed: false, ids: [] } },
-      false
-    );
-    if (p.basemap) mapStore.setBasemap(p.basemap);
-    if (p.layer_visibilities) {
-      for (const k in p.layer_visibilities) {
-        mapStore.setVisibility(k, p.layer_visibilities[k]);
-      }
-    }
-    mapStore.setSaveStatus('saved');
+    useMapStore.setState({
+      features: p.features || [],
+      customGroups: p.custom_groups || { 'Trade Area Scan': { collapsed: false, ids: [] } },
+      currentBasemap: p.basemap || 'Midnight Blue',
+      visibilities: p.layer_visibilities || useMapStore.getState().visibilities,
+      activeTool: null,
+      editMode: false,
+      editingRoutePoints: false,
+      selectedId: null,
+      selectedLayerIds: [],
+      draft: [],
+      cursorLL: null,
+      isDirty: false,
+      saveStatus: 'saved',
+      undoStack: [],
+      redoStack: [],
+    });
   },
 
   saveCurrentProject: async (mapInstance?: any) => {
@@ -246,12 +250,22 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         : workspaceScope.type === 'mosaic_project'
           ? baseQuery.eq('workspace_type', 'mosaic_project').eq('mosaic_project_id', workspaceScope.mosaicProjectId || '')
           : baseQuery.eq('workspace_type', 'mosaic');
-      const { error } = await query;
+      const { data: savedRow, error } = await query.select('id').maybeSingle();
 
       if (error) throw error;
+      if (!savedRow) throw new Error('No map project matched the current workspace.');
 
-      useMapStore.getState().setSaveStatus('saved');
-      useMapStore.getState().setToast('Project Saved!');
+      const currentMapStore = useMapStore.getState();
+      const saveIsCurrent = get().currentProjectId === currentProjectId
+        && scopeKey(get().workspaceScope) === scopeKey(workspaceScope)
+        && currentMapStore.features === mapStore.features
+        && currentMapStore.customGroups === mapStore.customGroups
+        && currentMapStore.currentBasemap === mapStore.currentBasemap
+        && currentMapStore.visibilities === mapStore.visibilities;
+      if (get().currentProjectId === currentProjectId && scopeKey(get().workspaceScope) === scopeKey(workspaceScope)) {
+        useMapStore.setState({ isDirty: !saveIsCurrent, saveStatus: saveIsCurrent ? 'saved' : 'unsaved' });
+      }
+      useMapStore.getState().setToast(saveIsCurrent ? 'Project Saved!' : 'Saved. Newer changes are still pending.');
 
       set((state) => ({
         projects: state.projects.map((p) =>
