@@ -535,7 +535,7 @@ export default function Home() {
         setAllowedFeatures(Array.isArray(data.allowedFeatures) ? data.allowedFeatures : []);
         setAllowedPages(pages);
         setCurrentView((prev) => {
-          if (prev === "forms-admin" || hasFullPageAccess) return prev;
+          if (prev === "forms-admin" || prev === "maps" || hasFullPageAccess) return prev;
           if (prev === "project" && pages.includes("tasks")) return prev;
           if (prev === "delta" && (pages.includes("project") || pages.includes("tasks"))) return prev;
           if (!pages.includes(prev)) return pages[0] || "forms";
@@ -1248,23 +1248,25 @@ export default function Home() {
 
 
       {/* Collapsible Sidebar (Deep Charcoal & Gold, Expanded by default) */}
-      <Sidebar
-        currentView={currentView}
-        onSelectView={(view) => handleSelectView(view)}
-        onPreloadView={(view) => { if (authUser && isPageAllowed(view)) prefetchPageApis(String(authUser.id), view); }}
-        isCollapsed={isSidebarCollapsed}
-        onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-        user={authUser}
-        onSignOut={handleSignOut}
-        allowedPages={allowedPages}
-        sidebarOrder={sidebarOrder}
-        isAdmin={isAdminUser}
-      />
+      {!isMapsWorkspace && (
+        <Sidebar
+          currentView={currentView}
+          onSelectView={(view) => handleSelectView(view)}
+          onPreloadView={(view) => { if (authUser && isPageAllowed(view)) prefetchPageApis(String(authUser.id), view); }}
+          isCollapsed={isSidebarCollapsed}
+          onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+          user={authUser}
+          onSignOut={handleSignOut}
+          allowedPages={allowedPages}
+          sidebarOrder={sidebarOrder}
+          isAdmin={isAdminUser}
+        />
+      )}
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden">
         {/* Persistent Slim Topbar */}
-        <Topbar
+        {!isMapsWorkspace && <Topbar
           meetings={archivedMeetings}
           tasks={tasks}
           userId={authUser?.id ? String(authUser.id) : undefined}
@@ -1313,10 +1315,10 @@ export default function Home() {
               setStudioMode("fullscreen");
             },
           }}
-        />
+        />}
 
         {/* Studio Recovery Banner for crash resilience */}
-        <StudioRecoveryBanner
+        {!isMapsWorkspace && <StudioRecoveryBanner
           activeSessionId={studioRecorder.sessionId}
           isRecording={studioRecorder.status === "recording" || studioRecorder.status === "paused"}
           onProcessSession={(file) => {
@@ -1325,7 +1327,7 @@ export default function Home() {
             setStage("Input");
             handleUnifiedSourceSubmission(file);
           }}
-        />
+        />}
 
         {/* Scrollable View Content (Maximized full width without big margin borders) */}
         <main className={`flex-1 min-h-0 ${isMeetingWorkspace || isMapsWorkspace ? "h-full overflow-hidden flex flex-col p-0" : currentView === "minutes" ? "overflow-y-auto p-0" : "overflow-y-auto px-4 py-5 md:px-8"}`}>
