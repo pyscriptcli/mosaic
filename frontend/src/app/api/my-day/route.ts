@@ -67,7 +67,7 @@ function userMatches(task: RawClickUpTask, byId: Map<string, RawClickUpTask>, us
 async function readPersonalNotes(token: string, listId: string, date: string, preferSnapshot = false) {
   const tasks: ClickUpTask[] = [];
   const snapshot = preferSnapshot ? await readClickUpTaskSnapshot(clickUpScope(token), listId, 30 * 24 * 60 * 60_000) : null;
-  if (snapshot) tasks.push(...snapshot.tasks as ClickUpTask[]);
+  if (snapshot) tasks.push(...snapshot.tasks as unknown as ClickUpTask[]);
   else {
     for (let page = 0; page < 20; page += 1) {
       const body = await clickUpJson(token, `https://api.clickup.com/api/v2/list/${encodeURIComponent(listId)}/task?include_closed=true&subtasks=true&include_markdown_description=true&page=${page}`);
@@ -107,7 +107,7 @@ function serializeDayTask(task: ClickUpTask) {
 
 async function getKpiContext(token: string, date: string, req: NextRequest, preferSnapshot = false) {
   const snapshot = preferSnapshot ? await readClickUpTaskSnapshot(clickUpScope(token), DAILY_LOG_LIST_ID, 30 * 24 * 60 * 60_000) : null;
-  const remoteTasks = snapshot ? snapshot.tasks as ClickUpTask[] : await fetchAllTasks(token) as ClickUpTask[];
+  const remoteTasks = snapshot ? snapshot.tasks as unknown as ClickUpTask[] : await fetchAllTasks(token) as ClickUpTask[];
   const stagedRows = await readStagedMosaicRecords(clickUpScope(token), "notebook", DAILY_LOG_LIST_ID);
   const stagedIds = new Map(stagedRows.map((row) => [String(row.record_id), String(row.clickup_id || row.record_id)]));
   const taskMap = new Map(remoteTasks.map((task) => [String(task.id), task]));

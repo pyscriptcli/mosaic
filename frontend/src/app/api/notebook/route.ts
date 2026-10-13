@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
     const scope = clickUpScope(token);
     const forceRefresh = req.nextUrl.searchParams.get("refresh") === "1";
     const snapshot = forceRefresh ? null : await readClickUpTaskSnapshot(scope, DAILY_LOG_LIST_ID, 30 * 24 * 60 * 60_000);
-    const remoteTasks = snapshot ? snapshot.tasks as Awaited<ReturnType<typeof fetchAllTasks>> : await fetchAllTasks(token);
+    const remoteTasks = snapshot ? snapshot.tasks as unknown as Awaited<ReturnType<typeof fetchAllTasks>> : await fetchAllTasks(token);
     const userId = String(getUserFromRequest(req)?.id || "");
     if (userId && (!snapshot || snapshot.syncState !== "ready" || Date.now() - Date.parse(snapshot.syncedAt) > 5 * 60_000)) {
       after(async () => {
