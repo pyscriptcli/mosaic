@@ -235,6 +235,12 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
     return () => window.clearTimeout(timer);
   }, [loadDay]);
 
+  useEffect(() => {
+    const refreshAfterSync = () => { void loadDay(true); };
+    window.addEventListener("mosaic-clickup-sync-complete", refreshAfterSync);
+    return () => window.removeEventListener("mosaic-clickup-sync-complete", refreshAfterSync);
+  }, [loadDay]);
+
   const send = useCallback(async (body: Record<string, unknown>) => {
     const response = await fetch("/api/my-day", {
       method: "POST",

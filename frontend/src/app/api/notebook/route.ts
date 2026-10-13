@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import {
   CATEGORY_MATCHERS,
   CategoryKey,
@@ -17,7 +17,8 @@ import {
   writeCategories,
 } from "@/lib/notebookClickup";
 import { getUserFromRequest } from "@/lib/auth";
-import { clickUpScope } from "@/lib/clickupReadStore";
+import { clickUpScope, queueClickUpSync, readClickUpTaskSnapshot } from "@/lib/clickupReadStore";
+import { processClickUpSyncQueue } from "@/lib/clickupSync";
 import { readStagedMosaicRecords, scheduleMosaicWriteSync, stageMosaicWrite } from "@/lib/mosaicWriteStore";
 
 export const maxDuration = 60;
@@ -29,7 +30,20 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const remoteTasks = await fetchAllTasks(token);
+    const scope = clickUpScope(token);
+    const forceRefresh = req.nextUrl.searchParams.get("refresh") === "1";
+    const snapshot = forceRefresh ? null : await readClickUpTaskSnapshot(scope, DAILY_LOG_LIST_ID, 30 * 24 * 60 * 60_000);
+    const remoteTasks = snapshot ? snapshot.tasks as Awaited<ReturnType<typeof fetchAllTasks>> : await fetchAllTasks(token);
+    const userId = String(getUserFromRequest(req)?.id || "");
+    if (userId && (!snapshot || snapshot.syncState !== "ready" || Date.now() - Date.parse(snapshot.syncedAt) > 5 * 60_000)) {
+      after(async () => {
+        try {
+          if (await queueClickUpSync(token, userId, DAILY_LOG_LIST_ID)) await processClickUpSyncQueue(1);
+        } catch (error) {
+          console.warn("[notebook-sync] refresh could not be queued", error instanceof Error ? error.message : "unknown");
+        }
+      });
+    }
     const stagedRows = await readStagedMosaicRecords(clickUpScope(token), "notebook", DAILY_LOG_LIST_ID);
     const stagedIdMap = new Map(stagedRows.map((row) => [String(row.record_id), String(row.clickup_id || row.record_id)]));
     const taskMap = new Map(remoteTasks.map((task) => [String(task.id), task]));

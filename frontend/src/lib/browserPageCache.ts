@@ -11,6 +11,7 @@ const STORE_NAME = "records";
 const memory = new Map<string, QuerySnapshot<unknown>>();
 const listeners = new Map<string, Set<() => void>>();
 const inFlight = new Map<string, Promise<unknown>>();
+const refetchers = new Map<string, () => Promise<unknown>>();
 const EMPTY: QuerySnapshot<never> = Object.freeze({ loading: false, refreshing: false });
 const INITIAL_LOADING: QuerySnapshot<never> = Object.freeze({ loading: true, refreshing: false });
 let dbPromise: Promise<IDBDatabase | null> | null = null;
@@ -161,11 +162,13 @@ export function useBrowserPageQuery<T>(ownerId: string | undefined, key: string,
   useEffect(() => {
     if (!enabled || !ownerId) return;
     let active = true;
+    const refetch = () => refresh(ownerId, key, () => loadRef.current());
+    refetchers.set(id, refetch);
     void (async () => {
       await hydrate<T>(ownerId, key);
       if (active) void refresh(ownerId, key, () => loadRef.current());
     })();
-    return () => { active = false; };
+    return () => { active = false; if (refetchers.get(id) === refetch) refetchers.delete(id); };
   }, [enabled, key, ownerId]);
 
   const refreshNow = useCallback(() => ownerId ? refresh(ownerId, key, () => loadRef.current(),) : Promise.resolve(undefined), [key, ownerId]);
@@ -192,6 +195,11 @@ export async function prefetchBrowserPageQuery<T>(ownerId: string, key: string, 
 
 export function refreshBrowserPageQuery<T>(ownerId: string, key: string, load: () => Promise<T>) {
   return refresh(ownerId, key, load);
+}
+
+export function refreshBrowserPageQueries(ownerId: string) {
+  const prefix = `${ownerId}:`;
+  return Promise.all([...refetchers.entries()].filter(([id]) => id.startsWith(prefix)).map(([, refetch]) => refetch()));
 }
 
 export function getBrowserPageCache<T>(ownerId: string | undefined, key: string): T | undefined {

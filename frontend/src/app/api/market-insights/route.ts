@@ -1,14 +1,15 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import { clickUpFetch as fetch } from "@/lib/clickupCalendarApi";
 import { getTokenFromRequest } from "@/lib/auth";
 import { randomUUID } from "node:crypto";
 import { getUserFromRequest } from "@/lib/auth";
-import { clickUpScope } from "@/lib/clickupReadStore";
+import { clickUpScope, queueClickUpSync, readClickUpTaskSnapshot } from "@/lib/clickupReadStore";
+import { processClickUpSyncQueue } from "@/lib/clickupSync";
+import { MARKET_INSIGHTS_LIST_ID } from "@/lib/marketInsights";
 import { readStagedMosaicRecords, stageMosaicWrite, scheduleMosaicWriteSync } from "@/lib/mosaicWriteStore";
 
 export const maxDuration = 60;
 
-const MARKET_INSIGHTS_LIST_ID = "901420987429";
 type Sector = "industrial" | "retail";
 
 type Article = { sector: Sector; date: string; company: string; event: string; implications: string; source: string };
@@ -58,8 +59,10 @@ async function listTasks(token: string) {
   return (body.tasks || []).map(parseTask).filter((article): article is ArticleRecord => article !== null);
 }
 
-async function listArticles(token: string) {
-  const remote = await listTasks(token);
+async function listArticles(token: string, snapshot: Awaited<ReturnType<typeof readClickUpTaskSnapshot>> = null) {
+  const remote = snapshot
+    ? snapshot.tasks.map((task) => parseTask(task as InsightTask)).filter((article): article is ArticleRecord => article !== null)
+    : await listTasks(token);
   const staged = await readStagedMosaicRecords(clickUpScope(token), "market_insights", MARKET_INSIGHTS_LIST_ID);
   const articles = new Map<string, ArticleRecord>();
   for (const article of remote) articles.set(article.id, article);
@@ -78,7 +81,19 @@ function ownerId(req: NextRequest) { return String(getUserFromRequest(req)?.id |
 export async function GET(req: NextRequest) {
   const token = tokenFor(req);
   if (!token) return NextResponse.json({ error: "ClickUp authentication required." }, { status: 401 });
-  try { return NextResponse.json({ listId: MARKET_INSIGHTS_LIST_ID, articles: await listArticles(token) }); }
+  try {
+    const scope = clickUpScope(token);
+    const snapshot = await readClickUpTaskSnapshot(scope, MARKET_INSIGHTS_LIST_ID, 30 * 24 * 60 * 60_000);
+    const articles = await listArticles(token, snapshot);
+    const userId = ownerId(req);
+    if (userId && (!snapshot || snapshot.syncState !== "ready" || Date.now() - Date.parse(snapshot.syncedAt) > 5 * 60_000)) {
+      after(async () => {
+        try { if (await queueClickUpSync(token, userId, MARKET_INSIGHTS_LIST_ID)) await processClickUpSyncQueue(1); }
+        catch (error) { console.warn("[market-insights-sync] refresh could not be queued", error instanceof Error ? error.message : "unknown"); }
+      });
+    }
+    return NextResponse.json({ listId: MARKET_INSIGHTS_LIST_ID, articles });
+  }
   catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to load Market Insights." }, { status: 502 }); }
 }
 

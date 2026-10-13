@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useRef } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
 import { Stepper, Stage } from "@/components/Stepper";
-import { StudioPanel } from "@/components/StudioPanel";
 import { StudioRecoveryBanner } from "@/components/StudioRecoveryBanner";
 import { useStudioRecorderContext } from "@/components/StudioRecorderProvider";
 import type { StudioNote, StudioDisplayMode } from "@/types/studio";
@@ -35,22 +35,13 @@ import {
 } from "@/lib/api";
 import { Sidebar, NavView } from "@/components/Sidebar";
 import { Topbar } from "@/components/Topbar";
-import { UniversalEchoDrawer } from "@/components/UniversalEchoDrawer";
 import { DashboardView } from "@/components/DashboardView";
-import { ProjectWorkspace } from "@/components/ProjectWorkspace";
-import { ContractsWorkspace } from "@/components/ContractsWorkspace";
-import { MeetingsView } from "@/components/MeetingsView";
-import TasksPageView from "@/components/TasksPageView";
 import type { ClickUpTask } from "@/components/TasksView";
-import { MarketInsightsView } from "@/components/MarketInsightsView";
-import { DemandsView } from "@/components/DemandsView";
-import { BusinessAnalysisView } from "@/components/business-analysis/BusinessAnalysisView";
 import { QuickAddTaskModal } from "@/components/QuickAddTaskModal";
 import { FinalizeMeetingModal } from "@/components/FinalizeMeetingModal";
 import { DiscoverTopicsModal } from "@/components/DiscoverTopicsModal";
 import { EmailMeetingModal } from "@/components/EmailMeetingModal";
 import { LoginView } from "@/components/LoginView";
-import FormsPortal from "@/components/forms/FormsPortal";
 import { ArchivedMeeting } from "@/types/meeting";
 import { mergeMeetings } from "@/lib/meetingsData";
 import { formatEchoDate } from "@/lib/dateUtils";
@@ -96,6 +87,18 @@ import {
   Check,
   ChartNoAxesColumnIncreasing
 } from "lucide-react";
+
+const PanelLoading = () => <section role="status" aria-live="polite" className="mx-auto w-full max-w-7xl border border-slate-200 bg-[#FFFCFB] p-4 text-xs text-slate-500">Opening workspace…</section>;
+const StudioPanel = dynamic(() => import("@/components/StudioPanel").then((module) => module.StudioPanel), { loading: PanelLoading });
+const UniversalEchoDrawer = dynamic(() => import("@/components/UniversalEchoDrawer").then((module) => module.UniversalEchoDrawer), { loading: PanelLoading });
+const ProjectWorkspace = dynamic(() => import("@/components/ProjectWorkspace").then((module) => module.ProjectWorkspace), { loading: PanelLoading });
+const ContractsWorkspace = dynamic(() => import("@/components/ContractsWorkspace").then((module) => module.ContractsWorkspace), { loading: PanelLoading });
+const MeetingsView = dynamic(() => import("@/components/MeetingsView").then((module) => module.MeetingsView), { loading: PanelLoading });
+const TasksPageView = dynamic(() => import("@/components/TasksPageView"), { loading: PanelLoading });
+const MarketInsightsView = dynamic(() => import("@/components/MarketInsightsView").then((module) => module.MarketInsightsView), { loading: PanelLoading });
+const DemandsView = dynamic(() => import("@/components/DemandsView").then((module) => module.DemandsView), { loading: PanelLoading });
+const BusinessAnalysisView = dynamic(() => import("@/components/business-analysis/BusinessAnalysisView").then((module) => module.BusinessAnalysisView), { loading: PanelLoading });
+const FormsPortal = dynamic(() => import("@/components/forms/FormsPortal"), { loading: PanelLoading });
 
 const VENUE_OPTIONS = [
   "GreatWork Mega Tower 32F - Secret Room",
@@ -1261,6 +1264,7 @@ export default function Home() {
         <Topbar
           meetings={archivedMeetings}
           tasks={tasks}
+          userId={authUser?.id ? String(authUser.id) : undefined}
           onOpenSearch={() => { void loadUniversalSearchTasks(); }}
           onOpenUniversalEcho={() => setIsUniversalEchoOpen(true)}
           onSelectMeeting={(meetingId) => {

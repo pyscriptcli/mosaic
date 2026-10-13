@@ -16,16 +16,20 @@ import {
   ExternalLink,
   ClipboardList,
   NotebookTabs,
-  Newspaper
-  ,ClipboardCheck
+  Newspaper,
+  RefreshCw,
+  ClipboardCheck
 } from "lucide-react";
 import { ArchivedMeeting } from "@/types/meeting";
 import { ClickUpTask } from "./TasksView";
 import { formatEchoDate } from "@/lib/dateUtils";
+import { flushClickUpMutationQueue, getPendingClickUpMutationCount } from "@/lib/clickUpMutationQueue";
+import { refreshBrowserPageQueries } from "@/lib/browserPageCache";
 
 interface TopbarProps {
   meetings: ArchivedMeeting[];
   tasks?: ClickUpTask[];
+  userId?: string;
   onOpenUniversalEcho: () => void;
   onOpenSearch?: () => void;
   onSelectMeeting: (meetingId: string) => void;
@@ -51,6 +55,7 @@ interface TopbarProps {
 export function Topbar({
   meetings,
   tasks = [],
+  userId,
   onOpenUniversalEcho,
   onOpenSearch,
   onSelectMeeting,
@@ -74,7 +79,86 @@ export function Topbar({
   };
   const [searchQuery, setSearchQuery] = useState("");
   const [isOpen, setIsOpen] = useState(false);
+  const [syncState, setSyncState] = useState<"checking" | "synced" | "syncing" | "error">("checking");
+  const [syncPendingCount, setSyncPendingCount] = useState(0);
+  const [syncError, setSyncError] = useState("");
+  const [manualSyncing, setManualSyncing] = useState(false);
+  const [isOnline, setIsOnline] = useState(true);
+  const previousSyncState = useRef(syncState);
   const searchContainerRef = useRef<HTMLDivElement>(null);
+
+  const refreshSyncStatus = React.useCallback(async () => {
+    if (!userId) return;
+    try {
+      const response = await fetch("/api/integrations/clickup/sync", { cache: "no-store" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.configured) throw new Error(data.error || "Background sync is not configured.");
+      const nextState = data.state === "error" ? "error" : data.state === "syncing" ? "syncing" : "synced";
+      const previousState = previousSyncState.current;
+      previousSyncState.current = nextState;
+      setSyncState(nextState);
+      setSyncPendingCount(Number(data.pendingCount || 0));
+      setSyncError(data.state === "error" ? `${Number(data.failedCount || 0)} change${Number(data.failedCount || 0) === 1 ? "" : "s"} need attention.` : "");
+      if (previousState === "syncing" && nextState === "synced") {
+        window.dispatchEvent(new CustomEvent("mosaic-clickup-sync-complete"));
+        void refreshBrowserPageQueries(userId);
+      }
+    } catch (error) {
+      setSyncState("error");
+      setSyncError(error instanceof Error ? error.message : "Sync status is unavailable.");
+    }
+  }, [userId]);
+
+  useEffect(() => {
+    if (!userId) return;
+    let active = true;
+    let timer: number | undefined;
+    const poll = async () => {
+      await refreshSyncStatus();
+      if (active) timer = window.setTimeout(poll, syncState === "syncing" || manualSyncing ? 2500 : 15000);
+    };
+    const onQueueChange = (event: Event) => {
+      const detail = (event as CustomEvent<{ userId?: string; pending?: number }>).detail;
+      if (detail?.userId !== userId) return;
+      setSyncPendingCount(Number(detail.pending || 0));
+      if (detail.pending) setSyncState("syncing");
+      if (timer) window.clearTimeout(timer);
+      void poll();
+    };
+    void poll();
+    window.addEventListener("mosaic-clickup-sync", onQueueChange);
+    return () => { active = false; if (timer) window.clearTimeout(timer); window.removeEventListener("mosaic-clickup-sync", onQueueChange); };
+  }, [manualSyncing, refreshSyncStatus, syncState, userId]);
+
+  useEffect(() => {
+    const updateOnlineState = () => setIsOnline(navigator.onLine);
+    updateOnlineState();
+    window.addEventListener("online", updateOnlineState);
+    window.addEventListener("offline", updateOnlineState);
+    return () => { window.removeEventListener("online", updateOnlineState); window.removeEventListener("offline", updateOnlineState); };
+  }, []);
+
+  const runManualSync = async () => {
+    if (!userId || manualSyncing) return;
+    setManualSyncing(true);
+    setSyncState("syncing");
+    setSyncError("");
+    const pending = getPendingClickUpMutationCount(userId);
+    setSyncPendingCount(pending);
+    void flushClickUpMutationQueue(userId, setSyncPendingCount);
+    try {
+      const listIds = [localStorage.getItem("project_echo_clickup_list_id"), localStorage.getItem("project_echo_personal_list_id")].filter((value): value is string => Boolean(value));
+      const response = await fetch("/api/integrations/clickup/sync", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ listIds }) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Manual sync could not be started.");
+      await refreshSyncStatus();
+    } catch (error) {
+      setSyncState("error");
+      setSyncError(error instanceof Error ? error.message : "Manual sync could not be started.");
+    } finally {
+      setManualSyncing(false);
+    }
+  };
 
   // Keyboard shortcut Ctrl+K / Cmd+K to focus search
   const inputRef = useRef<HTMLInputElement>(null);
@@ -379,6 +463,13 @@ export function Topbar({
 
       {/* Right Controls: New Meeting and Ask Echo */}
       <div className="flex items-center gap-2.5 shrink-0">
+        {userId && (() => {
+          const effectiveState = !isOnline ? "error" : syncPendingCount > 0 && syncState === "synced" ? "syncing" : syncState;
+          const label = effectiveState === "synced" ? "Synced" : effectiveState === "syncing" || effectiveState === "checking" ? "Syncing" : "Sync issue";
+          const tone = effectiveState === "synced" ? "text-emerald-700 hover:bg-emerald-50" : effectiveState === "error" ? "text-red-700 hover:bg-red-50" : "text-amber-700 hover:bg-amber-50";
+          const dot = effectiveState === "synced" ? "bg-emerald-600" : effectiveState === "error" ? "bg-red-600" : "bg-amber-500";
+          return <button type="button" onClick={() => void runManualSync()} disabled={manualSyncing} aria-label={`Sync now. ${label}${syncPendingCount ? `, ${syncPendingCount} pending` : ""}`} title={syncError || `${label}${syncPendingCount ? ` · ${syncPendingCount} pending` : ""}. Click to sync now.`} className={`inline-flex min-h-9 items-center gap-1.5 border border-slate-200 px-2.5 text-[11px] font-semibold transition-colors disabled:cursor-wait disabled:opacity-70 ${tone}`}><span aria-hidden="true" className={`h-2 w-2 shrink-0 rounded-full ${dot}`} /><RefreshCw aria-hidden="true" size={13} className={effectiveState === "syncing" || manualSyncing ? "animate-spin" : ""} /><span className="hidden sm:inline">{label}</span></button>;
+        })()}
         
         {/* New Meeting Integrated Control Group */}
         {canRecord && (isAdmin || !allowedPages || allowedPages.includes("meetings") || allowedPages.includes("minutes")) && (

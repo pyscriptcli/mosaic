@@ -291,6 +291,14 @@ export default function TasksView({
     }
   };
 
+  const loadTasksRef = useRef(loadTasks);
+  useEffect(() => { loadTasksRef.current = loadTasks; });
+  useEffect(() => {
+    const refreshAfterSync = () => { void loadTasksRef.current(false, undefined, true); };
+    window.addEventListener("mosaic-clickup-sync-complete", refreshAfterSync);
+    return () => window.removeEventListener("mosaic-clickup-sync-complete", refreshAfterSync);
+  }, []);
+
   const loadDiscoveredLists = async (showNotification = false, force = false) => {
     if (!force && !showNotification && userId) {
       const cached = await readBrowserPageCache<{ lists: typeof availableLists }>(userId, "tasks:discovered-lists");

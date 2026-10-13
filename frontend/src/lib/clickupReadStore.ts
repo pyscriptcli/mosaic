@@ -142,17 +142,47 @@ export async function isClickUpSyncStorageReady() {
   } catch { return false; }
 }
 
-export async function queueClickUpSync(token: string, userId: string, listId: string) {
+export async function queueClickUpSync(token: string, userId: string, listId: string, force = false) {
   const client = db();
-  if (!client || !process.env.CLICKUP_SYNC_ENCRYPTION_KEY || !listId) return;
-  if (!await persistClickUpConnection(token, userId)) return;
+  if (!client || !process.env.CLICKUP_SYNC_ENCRYPTION_KEY || !listId) return false;
+  if (!await persistClickUpConnection(token, userId)) return false;
   const scope = clickUpScope(token);
   const { data: current } = await client.from("echo_clickup_sync_jobs").select("state,last_synced_at,next_attempt_at").eq("scope_key", scope).eq("list_id", listId).maybeSingle();
-  if (current?.state === "running" || current?.state === "queued") return;
-  if (current?.state === "ready" && current.last_synced_at && Date.now() - Date.parse(current.last_synced_at) < 5 * 60_000) return;
-  if (current?.state === "retry" && current.next_attempt_at && Date.parse(current.next_attempt_at) > Date.now()) return;
+  if (current?.state === "running" || current?.state === "queued") return true;
+  if (!force && current?.state === "ready" && current.last_synced_at && Date.now() - Date.parse(current.last_synced_at) < 5 * 60_000) return true;
+  if (!force && current?.state === "retry" && current.next_attempt_at && Date.parse(current.next_attempt_at) > Date.now()) return true;
   const { error } = await client.from("echo_clickup_sync_jobs").upsert({ scope_key: scope, user_id: userId, list_id: listId, state: "queued", next_attempt_at: new Date().toISOString(), updated_at: new Date().toISOString() }, { onConflict: "scope_key,list_id" });
   if (error) console.warn("[clickup-sync] job enqueue unavailable", error.code);
+  return !error;
+}
+
+export async function readClickUpSyncStatus(scope: string, userId: string) {
+  const client = db();
+  let configured = Boolean(client && process.env.CLICKUP_SYNC_ENCRYPTION_KEY);
+  try { if (configured) encryptionKey(); else configured = false; } catch { configured = false; }
+  if (!client || !configured) return { state: "error" as const, pendingCount: 0, failedCount: 0, lastSyncedAt: null, configured: false };
+
+  const [jobsResult, pendingResult, failedResult] = await Promise.all([
+    client.from("echo_clickup_sync_jobs").select("state,last_synced_at").eq("scope_key", scope).eq("user_id", userId),
+    client.from("mosaic_sync_outbox").select("id", { count: "exact", head: true }).eq("owner_user_id", userId).in("state", ["queued", "running", "retry"]),
+    client.from("mosaic_sync_outbox").select("id", { count: "exact", head: true }).eq("owner_user_id", userId).eq("state", "failed"),
+  ]);
+  if (jobsResult.error || pendingResult.error || failedResult.error) {
+    return { state: "error" as const, pendingCount: 0, failedCount: 0, lastSyncedAt: null, configured: false };
+  }
+  const jobs = jobsResult.data || [];
+  const pendingJobs = jobs.filter((job) => ["queued", "running", "retry"].includes(job.state)).length;
+  const failedJobs = jobs.filter((job) => job.state === "failed").length;
+  const failedCount = failedJobs + (failedResult.count || 0);
+  const pendingCount = pendingJobs + (pendingResult.count || 0);
+  const lastSyncedAt = jobs.map((job) => job.last_synced_at).filter(Boolean).sort().at(-1) || null;
+  return {
+    state: failedCount ? "error" as const : pendingCount ? "syncing" as const : "synced" as const,
+    pendingCount,
+    failedCount,
+    lastSyncedAt,
+    configured: true,
+  };
 }
 
 export async function claimClickUpSyncJobs(limit = 2) {

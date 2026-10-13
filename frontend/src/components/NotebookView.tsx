@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { clearBrowserPageCache, readBrowserPageCache, writeBrowserPageCache } from "@/lib/browserPageCache";
 import {
   AlertCircle,
@@ -190,6 +190,8 @@ export function NotebookView({ currentUserName, userId, initialDate, initialTab 
       setLoading(false);
     }
   };
+  const loadNotebookRef = useRef(loadNotebook);
+  useEffect(() => { loadNotebookRef.current = loadNotebook; });
 
   useEffect(() => {
     let active = true;
@@ -200,6 +202,12 @@ export function NotebookView({ currentUserName, userId, initialDate, initialTab 
     })();
     return () => { active = false; };
   }, [userId]);
+
+  useEffect(() => {
+    const refreshAfterSync = () => { void loadNotebookRef.current(true); };
+    window.addEventListener("mosaic-clickup-sync-complete", refreshAfterSync);
+    return () => window.removeEventListener("mosaic-clickup-sync-complete", refreshAfterSync);
+  }, []);
 
   useEffect(() => {
     if (!payload?.members.length || selectedMemberId) return;
