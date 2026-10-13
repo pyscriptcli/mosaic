@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Expand, LoaderCircle, Maximize2, RefreshCw, Save, X } from 'lucide-react';
+import { getProjectAtlasEmbedUrl } from '@/lib/projectAtlasUrls';
 
 type GeoJsonCollection = { type: 'FeatureCollection'; features: Array<{ type: 'Feature'; id?: string | number; geometry: { type: string; coordinates: unknown }; properties: Record<string, unknown> }>; [key: string]: unknown };
 type AtlasChange = { type: 'atlas:change'; protocolVersion: 1; sessionId: string; baseRevision: string | number; changeId: string; data: GeoJsonCollection };
@@ -52,9 +53,7 @@ export default function ProjectMapEmbed({ projectName }: { projectName: string }
   const [saveError, setSaveError] = useState('');
   const [hasConflict, setHasConflict] = useState(false);
   const [fullScreen, setFullScreen] = useState(false);
-  const atlasUrl = process.env.NEXT_PUBLIC_ATLAS_EMBED_URL || (typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname)
-    ? 'http://localhost:3200/embed/gis'
-    : 'https://project-atlas-next.vercel.app/embed/gis');
+  const atlasUrl = getProjectAtlasEmbedUrl();
   const atlasOrigin = useMemo(() => {
     try { return new URL(atlasUrl).origin; } catch { return ''; }
   }, [atlasUrl]);

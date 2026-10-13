@@ -17,9 +17,10 @@ import {
   ClipboardCheck,
   ChartNoAxesColumnIncreasing,
   BriefcaseBusiness,
+  Map,
 } from "lucide-react";
 
-export type NavView = "dashboard" | "project" | "tasks" | "notebook" | "reports" | "market-insights" | "demands" | "meetings" | "minutes" | "forms" | "delta" | "business-analysis" | "forms-admin";
+export type NavView = "dashboard" | "project" | "tasks" | "notebook" | "reports" | "market-insights" | "demands" | "meetings" | "minutes" | "maps" | "forms" | "delta" | "business-analysis" | "forms-admin";
 
 interface SidebarProps {
   currentView: NavView;
@@ -127,6 +128,7 @@ export function Sidebar({
       label: "Notetaker",
       icon: Mic,
     },
+    { id: "maps" as NavView, label: "Maps", icon: Map, badge: null },
     {
       id: "notebook" as NavView,
       label: "Notebook",
@@ -140,6 +142,7 @@ export function Sidebar({
     const fallback = allNavItems.length;
     return (orderIndex.get(a.id) ?? fallback) - (orderIndex.get(b.id) ?? fallback);
   }).filter((item) => Boolean(
+    item.id === "maps" ||
     allowedPages?.includes(item.id) ||
     (item.id === "notebook" && allowedPages?.includes("tasks")) ||
     (item.id === "project" && allowedPages?.includes("tasks")) ||
@@ -160,7 +163,8 @@ export function Sidebar({
   })).filter((group) => group.items.length > 0);
   const meetingsItem = navById.get("meetings");
   const notetakerItem = navById.get("minutes");
-  const hasToolsItems = Boolean(meetingsItem || notetakerItem);
+  const mapsItem = navById.get("maps");
+  const hasToolsItems = Boolean(meetingsItem || notetakerItem || mapsItem);
 
   const renderNavItem = (item: (typeof navItems)[number], nested = false) => {
     const Icon = item.icon;
@@ -288,6 +292,7 @@ export function Sidebar({
                       </div>
                     )}
                     {!meetingsItem && notetakerItem && renderNavItem(notetakerItem)}
+                    {mapsItem && renderNavItem(mapsItem)}
                   </div>
                 )}
               </section>

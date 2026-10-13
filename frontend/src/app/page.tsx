@@ -99,6 +99,7 @@ const MarketInsightsView = dynamic(() => import("@/components/MarketInsightsView
 const DemandsView = dynamic(() => import("@/components/DemandsView").then((module) => module.DemandsView), { loading: PanelLoading });
 const BusinessAnalysisView = dynamic(() => import("@/components/business-analysis/BusinessAnalysisView").then((module) => module.BusinessAnalysisView), { loading: PanelLoading });
 const FormsPortal = dynamic(() => import("@/components/forms/FormsPortal"), { loading: PanelLoading });
+const ProjectAtlasMapsPage = dynamic(() => import("@/components/ProjectAtlasMapsPage"), { loading: PanelLoading });
 
 const VENUE_OPTIONS = [
   "GreatWork Mega Tower 32F - Secret Room",
@@ -558,6 +559,7 @@ export default function Home() {
 
   const isPageAllowed = (view: NavView) => {
     if (view === "forms-admin") return false;
+    if (view === "maps") return true;
     if (isAdminUser || authUser?.email?.toLowerCase().trim() === "admin@primephilippines.com") return true;
     if (view === "project") return allowedPages.includes("project") || allowedPages.includes("tasks");
     if (view === "delta") return allowedPages.includes("delta") || allowedPages.includes("project") || allowedPages.includes("tasks");
@@ -1182,6 +1184,7 @@ export default function Home() {
   const loadingSteps = ["Getting your recording ready", "Transcribing the audio", "Finding the key details", "Preparing your meeting notes"];
   const loadingStepIndex = loadingText.toLowerCase().includes("synth") || loadingText.toLowerCase().includes("minutes") ? 3 : loadingText.toLowerCase().includes("metadata") || loadingText.toLowerCase().includes("details") ? 2 : loadingText.toLowerCase().includes("transcrib") ? 1 : 0;
   const isMeetingWorkspace = currentView === "minutes" && stage === "Input" && sourceTab === "record";
+  const isMapsWorkspace = currentView === "maps";
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-bg-primary font-sans text-[#1b1d1e]">
@@ -1325,7 +1328,7 @@ export default function Home() {
         />
 
         {/* Scrollable View Content (Maximized full width without big margin borders) */}
-        <main className={`flex-1 min-h-0 ${isMeetingWorkspace ? "h-full overflow-hidden flex flex-col p-0" : currentView === "minutes" ? "overflow-y-auto p-0" : "overflow-y-auto px-4 py-5 md:px-8"}`}>
+        <main className={`flex-1 min-h-0 ${isMeetingWorkspace || isMapsWorkspace ? "h-full overflow-hidden flex flex-col p-0" : currentView === "minutes" ? "overflow-y-auto p-0" : "overflow-y-auto px-4 py-5 md:px-8"}`}>
           {governanceStatus === "loading" ? (
             <div role="status" className="flex min-h-[400px] items-center justify-center p-8 text-sm text-slate-600">
               <Loader2 aria-hidden="true" className="mr-2 h-4 w-4 animate-spin text-[#C9AB4C]" />
@@ -1367,7 +1370,7 @@ export default function Home() {
             </div>
           ) : (
             <>
-          <div className={isMeetingWorkspace ? "h-full w-full flex flex-col min-h-0 overflow-hidden" : currentView === "minutes" ? "min-h-full w-full flex flex-col" : "w-full pb-12"}>
+          <div className={isMeetingWorkspace || isMapsWorkspace ? "h-full w-full flex flex-col min-h-0 overflow-hidden" : currentView === "minutes" ? "min-h-full w-full flex flex-col" : "w-full pb-12"}>
             
             {/* VIEW 1: DASHBOARD */}
             {currentView === "dashboard" && (
@@ -1385,6 +1388,7 @@ export default function Home() {
             )}
 
             {currentView === "project" && <ProjectWorkspace userId={authUser?.id ? String(authUser.id) : undefined} />}
+            {currentView === "maps" && <ProjectAtlasMapsPage />}
             {currentView === "delta" && <ContractsWorkspace />}
 
             {/* VIEW: TASKS (CLICKUP PORTAL) */}

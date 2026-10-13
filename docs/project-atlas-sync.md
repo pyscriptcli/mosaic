@@ -2,6 +2,10 @@
 
 Project Atlas is maintained in `pyscriptcli/project-atlas`. Mosaic stores the latest copied repository tree in the root `project-atlas/` directory and records its source commit in `project-atlas-sync.json`.
 
+The Mosaic sidebar's **Tools → Maps** page opens the Project Atlas workspace in an embedded view. Use **Fill screen** to give the map the full display area, or **Open in new tab** to use Atlas outside the Mosaic shell. Project-specific **Map** tabs continue to use Atlas's embedded editing protocol with the project's saved GeoJSON.
+
+Set `NEXT_PUBLIC_ATLAS_APP_URL` to override the Atlas workspace URL. Local development defaults to `http://localhost:3200`; production defaults to `https://project-atlas-next.vercel.app`.
+
 ## Sync flow
 
 1. An authenticated Mosaic admin starts a sync from Forms & System Administration → Project Atlas.
