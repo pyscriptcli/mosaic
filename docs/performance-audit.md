@@ -37,6 +37,8 @@
 - Switched Notebook, My Day, and Market Insights reads to prefer server snapshots and queue refreshes asynchronously; cold cache fallbacks remain for compatibility.
 - Split major page panels into dynamic imports so navigation does not eagerly download all large panels with the root shell.
 - Refreshes mounted task, My Day, and Notebook views after the sync-complete event.
+- Task edits and deletes in the browser queue now auto-push after a short debounce, resume when connectivity returns, and preserve follow-up edits made while an earlier write is in flight.
+- The sync indicator includes browser-queue failures and keeps them visible until a retry succeeds; the manual control remains available for an immediate push and refresh.
 
 ### Known coverage limits
 
@@ -74,5 +76,8 @@ The sync control reflects configured snapshot jobs and the durable write outbox,
 - A forced sync returns an accepted response promptly and continues durably after response completion.
 - A user can see pending/running/error/success plus last successful time; failures remain visible until recovered.
 - Mutations are idempotent and survive reload/offline conditions.
+- Connected edits start a background push automatically; offline edits remain queued and resume after reconnect or manual sync.
+- A queued edit made while an earlier edit for the same task is in flight is sent afterward and is not lost.
+- Failed browser-queue writes stay pending, are retried, and appear as a sync error until a retry succeeds.
 - Meetings and remaining ClickUp pages have snapshot coverage before their foreground fallback is removed.
 - Route-level performance measurements show improvement against a recorded baseline.

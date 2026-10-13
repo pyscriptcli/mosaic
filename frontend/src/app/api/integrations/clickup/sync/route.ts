@@ -59,7 +59,9 @@ export async function POST(request: NextRequest) {
   const queued = await Promise.all(listIds.map((listId) => queueClickUpSync(current.token, current.userId, listId, true)));
   after(async () => {
     try {
-      await Promise.all([processClickUpSyncQueue(2), processMosaicWriteOutbox(25)]);
+      const writes = await processMosaicWriteOutbox(25);
+      if (writes.length === 25) await processMosaicWriteOutbox(25);
+      await processClickUpSyncQueue(2);
     } catch (error) {
       console.warn("[clickup-sync] manual sync worker failed", error instanceof Error ? error.message : "unknown");
     }

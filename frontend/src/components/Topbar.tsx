@@ -77,6 +77,8 @@ export function Topbar({
   const [syncState, setSyncState] = useState<"checking" | "synced" | "syncing" | "error">("checking");
   const [syncPendingCount, setSyncPendingCount] = useState(0);
   const [syncError, setSyncError] = useState("");
+  const [clientSyncFailed, setClientSyncFailed] = useState(false);
+  const [clientSyncError, setClientSyncError] = useState("");
   const [manualSyncing, setManualSyncing] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
   const [syncDetailsOpen, setSyncDetailsOpen] = useState(false);
@@ -94,7 +96,7 @@ export function Topbar({
       const previousState = previousSyncState.current;
       previousSyncState.current = nextState;
       setSyncState(nextState);
-      setSyncPendingCount(Number(data.pendingCount || 0));
+      setSyncPendingCount(Number(data.pendingCount || 0) + getPendingClickUpMutationCount(userId));
       setSyncError(data.state === "error" ? `${Number(data.failedCount || 0)} change${Number(data.failedCount || 0) === 1 ? "" : "s"} need attention.` : "");
       if (previousState === "syncing" && nextState === "synced") {
         window.dispatchEvent(new CustomEvent("mosaic-clickup-sync-complete"));
@@ -116,31 +118,40 @@ export function Topbar({
       if (active) timer = window.setTimeout(poll, syncState === "syncing" || manualSyncing ? 2500 : 15000);
     };
     const onQueueChange = (event: Event) => {
-      const detail = (event as CustomEvent<{ userId?: string; pending?: number }>).detail;
+      const detail = (event as CustomEvent<{ userId?: string; pending?: number; failed?: boolean; error?: string }>).detail;
       if (detail?.userId !== userId) return;
       setSyncPendingCount(Number(detail.pending || 0));
-      if (detail.pending) setSyncState("syncing");
+      setClientSyncFailed(Boolean(detail.failed));
+      setClientSyncError(detail.failed ? detail.error || "A saved change could not sync." : "");
+      if (detail.failed) setSyncState("error");
+      else if (detail.pending) setSyncState("syncing");
       if (timer) window.clearTimeout(timer);
       void poll();
     };
     void poll();
+    void flushClickUpMutationQueue(userId, setSyncPendingCount);
     window.addEventListener("mosaic-clickup-sync", onQueueChange);
     return () => { active = false; if (timer) window.clearTimeout(timer); window.removeEventListener("mosaic-clickup-sync", onQueueChange); };
   }, [manualSyncing, refreshSyncStatus, syncState, userId]);
 
   useEffect(() => {
-    const updateOnlineState = () => setIsOnline(navigator.onLine);
+    const updateOnlineState = () => {
+      setIsOnline(navigator.onLine);
+      if (navigator.onLine && userId) void flushClickUpMutationQueue(userId, setSyncPendingCount);
+    };
     updateOnlineState();
     window.addEventListener("online", updateOnlineState);
     window.addEventListener("offline", updateOnlineState);
     return () => { window.removeEventListener("online", updateOnlineState); window.removeEventListener("offline", updateOnlineState); };
-  }, []);
+  }, [userId]);
 
   const runManualSync = async () => {
     if (!userId || manualSyncing) return;
     setManualSyncing(true);
     setSyncState("syncing");
     setSyncError("");
+    setClientSyncFailed(false);
+    setClientSyncError("");
     setSyncDetailsOpen(true);
     const pending = getPendingClickUpMutationCount(userId);
     setSyncPendingCount(pending);
@@ -148,8 +159,10 @@ export function Topbar({
       { label: "ClickUp lists", state: "syncing" },
       ...(pending > 0 ? [{ label: `${pending} saved task change${pending === 1 ? "" : "s"}`, state: "syncing" as const }] : []),
     ]);
-    void flushClickUpMutationQueue(userId, setSyncPendingCount);
     try {
+      await flushClickUpMutationQueue(userId, setSyncPendingCount);
+      const remainingLocalChanges = getPendingClickUpMutationCount(userId);
+      if (remainingLocalChanges > 0) throw new Error(clientSyncError || `${remainingLocalChanges} saved change${remainingLocalChanges === 1 ? "" : "s"} still need to sync.`);
       const taskListId = localStorage.getItem("project_echo_clickup_list_id");
       const personalListId = localStorage.getItem("project_echo_personal_list_id");
       const listIds = [taskListId, personalListId].filter((value): value is string => Boolean(value));
@@ -294,7 +307,7 @@ export function Topbar({
       {/* Left controls: sync status and live sync details */}
       <div className="relative flex w-auto shrink-0 items-center gap-2 xl:w-72">
         {userId && (() => {
-          const effectiveState = !isOnline ? "error" : syncPendingCount > 0 && syncState === "synced" ? "syncing" : syncState;
+          const effectiveState = !isOnline || clientSyncFailed ? "error" : manualSyncing || syncState === "syncing" || syncPendingCount > 0 ? "syncing" : syncState;
           const label = effectiveState === "synced" ? "Synced" : effectiveState === "syncing" || effectiveState === "checking" ? "Syncing" : "Sync issue";
           const tone = effectiveState === "synced" ? "text-emerald-700 hover:bg-emerald-50" : effectiveState === "error" ? "text-red-700 hover:bg-red-50" : "text-amber-700 hover:bg-amber-50";
           const dot = effectiveState === "synced" ? "bg-emerald-600" : effectiveState === "error" ? "bg-red-600" : "bg-amber-500";
@@ -308,10 +321,10 @@ export function Topbar({
               {syncDetailsOpen && (
                 <section role="status" aria-live="polite" className="absolute left-0 top-full z-50 mt-2 w-[min(22rem,calc(100vw-2rem))] border border-[#003366]/20 bg-[#FFFCFB] p-3 text-[#1b1d1e] shadow-lg">
                   <div className="flex items-center justify-between gap-3 border-b border-[#003366]/10 pb-2">
-                    <h2 className="text-xs font-semibold text-[#003366]">{syncState === "error" ? "Sync needs attention" : syncState === "synced" && !manualSyncing ? "Sync complete" : "Syncing in background"}</h2>
+                  <h2 className="text-xs font-semibold text-[#003366]">{effectiveState === "error" ? "Sync needs attention" : effectiveState === "synced" ? "Sync complete" : "Syncing in background"}</h2>
                     <button type="button" onClick={() => setSyncDetailsOpen(false)} aria-label="Close sync details" className="p-1 text-slate-500 hover:text-[#003366]"><X size={14} /></button>
                   </div>
-                  <p className="py-2 text-[11px] text-slate-600">{syncState === "error" ? syncError || "Some changes could not be synced." : syncState === "synced" && !manualSyncing ? "The requested lists and saved changes are up to date." : "Your app stays available while these items sync."}</p>
+                  <p className="py-2 text-[11px] text-slate-600">{effectiveState === "error" ? clientSyncError || syncError || "Some changes could not be synced." : effectiveState === "synced" ? "The requested lists and saved changes are up to date." : "Your app stays available while these items sync."}</p>
                   <ul className="space-y-1.5">
                     {syncItems.map((item) => (
                       <li key={`${item.id || item.label}`} className="flex items-center gap-2 text-[11px]">

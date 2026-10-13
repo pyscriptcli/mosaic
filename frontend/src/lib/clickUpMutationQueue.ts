@@ -4,6 +4,31 @@ type QueuedMutation = { id: string; kind: "update"; payload: Parameters<typeof u
 const queueKey = (userId: string) => `mosaic-clickup-outbox:${userId}`;
 const activeFlushes = new Map<string, Promise<void>>();
 const retryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const autoFlushTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const usersWithQueuedMutations = new Set<string>();
+let onlineListenerRegistered = false;
+
+function emitQueueState(userId: string, queue: QueuedMutation[], failure?: string) {
+  window.dispatchEvent(new CustomEvent("mosaic-clickup-sync", { detail: { userId, pending: queue.length, failed: Boolean(failure), error: failure || "" } }));
+}
+
+function scheduleAutoFlush(userId: string, delay = 500) {
+  if (typeof window === "undefined") return;
+  usersWithQueuedMutations.add(userId);
+  if (!onlineListenerRegistered) {
+    onlineListenerRegistered = true;
+    window.addEventListener("online", () => {
+      for (const queuedUserId of usersWithQueuedMutations) scheduleAutoFlush(queuedUserId, 0);
+    });
+  }
+  if (!navigator.onLine || activeFlushes.has(userId)) return;
+  const currentTimer = autoFlushTimers.get(userId);
+  if (currentTimer) clearTimeout(currentTimer);
+  autoFlushTimers.set(userId, setTimeout(() => {
+    autoFlushTimers.delete(userId);
+    void flushClickUpMutationQueue(userId);
+  }, delay));
+}
 
 function readQueue(userId: string): QueuedMutation[] {
   try {
@@ -15,7 +40,9 @@ function readQueue(userId: string): QueuedMutation[] {
 function writeQueue(userId: string, queue: QueuedMutation[]) {
   if (queue.length) localStorage.setItem(queueKey(userId), JSON.stringify(queue));
   else localStorage.removeItem(queueKey(userId));
-  window.dispatchEvent(new CustomEvent("mosaic-clickup-sync", { detail: { userId, pending: queue.length } }));
+  if (queue.length) scheduleAutoFlush(userId);
+  else usersWithQueuedMutations.delete(userId);
+  emitQueueState(userId, queue);
 }
 
 export function getPendingClickUpMutationCount(userId: string) {
@@ -31,7 +58,8 @@ export function mergePendingClickUpMutations<T extends { id: string }>(userId: s
 
 export function queueClickUpUpdate(userId: string, payload: Parameters<typeof updateClickUpTask>[0]) {
   const queue = readQueue(userId);
-  const existing = queue.findIndex((item) => item.kind === "update" && item.payload.taskId === payload.taskId);
+  // Do not mutate the payload currently being sent; preserve a follow-up write in order.
+  const existing = activeFlushes.has(userId) ? -1 : queue.findIndex((item) => item.kind === "update" && item.payload.taskId === payload.taskId);
   if (existing >= 0) {
     const previous = queue[existing];
     if (previous.kind === "update") queue[existing] = { ...previous, payload: { ...previous.payload, ...payload } };
@@ -40,10 +68,18 @@ export function queueClickUpUpdate(userId: string, payload: Parameters<typeof up
 }
 
 export function queueClickUpDelete(userId: string, taskId: string) {
-  writeQueue(userId, [...readQueue(userId).filter((item) => !(item.kind === "update" && item.payload.taskId === taskId)), { id: crypto.randomUUID(), kind: "delete", taskId }]);
+  const queue = readQueue(userId).filter((item) => !(item.kind === "update" && item.payload.taskId === taskId));
+  if (!queue.some((item) => item.kind === "delete" && item.taskId === taskId)) queue.push({ id: crypto.randomUUID(), kind: "delete", taskId });
+  writeQueue(userId, queue);
 }
 
 export function flushClickUpMutationQueue(userId: string, onPending?: (count: number) => void): Promise<void> {
+  const autoTimer = autoFlushTimers.get(userId);
+  if (autoTimer) clearTimeout(autoTimer);
+  autoFlushTimers.delete(userId);
+  const retryTimer = retryTimers.get(userId);
+  if (retryTimer) clearTimeout(retryTimer);
+  retryTimers.delete(userId);
   const active = activeFlushes.get(userId);
   if (active) return active;
   const operation = (async () => {
@@ -54,11 +90,14 @@ export function flushClickUpMutationQueue(userId: string, onPending?: (count: nu
       try {
         if (item.kind === "update") await updateClickUpTask(item.payload);
         else await deleteClickUpTask(item.taskId);
-        queue = queue.filter((queued) => queued.id !== item.id);
+        queue = readQueue(userId).filter((queued) => queued.id !== item.id);
         writeQueue(userId, queue);
         onPending?.(queue.length);
       } catch (error) {
+        queue = readQueue(userId);
         const status = error && typeof error === "object" && "status" in error ? Number((error as { status: unknown }).status) : 0;
+        const message = error instanceof Error ? error.message : "A saved change could not sync.";
+        emitQueueState(userId, queue, message);
         if (status === 401 || status === 403) break;
         if (!retryTimers.has(userId)) {
           retryTimers.set(userId, setTimeout(() => {
