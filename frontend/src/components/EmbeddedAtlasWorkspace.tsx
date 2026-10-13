@@ -1,6 +1,6 @@
 "use client";
 
-import WorkspacePage from "../../../project-atlas/frontend/atlas-app/src/app/page";
+import WorkspacePage from "../../../project-atlas/frontend/atlas-app/src/WorkspacePage";
 import type { AtlasWorkspaceType } from "../../../project-atlas/frontend/atlas-app/src/store/useProjectStore";
 
 export default function EmbeddedAtlasWorkspace({
