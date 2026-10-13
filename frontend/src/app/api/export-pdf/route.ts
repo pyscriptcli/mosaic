@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { requireFeature } from "@/lib/access-control-server";
+import { formatEchoTime } from "@/lib/dateUtils";
 
 function cleanField(val: any): string {
   if (!val) return "";
@@ -52,8 +53,8 @@ export async function POST(req: NextRequest) {
     // 2. Document Metadata Preparation (Blank fields stay blank, no defaults/hints)
     const clientName = cleanField(meeting_details?.client_name);
     const dateStr = cleanField(meeting_details?.date);
-    const startT = cleanField(meeting_details?.start_time);
-    const endT = cleanField(meeting_details?.end_time);
+    const startT = formatEchoTime(cleanField(meeting_details?.start_time));
+    const endT = formatEchoTime(cleanField(meeting_details?.end_time));
     let timeStr = "";
     if (startT && endT) {
       timeStr = `${startT} - ${endT}`;

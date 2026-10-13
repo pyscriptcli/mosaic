@@ -38,3 +38,21 @@ export function formatEchoDateTime(dateInput: string | number | Date | null | un
     return String(dateInput);
   }
 }
+
+/** Format a time-only value as a 12-hour clock without changing its date or timezone. */
+export function formatEchoTime(timeInput: string | null | undefined): string {
+  if (!timeInput) return "";
+
+  const value = timeInput.trim();
+  const match = value.match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)?$/i);
+  if (!match) return value;
+
+  const rawHour = Number(match[1]);
+  const minute = match[2];
+  const suffix = match[3]?.toUpperCase();
+  if (rawHour > (suffix ? 12 : 23) || rawHour < (suffix ? 1 : 0)) return value;
+
+  const period = suffix ?? (rawHour >= 12 ? "PM" : "AM");
+  const hour = rawHour % 12 || 12;
+  return `${hour}:${minute} ${period}`;
+}
