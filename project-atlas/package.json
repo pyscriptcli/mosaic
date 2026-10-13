@@ -1,0 +1,18 @@
+{
+  "name": "project-atlas",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "frontend/atlas-app",
+    "frontend/kopi-saigon"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace @project-atlas/workspace",
+    "dev:kopi-viewer": "npm run dev --workspace @project-atlas/kopi-saigon",
+    "build": "npm run build:atlas && npm run build:kopi-viewer",
+    "build:atlas": "npm run build --workspace @project-atlas/workspace",
+    "build:kopi-viewer": "npm run build --workspace @project-atlas/kopi-saigon",
+    "start": "npm run start --workspace @project-atlas/workspace",
+    "start:kopi-viewer": "npm run start --workspace @project-atlas/kopi-saigon"
+  }
+}

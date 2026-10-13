@@ -1,0 +1,38 @@
+# App packages and generated output
+**/node_modules/
+**/.next/
+**/out/
+**/build/
+**/dist/
+**/.vercel/
+**/*.tsbuildinfo
+.pnp
+.pnp.js
+
+# Local settings and secrets
+.env
+.env.*
+!**/.env.example
+*.key
+*.pem
+auth.json
+
+# Python environments and caches
+**/.venv/
+**/venv/
+**/__pycache__/
+*.py[cod]
+*$py.class
+
+# Debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Editor and operating system files
+.codex/
+.gemini/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

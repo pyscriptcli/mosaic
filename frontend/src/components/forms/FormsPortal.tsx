@@ -24,7 +24,10 @@ import {
   PhilippinePeso,
   Zap,
   Coins,
-  Clock
+  Clock,
+  RefreshCw,
+  ExternalLink,
+  CheckCircle2
 } from "lucide-react";
 import FormsCreateView from "./FormsCreateView";
 import FormsTrackView from "./FormsTrackView";
@@ -161,7 +164,7 @@ export function AdminConfiguration({ userEmail, username }: { userEmail: string;
   const [preview, setPreview] = useState("requestor");
   const [openDepartments, setOpenDepartments] = useState<Record<string, boolean>>({ Finance: true });
   const [formsSubtab, setFormsSubtab] = useState<"routing" | "features">("routing");
-  const [settingsTab, setSettingsTab] = useState<"rbac" | "configurations" | "email" | "ai" | "telemetry" | "navigation">("rbac");
+  const [settingsTab, setSettingsTab] = useState<"rbac" | "configurations" | "email" | "ai" | "telemetry" | "navigation" | "project-atlas">("rbac");
   const [emailEvent, setEmailEvent] = useState<EmailEvent>("submitted");
   const [emailTestStatus, setEmailTestStatus] = useState("");
   const [newSignInDomain, setNewSignInDomain] = useState("");
@@ -169,6 +172,9 @@ export function AdminConfiguration({ userEmail, username }: { userEmail: string;
   const [telemetryRange, setTelemetryRange] = useState(() => ({ start: new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10), end: new Date().toISOString().slice(0, 10) }));
   const [telemetry, setTelemetry] = useState<any>(null);
   const [costCurrency, setCostCurrency] = useState<"PHP" | "USD">("PHP");
+  const [atlasSync, setAtlasSync] = useState<{ configured: boolean; latestRun: { status: string; conclusion: string | null; htmlUrl: string; runNumber: number; createdAt: string; updatedAt: string } | null; error?: string } | null>(null);
+  const [atlasSyncing, setAtlasSyncing] = useState(false);
+  const [atlasSyncNotice, setAtlasSyncNotice] = useState("");
 
   // Page Access Governance state
   const [newPageUserEmail, setNewPageUserEmail] = useState("");
@@ -211,6 +217,51 @@ export function AdminConfiguration({ userEmail, username }: { userEmail: string;
     const end = new Date(`${telemetryRange.end}T23:59:59.999`).toISOString();
     fetch(`/api/admin/telemetry?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`).then((response) => response.ok ? response.json() : null).then(setTelemetry).catch(() => setTelemetry(null));
   }, [settingsTab, telemetryRange]);
+
+  const loadAtlasSyncStatus = async () => {
+    const response = await fetch("/api/admin/project-atlas-sync", { cache: "no-store" });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "Could not load Project Atlas sync status.");
+    setAtlasSync(result);
+  };
+
+  const atlasRunStatus = atlasSync?.latestRun?.status;
+  useEffect(() => {
+    if (settingsTab !== "project-atlas") return;
+    let active = true;
+    let timer: number | undefined;
+    const poll = async () => {
+      try {
+        const response = await fetch("/api/admin/project-atlas-sync", { cache: "no-store" });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || "Could not load Project Atlas sync status.");
+        if (!active) return;
+        setAtlasSync(result);
+        setAtlasSyncNotice("");
+        if (result.latestRun?.status === "queued" || result.latestRun?.status === "in_progress") timer = window.setTimeout(poll, 5000);
+      } catch (error) {
+        if (active) setAtlasSyncNotice(error instanceof Error ? error.message : "Could not load Project Atlas sync status.");
+      }
+    };
+    void poll();
+    return () => { active = false; if (timer) window.clearTimeout(timer); };
+  }, [settingsTab, atlasRunStatus]);
+
+  const syncProjectAtlas = async () => {
+    setAtlasSyncing(true);
+    setAtlasSyncNotice("");
+    try {
+      const response = await fetch("/api/admin/project-atlas-sync", { method: "POST" });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Could not start Project Atlas sync.");
+      setAtlasSyncNotice("Sync started. The Atlas copy will update in the background.");
+      await loadAtlasSyncStatus();
+    } catch (error) {
+      setAtlasSyncNotice(error instanceof Error ? error.message : "Could not start Project Atlas sync.");
+    } finally {
+      setAtlasSyncing(false);
+    }
+  };
 
   const save = async (next: FormsConfig = config) => {
     setConfig(next);
@@ -503,9 +554,9 @@ export function AdminConfiguration({ userEmail, username }: { userEmail: string;
         <aside className="w-full md:w-56 shrink-0 bg-[#003366] text-[#FFFCFB] p-2 shadow-[4px_0_18px_rgba(0,51,102,0.12)]">
           <div className="px-3 py-3 border-b border-[#31577D] text-[10px] uppercase tracking-[0.18em] text-[#B8CDE0]">Admin workspace</div>
           <nav className="mt-2 space-y-1">
-            {(["rbac", "navigation", "configurations", "email", "ai", "telemetry"] as const).map((item) => (
+            {(["rbac", "navigation", "configurations", "email", "ai", "telemetry", "project-atlas"] as const).map((item) => (
               <button key={item} type="button" onClick={() => setSettingsTab(item)} className={`w-full flex items-center gap-3 px-3 py-2.5 text-left text-xs font-semibold transition-colors cursor-pointer ${settingsTab === item ? "bg-[#174778] text-[#FFBF00] border-l-2 border-[#C9A84C]" : "text-[#D7E3EF] hover:bg-[#174778] hover:text-[#FFFCFB]"}`}>
-                <span className="truncate">{item === "rbac" ? "Users & Access" : item === "navigation" ? "Workspace Sidebar" : item === "configurations" ? "Forms & Routing" : item === "email" ? "Email & Notifications" : item === "ai" ? "Ask Echo" : "System Health"}</span>
+                <span className="truncate">{item === "rbac" ? "Users & Access" : item === "navigation" ? "Workspace Sidebar" : item === "configurations" ? "Forms & Routing" : item === "email" ? "Email & Notifications" : item === "ai" ? "Ask Echo" : item === "project-atlas" ? "Project Atlas" : "System Health"}</span>
               </button>
             ))}
           </nav>
@@ -541,6 +592,31 @@ export function AdminConfiguration({ userEmail, username }: { userEmail: string;
             })}
           </div>
           <p className="mt-4 text-xs text-[#181D1E]/60">Use Save Configuration above to publish the new order.</p>
+        </div>
+      </section>
+
+      <section className={`space-y-4 ${settingsTab !== "project-atlas" ? "hidden" : ""}`}>
+        <div className="panel">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-serif italic text-[#003366]">Project Atlas repository copy</h2>
+              <p className="mt-1 max-w-2xl text-xs text-[#181D1E]/65">Mosaic keeps a snapshot of the Project Atlas repository in its root <code>project-atlas/</code> folder. Project Atlas on GitHub remains the source of truth; this action refreshes the snapshot from its latest <code>main</code> commit.</p>
+            </div>
+            <button type="button" onClick={() => void syncProjectAtlas()} disabled={atlasSyncing || atlasSync?.latestRun?.status === "queued" || atlasSync?.latestRun?.status === "in_progress" || atlasSync?.configured === false} className="btn-primary flex shrink-0 items-center gap-2 text-xs disabled:cursor-not-allowed disabled:opacity-55">
+              <RefreshCw size={14} className={atlasSyncing || atlasSync?.latestRun?.status === "queued" || atlasSync?.latestRun?.status === "in_progress" ? "animate-spin" : ""} />
+              {atlasSyncing || atlasSync?.latestRun?.status === "queued" || atlasSync?.latestRun?.status === "in_progress" ? "Syncing Atlas" : "Sync latest from Atlas"}
+            </button>
+          </div>
+          {atlasSyncNotice && <p role="status" aria-live="polite" className="mt-4 border border-[#003366]/15 bg-white px-3 py-2 text-xs text-[#003366]">{atlasSyncNotice}</p>}
+          <div className="mt-5 border-t border-[#003366]/10 pt-4">
+            <div className="flex items-center gap-2 text-sm font-semibold text-[#003366]">
+              {atlasSync?.latestRun?.status === "queued" || atlasSync?.latestRun?.status === "in_progress" ? <RefreshCw size={15} className="animate-spin text-amber-600" /> : atlasSync?.latestRun?.conclusion === "success" ? <CheckCircle2 size={16} className="text-emerald-700" /> : atlasSync?.latestRun?.conclusion ? <AlertTriangle size={16} className="text-red-700" /> : <span className="h-2 w-2 rounded-full bg-slate-400" />}
+              {!atlasSync ? "Checking sync status…" : atlasSync.configured === false ? "Sync is not configured" : atlasSync.latestRun?.status === "queued" ? "Sync queued" : atlasSync.latestRun?.status === "in_progress" ? "Sync running" : atlasSync.latestRun?.conclusion === "success" ? "Latest sync completed" : atlasSync.latestRun?.conclusion ? "Latest sync failed" : "No sync run found yet"}
+            </div>
+            {atlasSync?.latestRun && <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[#181D1E]/65"><span>Run #{atlasSync.latestRun.runNumber}</span><span>Updated {new Date(atlasSync.latestRun.updatedAt).toLocaleString()}</span><a href={atlasSync.latestRun.htmlUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[#003366] underline underline-offset-2">Open GitHub Actions <ExternalLink size={12} /></a></div>}
+            {atlasSync?.configured === false && <p className="mt-2 text-xs text-amber-800">Add <code>PROJECT_ATLAS_SYNC_TOKEN</code> to the Mosaic deployment. It needs Actions: write permission for the Mosaic repository.</p>}
+            <p className="mt-3 text-[11px] text-[#181D1E]/55">The copy runs as a GitHub Actions job and commits changes to Mosaic <code>main</code>. This avoids writing to Vercel’s temporary function filesystem.</p>
+          </div>
         </div>
       </section>
 
