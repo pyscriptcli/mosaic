@@ -18,9 +18,10 @@ import {
   ChartNoAxesColumnIncreasing,
   BriefcaseBusiness,
   Map as MapIcon,
+  FileSpreadsheet,
 } from "lucide-react";
 
-export type NavView = "dashboard" | "project" | "tasks" | "notebook" | "reports" | "market-insights" | "demands" | "meetings" | "minutes" | "maps" | "forms" | "delta" | "business-analysis" | "forms-admin";
+export type NavView = "dashboard" | "project" | "tasks" | "notebook" | "reports" | "market-insights" | "demands" | "meetings" | "minutes" | "maps" | "bsc" | "forms" | "delta" | "business-analysis" | "forms-admin";
 
 interface SidebarProps {
   currentView: NavView;
@@ -129,6 +130,7 @@ export function Sidebar({
       icon: Mic,
     },
     { id: "maps" as NavView, label: "Maps", icon: MapIcon, badge: null },
+    { id: "bsc" as NavView, label: "BSC", icon: FileSpreadsheet, badge: null },
     {
       id: "notebook" as NavView,
       label: "Notebook",
@@ -148,6 +150,7 @@ export function Sidebar({
     return (orderIndex.get(a.id) ?? fallback) - (orderIndex.get(b.id) ?? fallback);
   }).filter((item) => Boolean(
     item.id === "maps" ||
+    item.id === "bsc" ||
     allowedPages?.includes(item.id) ||
     (item.id === "notebook" && allowedPages?.includes("tasks")) ||
     (item.id === "project" && allowedPages?.includes("tasks")) ||
@@ -169,7 +172,8 @@ export function Sidebar({
   const meetingsItem = navById.get("meetings");
   const notetakerItem = navById.get("minutes");
   const mapsItem = navById.get("maps");
-  const hasToolsItems = Boolean(meetingsItem || notetakerItem || mapsItem);
+  const bscItem = navById.get("bsc");
+  const hasToolsItems = Boolean(meetingsItem || notetakerItem || mapsItem || bscItem);
 
   const renderNavItem = (item: (typeof navItems)[number], nested = false) => {
     const Icon = item.icon;
@@ -315,6 +319,7 @@ export function Sidebar({
                         {!effectiveCollapsed && <span className="truncate">Maps</span>}
                       </button>
                     )}
+                    {bscItem && renderNavItem(bscItem)}
                   </div>
                 )}
               </section>

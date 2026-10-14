@@ -100,6 +100,7 @@ const DemandsView = dynamic(() => import("@/components/DemandsView").then((modul
 const BusinessAnalysisView = dynamic(() => import("@/components/business-analysis/BusinessAnalysisView").then((module) => module.BusinessAnalysisView), { loading: PanelLoading });
 const FormsPortal = dynamic(() => import("@/components/forms/FormsPortal"), { loading: PanelLoading });
 const ProjectAtlasMapsPage = dynamic(() => import("@/components/ProjectAtlasMapsPage"), { loading: PanelLoading });
+const BscPortal = dynamic(() => import("@/components/BscPortal").then((module) => module.BscPortal), { loading: PanelLoading });
 
 const VENUE_OPTIONS = [
   "GreatWork Mega Tower 32F - Secret Room",
@@ -449,7 +450,7 @@ export default function Home() {
   const [allowedPages, setAllowedPages] = useState<NavView[]>(warmGovernance?.allowedPages || []);
   const [governanceStatus, setGovernanceStatus] = useState<"loading" | "ready" | "error">(warmGovernance ? "ready" : "loading");
   const [sidebarOrder, setSidebarOrder] = useState<NavView[]>([
-    "dashboard", "business-analysis", "project", "notebook", "reports", "market-insights", "demands", "meetings", "minutes", "forms", "delta",
+    "dashboard", "business-analysis", "project", "notebook", "reports", "market-insights", "demands", "meetings", "minutes", "bsc", "forms", "delta",
   ]);
   const [isAdminUser, setIsAdminUser] = useState(warmGovernance?.isAdmin || false);
   const [askEchoEnabled, setAskEchoEnabled] = useState(warmGovernance?.askEchoEnabled || false);
@@ -560,6 +561,7 @@ export default function Home() {
   const isPageAllowed = (view: NavView) => {
     if (view === "forms-admin") return false;
     if (view === "maps") return true;
+    if (view === "bsc") return true;
     if (isAdminUser || authUser?.email?.toLowerCase().trim() === "admin@primephilippines.com") return true;
     if (view === "project") return allowedPages.includes("project") || allowedPages.includes("tasks");
     if (view === "delta") return allowedPages.includes("delta") || allowedPages.includes("project") || allowedPages.includes("tasks");
@@ -1391,6 +1393,7 @@ export default function Home() {
 
             {currentView === "project" && <ProjectWorkspace userId={authUser?.id ? String(authUser.id) : undefined} />}
             {currentView === "maps" && <ProjectAtlasMapsPage />}
+            {currentView === "bsc" && <BscPortal />}
             {currentView === "delta" && <ContractsWorkspace />}
 
             {/* VIEW: TASKS (CLICKUP PORTAL) */}
