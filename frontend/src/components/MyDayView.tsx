@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, Bold, Bell, BellOff, CalendarDays, Check, CheckCircle2, ChevronLeft, ChevronRight, ExternalLink, Highlighter, Italic, Link2, List, ListOrdered, LoaderCircle, Plus, Quote, Redo2, RefreshCw, Save, Sparkles, Trash2, Underline, Undo2, X } from "lucide-react";
 import { getStoredClickUpListId, getStoredClickUpToken } from "@/lib/api";
 import { requestCentralClickUpSync, trackClickUpLiveRefresh } from "@/lib/clickupSyncClient";
@@ -174,11 +174,48 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
   const notesReady = useRef(false);
   const activityReady = useRef(false);
 
-  useEffect(() => {
-    if (initialDate && initialDate !== date) setDate(initialDate);
-  }, [date, initialDate]);
+  const getActivityHistoryDay = useCallback((requestedDate: string): DayPayload | null => {
+    if (!activityOnly || !activityHistory?.isCurrentUser || requestedDate < activityHistory.start || requestedDate > activityHistory.end) return null;
+    const entry = activityHistory.entries.find((item) => item.date === requestedDate && (
+      item.member.id === String(userId || "") || item.member.name.trim().toLowerCase() === String(currentUserName || "").trim().toLowerCase()
+    )) || activityHistory.entries.find((item) => item.date === requestedDate);
+    return {
+      date: requestedDate,
+      dayTask: entry ? { id: entry.id, name: entry.name, url: entry.url } : null,
+      tasks: [], notes: "", noteTask: null, activity: entry?.categories || EMPTY_ACTIVITY,
+      personalList: null, completeStatus: "complete", openStatus: "to do", isFresh: activityHistory.isFresh,
+    };
+  }, [activityHistory, activityOnly, currentUserName, userId]);
 
-  useEffect(() => { onDateChange?.(date); }, [date, onDateChange]);
+  const changeDate = useCallback((nextDate: string, notifyParent = true) => {
+    if (!nextDate || nextDate === date) return;
+    dayRequestVersion.current += 1;
+    setDate(nextDate);
+    if (notifyParent) onDateChange?.(nextDate);
+    setError("");
+    if (!activityOnly) return;
+
+    const historyDay = getActivityHistoryDay(nextDate);
+    if (historyDay) {
+      dayPayloadCache.current.set(`${nextDate}:${personalList?.id || "default"}`, { payload: historyDay, cachedAt: Date.now() });
+      setPayload(historyDay);
+      setActivityDraft(historyDay.activity);
+      setActivitySave("saved");
+      setActivityError("");
+      activityReady.current = true;
+      setLoading(false);
+      setRefreshing(false);
+    } else {
+      activityReady.current = false;
+      setActivityDraft(EMPTY_ACTIVITY);
+      setActivitySave("saved");
+      setLoading(true);
+    }
+  }, [activityOnly, date, getActivityHistoryDay, onDateChange, personalList?.id]);
+
+  useLayoutEffect(() => {
+    if (initialDate && initialDate !== date) changeDate(initialDate, false);
+  }, [changeDate, date, initialDate]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -232,16 +269,8 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
       notesReady.current = true;
     };
     if (activityOnly && !background && activityHistory === undefined) return;
-    if (activityOnly && activityHistory?.isCurrentUser && requestedDate >= activityHistory.start && requestedDate <= activityHistory.end) {
-      const entry = activityHistory.entries.find((item) => item.date === requestedDate && (
-        item.member.id === String(userId || "") || item.member.name.trim().toLowerCase() === String(currentUserName || "").trim().toLowerCase()
-      )) || (activityHistory.isCurrentUser ? activityHistory.entries.find((item) => item.date === requestedDate) : undefined);
-      const fromHistory: DayPayload = {
-        date: requestedDate,
-        dayTask: entry ? { id: entry.id, name: entry.name, url: entry.url } : null,
-        tasks: [], notes: "", noteTask: null, activity: entry?.categories || EMPTY_ACTIVITY,
-        personalList: null, completeStatus: "complete", openStatus: "to do", isFresh: activityHistory.isFresh,
-      };
+    const fromHistory = getActivityHistoryDay(requestedDate);
+    if (fromHistory) {
       dayPayloadCache.current.set(cacheKey, { payload: fromHistory, cachedAt: Date.now() });
       applyDay(fromHistory);
       setError("");
@@ -295,7 +324,7 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
         setRefreshing(false);
       }
     }
-  }, [activityHistory, activityOnly, currentUserName, date, personalList?.id, personalList?.name, userId]);
+  }, [activityHistory, activityOnly, currentUserName, date, getActivityHistoryDay, personalList?.id, personalList?.name, userId]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => { notesReady.current = false; void loadDay(); }, 0);
@@ -553,12 +582,12 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
         </div>
         <div className="flex flex-wrap items-center gap-2 xl:justify-end">
           <div className="flex h-9 items-center gap-0.5">
-            <button type="button" onClick={() => setDate(moveDate(date, -1))} aria-label="Previous day" className="grid h-9 w-9 place-items-center border border-slate-200 text-slate-600 hover:text-[#003366]"><ChevronLeft size={16} /></button>
-            <button type="button" onClick={() => setDate(todayIso())} className="h-9 border border-slate-200 px-3 text-xs font-semibold text-[#003366] hover:border-[#C9A84C]">Today</button>
-            <button type="button" onClick={() => setDate(moveDate(date, 1))} aria-label="Next day" className="grid h-9 w-9 place-items-center border border-slate-200 text-slate-600 hover:text-[#003366]"><ChevronRight size={16} /></button>
+            <button type="button" onClick={() => changeDate(moveDate(date, -1))} aria-label="Previous day" className="grid h-9 w-9 place-items-center border border-slate-200 text-slate-600 hover:text-[#003366]"><ChevronLeft size={16} /></button>
+            <button type="button" onClick={() => changeDate(todayIso())} className="h-9 border border-slate-200 px-3 text-xs font-semibold text-[#003366] hover:border-[#C9A84C]">Today</button>
+            <button type="button" onClick={() => changeDate(moveDate(date, 1))} aria-label="Next day" className="grid h-9 w-9 place-items-center border border-slate-200 text-slate-600 hover:text-[#003366]"><ChevronRight size={16} /></button>
           </div>
           <label className="flex h-9 items-center gap-2 border border-slate-300 bg-[#FFFCFB] px-2.5 text-sm text-[#003366]">
-            <CalendarDays size={14} /><input type="date" value={date} onChange={(event) => setDate(event.target.value)} className="w-[125px] bg-transparent text-xs outline-none" aria-label="Select day" />
+            <CalendarDays size={14} /><input type="date" value={date} onChange={(event) => changeDate(event.target.value)} className="w-[125px] bg-transparent text-xs outline-none" aria-label="Select day" />
           </label>
           <div className={activityOnly ? "hidden" : "relative"}>
             <button type="button" onClick={() => setReminderSettingsOpen((open) => !open)} aria-label="Reminder settings" title="Reminder settings" aria-expanded={reminderSettingsOpen} className={`grid h-9 w-9 place-items-center border ${remindersEnabled ? "border-[#003366] bg-[#003366] text-white" : "border-slate-300 bg-[#FFFCFB] text-[#003366] hover:border-[#C9A84C]"}`}>
@@ -655,7 +684,7 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
                 <h2 className="font-serif text-lg italic text-[#003366]">Daily activity</h2>
                 <p className="mt-1 text-xs text-slate-500">Saved with this day’s log and shown in Notebook.</p>
               </div>
-              <div className="flex items-center gap-3"><span role="status" className="text-[10px] font-semibold text-slate-500">{activitySave === "saved" ? "Saved" : activitySave === "saving" ? "Saving…" : activitySave === "pending" ? "Autosave pending" : "Save failed"}</span><button type="button" onClick={() => void generateSummary()} disabled={summaryState === "loading" || tasks.length === 0} title={summaryState === "loading" ? "Generating summary…" : "Generate summary with AI"} aria-label={summaryState === "loading" ? "Generating summary with AI" : "Generate summary with AI"} aria-busy={summaryState === "loading"} className="inline-flex min-h-8 min-w-8 items-center justify-center border border-slate-300 text-[#003366] hover:border-[#003366] disabled:opacity-50"><Sparkles size={14} aria-hidden="true" /></button></div>
+              <div className="flex items-center gap-3"><span role="status" className="text-[10px] font-semibold text-slate-500">{payload?.date !== date ? "Loading…" : activitySave === "saved" ? "Saved" : activitySave === "saving" ? "Saving…" : activitySave === "pending" ? "Autosave pending" : "Save failed"}</span><button type="button" onClick={() => void generateSummary()} disabled={summaryState === "loading" || tasks.length === 0} title={summaryState === "loading" ? "Generating summary…" : "Generate summary with AI"} aria-label={summaryState === "loading" ? "Generating summary with AI" : "Generate summary with AI"} aria-busy={summaryState === "loading"} className="inline-flex min-h-8 min-w-8 items-center justify-center border border-slate-300 text-[#003366] hover:border-[#003366] disabled:opacity-50"><Sparkles size={14} aria-hidden="true" /></button></div>
             </div>
             {(payload?.date !== date || payload?.isFresh === false) && <p role="status" className="border-b border-slate-200 bg-slate-50 px-4 py-2 text-xs text-slate-600">{payload?.date === date ? `Refreshing ${dateLabel(date)} from ClickUp…` : `Loading ${dateLabel(date)} from ClickUp…`}</p>}
             {(summaryState === "loading" || summaryError || taskSummary) && <div className="border-b border-slate-200 bg-slate-50/70 px-4 py-2 text-xs text-slate-600" role={summaryError ? "alert" : "status"}>{summaryState === "loading" ? "Preparing a task summary…" : summaryError || (taskSummary ? "A bullet summary of your My Day tasks is included in Ad hoc activity." : "")}</div>}
@@ -664,7 +693,7 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
                 <label key={field.key} className="block min-w-0">
                   <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-[#003366]">{field.label}</span>
                   <AutoResizeTextarea
-                    value={activityDraft[field.key]}
+                    value={payload?.date === date ? activityDraft[field.key] : ""}
                     onChange={(event) => setActivityDraft((current) => ({ ...current, [field.key]: event.target.value }))}
                     disabled={loading || payload?.date !== date || payload?.isFresh === false}
                     placeholder={"Log " + field.label.toLowerCase() + " work"}
