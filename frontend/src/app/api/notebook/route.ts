@@ -19,6 +19,7 @@ import {
   writeCategories,
 } from "@/lib/notebookClickup";
 import { getUserFromRequest } from "@/lib/auth";
+import { clickUpScope } from "@/lib/clickupReadStore";
 import { readStagedMosaicRecords, scheduleMosaicWriteSync, stageMosaicWrite } from "@/lib/mosaicWriteStore";
 
 export const maxDuration = 60;
