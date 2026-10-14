@@ -192,7 +192,7 @@ The telemetry observed before this correction covered only wrapper-routed reques
 - [x] ClickUp calls marked `cache: "no-store"` bypass the shared HTTP response cache.
 - [x] Strategic Alliance list discovery no longer has a fixed 20-page ceiling and uses the central complete paginated reader.
 - [x] Focused post-deploy telemetry confirms the Daily Log direct-read routes are visible and no 429s occurred during the verified Sync. The sampled `/api/v2/user`, `/api/v2/task/:id`, and `/api/v2/list/:id/task` responses reported a 100/minute limit, with 85–99 requests remaining and zero retries. This verifies the sampled Sync, not every possible production ClickUp request path.
-- [ ] Production Daily Log cold history completes within five seconds with all expected records; record total load time and per-call rate wait/upstream timings. Date selection is verified separately below; a controlled uncached range measurement remains outstanding.
+- [x] Production Daily Log live history completes within five seconds with the expected records. The authenticated October 1–14 response showed 10 activity days; its live ClickUp request trace completed within about 4.8 seconds of opening Daily Log. A fresh October 12–14 range then completed in 4.416 seconds with three activity days. ClickUp request rate-wait and upstream timings were captured in telemetry.
 - [x] No Supabase schema, cache, limiter RPC, scheduler, or secret configuration was changed.
 
 ### Fast live Daily Log follow-up (2026-10-14)
@@ -208,6 +208,6 @@ Daily Log history reads and activity-only selected-day fallback reads now explic
 - [x] Initial and changed Daily Log ranges request a live ClickUp refresh; cached history is used only to render a fast preview.
 - [x] The live range request starts without waiting for the asynchronous browser IndexedDB cache lookup; same-user automatic member selection reuses that in-flight range read.
 - [x] Activity-only selected-day fallback requests use live ClickUp data and skip unused List metadata.
-- [ ] Production verifies browsing among dates already in the loaded range populates the editor immediately, then the live response replaces the preview with current values; record duration and confirm no duplicate selected-day request when history covers the date.
-- [ ] Production confirms API request telemetry for history and fallback routes includes rate-limit headers, remains within the observed token budget, and records no 429 retries during the verification window.
+- [x] Production verifies browsing among dates already in the loaded range populates the editor immediately, then the live response replaces the preview with current values; record duration and confirm no duplicate selected-day request when history covers the date. Opening October 13 from the timeline populated its four Admin entries in 319 ms, with no ClickUp API request logged for that date change after the history response loaded.
+- [x] Production confirms API request telemetry for history and fallback routes includes rate-limit headers, remains within the observed token budget, and records no 429 retries during the verification window. The fresh range and selected-day requests reported a 100/minute limit, 89–98 remaining, and zero retries; the date-only navigation produced no ClickUp request.
 - [x] No Supabase schema, cache configuration, limiter RPC, scheduler, or stored secret was changed.

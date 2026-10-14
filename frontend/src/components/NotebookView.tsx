@@ -267,7 +267,7 @@ export function NotebookView({ currentUserName, userId, initialDate, initialTab 
       publishActivityHistory(cached, false);
     };
     let liveRequestSettled = false;
-    const liveRequest = loadNotebook(false).finally(() => { liveRequestSettled = true; });
+    const liveRequest = loadNotebookRef.current(false).finally(() => { liveRequestSettled = true; });
     const inMemoryCache = userId ? getBrowserPageCache<NotebookPayload>(userId, cacheKey) : undefined;
     if (inMemoryCache && !liveRequestSettled) publishCachedPreview(inMemoryCache);
     if (userId && !inMemoryCache) {
