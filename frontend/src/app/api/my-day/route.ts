@@ -98,8 +98,10 @@ function serializeDayTask(task: ClickUpTask) {
 
 async function getKpiContext(token: string, date: string, req: NextRequest, forceRefresh = false) {
   const user = getUserFromRequest(req);
-  const remoteTasks = await fetchDailyLogParents(token, { assigneeId: user?.id, forceRefresh, requiredMonths: [date.slice(0, 7)] }) as ClickUpTask[];
-  const stagedRows = await readStagedMosaicRecords(clickUpScope(token), "notebook", DAILY_LOG_LIST_ID);
+  const [remoteTasks, stagedRows] = await Promise.all([
+    fetchDailyLogParents(token, { assigneeId: user?.id, forceRefresh, requiredMonths: [date.slice(0, 7)] }),
+    readStagedMosaicRecords(clickUpScope(token), "notebook", DAILY_LOG_LIST_ID),
+  ]);
   const stagedIds = new Map(stagedRows.map((row) => [String(row.record_id), String(row.clickup_id || row.record_id)]));
   const applyStaged = (source: ClickUpTask[]) => {
     const taskMap = new Map(source.map((task) => [String(task.id), task]));

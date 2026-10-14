@@ -344,7 +344,7 @@ export function Topbar({
                       </li>
                     ))}
                   </ul>
-                  {(syncState === "syncing" || manualSyncing) && <div className="mt-3 h-1 overflow-hidden bg-amber-100"><div className="h-full w-2/3 animate-pulse bg-amber-500" /></div>}
+                  {(syncState === "syncing" || manualSyncing) && <div aria-hidden="true" className="relative mt-3 h-1 overflow-hidden bg-amber-100"><span className="mosaic-sync-progress-bar" /></div>}
                 </section>
               )}
             </>

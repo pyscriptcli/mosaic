@@ -166,3 +166,16 @@ The per-token limiter starts at the conservative 667 ms interval (at most about 
 Production evidence for commit `ac16a73`: deployment reached Ready. Authenticated Daily Log displayed 10 activity days for October 1–14, with October 12/13 entries and October 14 editor values present. Main Sync visibly showed the animated progress bar while active, then reported `ClickUp connection: Done` and `Daily Log: Done` with no generic list-ID rows.
 
 Production date-browse evidence for commit `1cc689a`: selecting `Open this day` for October 12 changed the editor's selected date to `2026-10-12` and populated Admin (four entries), Ad hoc, and Meetings values from the same ClickUp history response.
+
+### Direct-read latency and Sync feedback follow-up (2026-10-14)
+
+The Daily Log history and selected-day read routes now start the live ClickUp parent-index request and the staged-write overlay lookup concurrently. Neither operation depends on the other's result, so Supabase lookup latency no longer delays the start of ClickUp's live read. The Sync detail panel uses the same moving progress indicator as the top-bar button; reduced-motion settings continue to disable its movement. The existing source already routes manual Sync through the live mounted-view refresh path and does not enqueue a durable refresh run. This change does not modify Supabase schema, cache configuration, limiter RPC, scheduler, or stored secrets.
+
+### Acceptance criteria
+
+- [x] Daily Log live parent-index reads and staged-write overlay reads start concurrently in both the history and selected-day routes.
+- [x] Sync control and its open detail panel display the moving progress indicator while refresh work is active and honor reduced-motion preferences.
+- [ ] Production verifies that manual Sync no longer reports a refresh-queue failure and that a mounted Daily Log refresh completes from ClickUp.
+- [ ] Measure an uncached current-month history load and selected-day load in production; confirm full date/category results and record timings. The five-second cold-load target remains open until measured.
+- [ ] Confirm ClickUp plan headers and live request traffic remain within the per-token budget during that same production run.
+- [x] No Supabase schema, cache configuration, limiter RPC, scheduler, or stored secret was changed.
