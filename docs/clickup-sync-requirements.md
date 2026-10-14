@@ -194,3 +194,19 @@ The telemetry observed before this correction covered only wrapper-routed reques
 - [x] Focused post-deploy telemetry confirms the Daily Log direct-read routes are visible and no 429s occurred during the verified Sync. The sampled `/api/v2/user`, `/api/v2/task/:id`, and `/api/v2/list/:id/task` responses reported a 100/minute limit, with 85–99 requests remaining and zero retries. This verifies the sampled Sync, not every possible production ClickUp request path.
 - [ ] Production Daily Log cold history completes within five seconds with all expected records; record total load time and per-call rate wait/upstream timings. Date selection is verified separately below; a controlled uncached range measurement remains outstanding.
 - [x] No Supabase schema, cache, limiter RPC, scheduler, or secret configuration was changed.
+
+### Fast live Daily Log follow-up (2026-10-14)
+
+Production review found the history timeline could show an already cached date while the matching editor remained on a ClickUp loading state. The browser page cache populated the timeline, but its result was not sent to the editor until the slower live request completed. The selected-day editor now receives cached history immediately as a preview, labels it as refreshing, and keeps the fields read-only until the corresponding live ClickUp response arrives. Current-user identity matching also recognizes the selected member by the authenticated user's name when ClickUp's owner ID is represented by the Daily Log parent-name convention.
+
+Daily Log history reads and activity-only selected-day fallback reads now explicitly bypass the short server-side ClickUp cache. The activity-only fallback no longer makes an extra ClickUp List metadata request whose statuses are not displayed. The shared per-token request gate, bounded concurrency, retry handling, and telemetry remain the only ClickUp API transport; no Supabase configuration or schema is changed.
+
+#### Acceptance criteria
+
+- [x] Cached date history hydrates the matching Daily Log editor immediately while the live range request continues in the background.
+- [x] Cached editor values are visibly marked as refreshing and cannot be edited or saved until a live response confirms the selected date.
+- [x] Initial and changed Daily Log ranges request a live ClickUp refresh; cached history is used only to render a fast preview.
+- [x] Activity-only selected-day fallback requests use live ClickUp data and skip unused List metadata.
+- [ ] Production verifies browsing among dates already in the loaded range populates the editor immediately, then the live response replaces the preview with current values; record duration and confirm no duplicate selected-day request when history covers the date.
+- [ ] Production confirms API request telemetry for history and fallback routes includes rate-limit headers, remains within the observed token budget, and records no 429 retries during the verification window.
+- [x] No Supabase schema, cache configuration, limiter RPC, scheduler, or stored secret was changed.

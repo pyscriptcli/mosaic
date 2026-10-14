@@ -35,6 +35,7 @@ export interface NotebookActivityHistory {
   start: string;
   end: string;
   isCurrentUser: boolean;
+  isFresh: boolean;
   entries: NotebookActivityHistoryEntry[];
 }
 
@@ -196,6 +197,21 @@ export function NotebookView({ currentUserName, userId, initialDate, initialTab 
     ? insightMemberId === "all" ? "" : insightMemberId
     : selectedMemberId;
   const requestCurrentUser = activeTab !== "insights" && !requestedMemberId;
+  const publishActivityHistory = useCallback((source: NotebookPayload, isFresh: boolean) => {
+    const normalizedCurrentUserName = currentUserName?.trim().toLowerCase();
+    const selectedMemberIsCurrentUser = Boolean(
+      requestedMemberId && normalizedCurrentUserName && source.members.some((item) =>
+        item.id === requestedMemberId && item.name.trim().toLowerCase() === normalizedCurrentUserName,
+      ),
+    );
+    onActivityHistoryLoadRef.current?.({
+      start: rangeStart,
+      end: rangeEnd,
+      isCurrentUser: requestCurrentUser || Boolean(userId && requestedMemberId === userId) || selectedMemberIsCurrentUser,
+      isFresh,
+      entries: source.entries || [],
+    });
+  }, [currentUserName, rangeEnd, rangeStart, requestCurrentUser, requestedMemberId, userId]);
   const loadNotebook = async (background = Boolean(payload)) => {
     const requestVersion = ++notebookRequestVersion.current;
     const cacheKey = `notebook:${rangeStart}:${rangeEnd}:${requestedMemberId || (requestCurrentUser ? "current" : "all")}`;
@@ -203,7 +219,7 @@ export function NotebookView({ currentUserName, userId, initialDate, initialTab 
     setError("");
     try {
       const query = new URLSearchParams({ start: rangeStart, end: rangeEnd });
-      if (background) query.set("liveRefresh", "1");
+      query.set("liveRefresh", "1");
       if (requestedMemberId) query.set("memberId", requestedMemberId);
       else if (requestCurrentUser) query.set("currentUser", "1");
       const response = await fetch(`/api/notebook?${query}`, { cache: "no-store" });
@@ -212,12 +228,7 @@ export function NotebookView({ currentUserName, userId, initialDate, initialTab 
       if (requestVersion !== notebookRequestVersion.current) return;
       setPayload(body);
       if (requestCurrentUser) loadedCurrentUserRange.current = `${rangeStart}:${rangeEnd}`;
-      onActivityHistoryLoadRef.current?.({
-        start: rangeStart,
-        end: rangeEnd,
-        isCurrentUser: requestCurrentUser || Boolean(userId && requestedMemberId === userId),
-        entries: body.entries || [],
-      });
+      publishActivityHistory(body as NotebookPayload, true);
       if (userId) void writeBrowserPageCache(userId, cacheKey, body as NotebookPayload);
     } catch (loadError) {
       if (requestVersion !== notebookRequestVersion.current) return;
@@ -247,11 +258,15 @@ export function NotebookView({ currentUserName, userId, initialDate, initialTab 
     void (async () => {
       const cacheKey = `notebook:${rangeStart}:${rangeEnd}:${requestedMemberId || (requestCurrentUser ? "current" : "all")}`;
       const cached = userId ? await readBrowserPageCache<NotebookPayload>(userId, cacheKey) : undefined;
-      if (cached && active) { setPayload(cached); setLoading(false); }
+      if (cached && active) {
+        setPayload(cached);
+        setLoading(false);
+        publishActivityHistory(cached, false);
+      }
       if (active) await loadNotebook(Boolean(cached));
     })();
     return () => { active = false; };
-  }, [userId, rangeStart, rangeEnd, requestedMemberId, requestCurrentUser]);
+  }, [userId, rangeStart, rangeEnd, requestedMemberId, requestCurrentUser, publishActivityHistory]);
 
   useEffect(() => {
     const refreshAfterSync = (event: Event) => { trackClickUpLiveRefresh(event, () => loadNotebookRef.current(true), "Daily Log"); };

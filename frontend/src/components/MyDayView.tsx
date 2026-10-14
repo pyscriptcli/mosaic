@@ -15,6 +15,7 @@ type DayPayload = {
   date: string; dayTask: { id: string; name: string; url: string } | null; tasks: DayTask[];
   notes: string; noteTask: { id: string; name: string; url: string } | null; activity: DailyActivity;
   personalList: { id: string; name: string } | null; completeStatus: string; openStatus: string; notesError?: string;
+  isFresh?: boolean;
   dailyLogByDate?: Array<{ date: string; dayTask: { id: string; name: string; url: string }; activity: DailyActivity }>;
 };
 type Props = { userId?: string; currentUserName?: string; showDailyActivity?: boolean; activityOnly?: boolean; initialDate?: string; onDateChange?: (date: string) => void; activityHistory?: NotebookActivityHistory | null };
@@ -238,7 +239,7 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
         date: requestedDate,
         dayTask: entry ? { id: entry.id, name: entry.name, url: entry.url } : null,
         tasks: [], notes: "", noteTask: null, activity: entry?.categories || EMPTY_ACTIVITY,
-        personalList: null, completeStatus: "complete", openStatus: "to do",
+        personalList: null, completeStatus: "complete", openStatus: "to do", isFresh: activityHistory.isFresh,
       };
       dayPayloadCache.current.set(cacheKey, { payload: fromHistory, cachedAt: Date.now() });
       applyDay(fromHistory);
@@ -248,16 +249,19 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
       return;
     }
     if (!background && cached && Date.now() - cached.cachedAt < (activityOnly ? 5 * 60_000 : 20_000)) {
-      applyDay(cached.payload);
-      setError("");
-      setLoading(false);
-      return;
+      if (!activityOnly) {
+        applyDay(cached.payload);
+        setError("");
+        setLoading(false);
+        return;
+      }
+      applyDay({ ...cached.payload, isFresh: false });
     }
     if (!background) activityReady.current = false;
     if (background) setRefreshing(true); else setLoading(true);
     setError("");
     try {
-      const response = await fetch(`/api/my-day?date=${encodeURIComponent(requestedDate)}&personalListId=${encodeURIComponent(personalList?.id || "")}&personalListName=${encodeURIComponent(personalList?.name || "Personal List")}${activityOnly ? "&includeNotes=0" : ""}${background ? "&liveRefresh=1" : ""}`, { headers: requestHeaders(personalList), cache: "no-store" });
+      const response = await fetch(`/api/my-day?date=${encodeURIComponent(requestedDate)}&personalListId=${encodeURIComponent(personalList?.id || "")}&personalListName=${encodeURIComponent(personalList?.name || "Personal List")}${activityOnly ? "&includeNotes=0" : ""}${background || activityOnly ? "&liveRefresh=1" : ""}`, { headers: requestHeaders(personalList), cache: "no-store" });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || "My Day could not be loaded.");
       if (requestVersion !== dayRequestVersion.current) return;
@@ -652,7 +656,7 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
               </div>
               <div className="flex items-center gap-3"><span role="status" className="text-[10px] font-semibold text-slate-500">{activitySave === "saved" ? "Saved" : activitySave === "saving" ? "Saving…" : activitySave === "pending" ? "Autosave pending" : "Save failed"}</span><button type="button" onClick={() => void generateSummary()} disabled={summaryState === "loading" || tasks.length === 0} title={summaryState === "loading" ? "Generating summary…" : "Generate summary with AI"} aria-label={summaryState === "loading" ? "Generating summary with AI" : "Generate summary with AI"} aria-busy={summaryState === "loading"} className="inline-flex min-h-8 min-w-8 items-center justify-center border border-slate-300 text-[#003366] hover:border-[#003366] disabled:opacity-50"><Sparkles size={14} aria-hidden="true" /></button></div>
             </div>
-            {payload?.date !== date && <p role="status" className="border-b border-slate-200 bg-slate-50 px-4 py-2 text-xs text-slate-600">Loading {dateLabel(date)} from ClickUp…</p>}
+            {(payload?.date !== date || payload?.isFresh === false) && <p role="status" className="border-b border-slate-200 bg-slate-50 px-4 py-2 text-xs text-slate-600">{payload?.date === date ? `Refreshing ${dateLabel(date)} from ClickUp…` : `Loading ${dateLabel(date)} from ClickUp…`}</p>}
             {(summaryState === "loading" || summaryError || taskSummary) && <div className="border-b border-slate-200 bg-slate-50/70 px-4 py-2 text-xs text-slate-600" role={summaryError ? "alert" : "status"}>{summaryState === "loading" ? "Preparing a task summary…" : summaryError || (taskSummary ? "A bullet summary of your My Day tasks is included in Ad hoc activity." : "")}</div>}
             <div className="grid grid-cols-1 gap-3 p-4 md:grid-cols-2">
               {ACTIVITY_FIELDS.map((field) => (
@@ -661,7 +665,7 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
                   <textarea
                     value={activityDraft[field.key]}
                     onChange={(event) => setActivityDraft((current) => ({ ...current, [field.key]: event.target.value }))}
-                    disabled={loading || payload?.date !== date}
+                    disabled={loading || payload?.date !== date || payload?.isFresh === false}
                     placeholder={"Log " + field.label.toLowerCase() + " work"}
                     rows={3}
                     className="w-full resize-y border border-slate-200 bg-[#FFFCFB] px-3 py-2 text-sm leading-relaxed text-slate-700 outline-none focus:border-[#C9A84C]"
@@ -677,7 +681,7 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
                   if (activityTimer.current) clearTimeout(activityTimer.current);
                   void saveActivity();
                 }}
-                disabled={activitySave === "saving" || loading || payload?.date !== date}
+                disabled={activitySave === "saving" || loading || payload?.date !== date || payload?.isFresh === false}
                 className="inline-flex min-h-10 items-center gap-2 border border-[#003366] px-3 text-xs font-semibold text-[#003366] hover:bg-[#003366] hover:text-white disabled:opacity-50"
               >
                 <Save size={13} />Save now

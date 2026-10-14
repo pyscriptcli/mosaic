@@ -171,7 +171,9 @@ export async function GET(req: NextRequest) {
     const [{ tasks, day, dailyLogByDate, syncState, syncedAt, isFresh }, personalList, listInfo] = await Promise.all([
       getKpiContext(token, date, req, forceRefresh),
       includeNotes ? getPersonalList(req) : Promise.resolve(null),
-      clickUpJson(token, `https://api.clickup.com/api/v2/list/${DAILY_LOG_LIST_ID}`),
+      includeNotes
+        ? clickUpJson(token, `https://api.clickup.com/api/v2/list/${DAILY_LOG_LIST_ID}`)
+        : Promise.resolve({ statuses: [] as Array<{ status?: string; type?: string }> }),
     ]);
     const statuses = (listInfo.statuses || []) as Array<{ status?: string; type?: string }>;
     const completeStatus = statuses.find((item) => item.type === "closed" || /complete|done|closed/i.test(item.status || ""))?.status || "complete";
