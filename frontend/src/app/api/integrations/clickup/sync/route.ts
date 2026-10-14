@@ -89,8 +89,17 @@ export async function POST(request: NextRequest) {
 
   const startedAt = Date.now();
   await clearClickUpReadCache(current.scope);
-  const runId = await enqueueClickUpSyncRun(current.scope, current.userId, "manual", targets);
-  if (!runId) return NextResponse.json({ error: "The ClickUp refresh could not be saved to the sync queue." }, { status: 503 });
+  let enqueueErrorCode: string | null = null;
+  const runId = await enqueueClickUpSyncRun(current.scope, current.userId, "manual", targets, (code) => { enqueueErrorCode = code; });
+  if (!runId) {
+    await recordTelemetry({
+      userId: current.userId, userEmail: current.email, source: "clickup", operation: "clickup_sync",
+      processingMs: Date.now() - startedAt, success: false, errorCategory: "sync_enqueue_failed",
+      errorMessage: "The durable ClickUp sync queue rejected the refresh request.",
+      metadata: { trigger: "manual", requestedLists: targets.length, databaseErrorCode: enqueueErrorCode },
+    });
+    return NextResponse.json({ error: "Sync could not start because the refresh could not be queued. Your saved log is unchanged; try again shortly." }, { status: 503 });
+  }
   const userEmail = current.email;
   await recordTelemetry({
     userId: current.userId, userEmail, source: "clickup", operation: "clickup_sync",

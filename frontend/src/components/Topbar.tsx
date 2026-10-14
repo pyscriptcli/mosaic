@@ -336,9 +336,9 @@ export function Topbar({
           const dot = effectiveState === "synced" ? "bg-emerald-600" : effectiveState === "error" ? "bg-red-600" : "bg-amber-500";
           return (
             <>
-              <button type="button" onClick={() => void runManualSync()} disabled={manualSyncing} aria-label={`Sync now. ${label}${syncPendingCount ? `, ${syncPendingCount} pending` : ""}`} title={syncError || `${label}${syncPendingCount ? ` · ${syncPendingCount} pending` : ""}. Click to sync now.`} className={`inline-flex min-h-9 items-center gap-1.5 border border-slate-200 px-2.5 text-[11px] font-semibold transition-colors disabled:cursor-wait disabled:opacity-70 ${tone}`}>
+              <button type="button" onClick={() => void runManualSync()} disabled={manualSyncing} aria-busy={manualSyncing || syncState === "syncing"} aria-label={`Sync now. ${label}${syncPendingCount ? `, ${syncPendingCount} pending` : ""}`} title={syncError || `${label}${syncPendingCount ? ` · ${syncPendingCount} pending` : ""}. Click to sync now.`} className={`inline-flex min-h-9 items-center gap-1.5 border border-slate-200 px-2.5 text-[11px] font-semibold transition-colors disabled:cursor-wait disabled:opacity-70 ${tone}`}>
                 <span aria-hidden="true" className={`h-2 w-2 shrink-0 rounded-full ${dot}`} />
-                <RefreshCw aria-hidden="true" size={13} className={effectiveState === "syncing" || manualSyncing ? "animate-spin" : ""} />
+                <RefreshCw aria-hidden="true" size={13} className={effectiveState === "syncing" || manualSyncing ? "animate-spin motion-reduce:animate-none" : ""} />
                 <span>{label}</span>
               </button>
               {syncDetailsOpen && (

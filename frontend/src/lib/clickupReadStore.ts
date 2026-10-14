@@ -163,9 +163,9 @@ export async function queueClickUpSync(token: string, userId: string, listId: st
   return Boolean(await enqueueClickUpSyncRun(scope, verifiedUserId, "scheduled", [{ id: listId, label: listId }]));
 }
 
-export async function enqueueClickUpSyncRun(scope: string, userId: string, trigger: "manual" | "webhook" | "scheduled" | "write", targets: Array<{ id: string; label: string; deletedTaskIds?: string[]; changedTaskIds?: string[] }>) {
+export async function enqueueClickUpSyncRun(scope: string, userId: string, trigger: "manual" | "webhook" | "scheduled" | "write", targets: Array<{ id: string; label: string; deletedTaskIds?: string[]; changedTaskIds?: string[] }>, onFailure?: (code: string | null) => void) {
   const client = db();
-  if (!client || !targets.length) return null;
+  if (!client || !targets.length) { onFailure?.(null); return null; }
   const { data, error } = await client.rpc("echo_enqueue_clickup_sync_run", {
     p_scope_key: scope,
     p_user_id: userId,
@@ -177,7 +177,9 @@ export async function enqueueClickUpSyncRun(scope: string, userId: string, trigg
     })),
   });
   if (error || typeof data !== "string") {
-    if (error) console.warn("[clickup-sync] run enqueue unavailable", error.code);
+    const code = error?.code || null;
+    console.warn("[clickup-sync] run enqueue unavailable", code || "no_database_result");
+    onFailure?.(code);
     return null;
   }
   return data;

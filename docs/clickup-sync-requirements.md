@@ -70,6 +70,7 @@ Writes may continue to use the durable write outbox and may read current state w
 
 ## Release evidence
 
+- On 2026-10-14, the user screenshot's queue rejection was traced to PostgreSQL `42702` errors in production: the enqueue function had PL/pgSQL variables named `list_id`/`run_id` colliding with SQL columns, and the scheduled claim function selected an unqualified `run_id`. This caused refresh enqueue and worker claims to fail. Migration `clickup_sync_queue_ambiguity_fix` replaced the colliding variables with `v_` names, qualified the claim CTE reference, and made list ID validation explicit. A real daily-log target was accepted into the durable queue after the migration.
 - The production Supabase project previously reported a 1,000-row Data API ceiling, 556 cached daily-log tasks, and 16 queued jobs. This motivated explicit pagination and queue health reporting; it did not reproduce the user-reported missing date.
 - The durable schema and one-minute Cron schedule were applied to Project Echo. One Cron invocation was recorded as `succeeded`; this alone does not prove that an HTTP worker completed a sync.
 - The prior production build passed. The authenticated UI flow and the missing-date root cause were not verified in that build.
@@ -92,5 +93,8 @@ Every item must have evidence recorded here or in the linked deployment/diagnost
 - [ ] Confirm the scheduler's HTTP response and worker claim/completion in database/network history, not only `cron.job_run_details.status`.
 - [ ] Run an authenticated click-through of date browsing, Sync progress and recovery, empty/stale/error states, and Admin Telemetry. Record screenshots or a concise interaction log.
 - [x] Run the repository production build and TypeScript check; both passed for this implementation increment.
+- [x] Queue failures are captured as sanitized ClickUp sync telemetry with database error code; API response preserves the last saved log and gives a retryable message.
+- [x] Sync button exposes its active state to assistive technology and animates during sync while honoring reduced-motion preferences.
+- [ ] Confirm the production daily-log queue run accepted after the ambiguity fix is claimed and completes successfully; verify the worker claim no longer reports SQLSTATE `42702`.
 - [ ] Run and record the applicable staging failure/acceptance scenarios; these were not run in this environment.
 - [ ] Commit only ClickUp sync task files, push the intended branch, and verify the hosted deployment for that commit reaches a successful terminal state.
