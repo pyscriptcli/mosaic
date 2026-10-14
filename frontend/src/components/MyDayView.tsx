@@ -172,6 +172,10 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
   const notesReady = useRef(false);
   const activityReady = useRef(false);
 
+  useEffect(() => {
+    if (initialDate && initialDate !== date) setDate(initialDate);
+  }, [date, initialDate]);
+
   useEffect(() => { onDateChange?.(date); }, [date, onDateChange]);
 
   useEffect(() => {
