@@ -179,3 +179,18 @@ The Daily Log history and selected-day read routes now start the live ClickUp pa
 - [ ] Measure an uncached current-month history load and selected-day load in production; confirm full date/category results and record timings. The five-second cold-load target remains open until measured.
 - [ ] Confirm ClickUp plan headers and live request traffic remain within the per-token budget during that same production run.
 - [x] No Supabase schema, cache configuration, limiter RPC, scheduler, or stored secret was changed.
+
+### Complete ClickUp request-path audit (2026-10-14)
+
+A source audit found authenticated ClickUp requests in login, admin identity, media attachment, and Strategic Alliance submission paths that used native `fetch`; these calls bypassed the shared per-token limiter and request telemetry. Those paths now use `clickUpFetch`/`clickUpCalendarFetch`. Strategic Alliance submission-number discovery now uses the shared fully paginated list reader instead of stopping after 20 pages. The wrapper now honors `cache: "no-store"` as a cache bypass, preserving callers' explicit live-read semantics. OAuth code exchange remains outside the ClickUp API request budget; it has no ClickUp access token and is not a task or API data request.
+
+The telemetry observed before this correction covered only wrapper-routed requests and therefore cannot prove total production ClickUp traffic stayed within the token budget. Its 2-hour window showed an observed limit of 100/minute, no tracked 429s or failed requests, mean tracked rate wait around 1.3 seconds, and mean upstream time around 441 ms. Production verification must repeat after the complete routing change is deployed.
+
+### Acceptance criteria
+
+- [x] All authenticated ClickUp API calls in application source use the shared request limiter and telemetry, except the unauthenticated OAuth token exchange.
+- [x] ClickUp calls marked `cache: "no-store"` bypass the shared HTTP response cache.
+- [x] Strategic Alliance list discovery no longer has a fixed 20-page ceiling and uses the central complete paginated reader.
+- [ ] Post-deploy telemetry confirms the direct-read routes are visible, no 429s occur, and request starts remain within the observed per-token plan limit.
+- [ ] Production Daily Log cold history and date selection complete with all expected records; record total load time and per-call rate wait/upstream timings.
+- [x] No Supabase schema, cache, limiter RPC, scheduler, or secret configuration was changed.

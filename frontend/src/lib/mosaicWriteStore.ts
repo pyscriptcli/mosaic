@@ -329,7 +329,7 @@ export async function uploadStagedMosaicMedia(token: string, domain: string, rec
   for (const file of files) {
     const form = new FormData();
     form.append("attachment", file, file.name);
-    const response = await fetch(`https://api.clickup.com/api/v2/task/${encodeURIComponent(clickupId)}/attachment`, {
+    const response = await clickUpCalendarFetch(token, `https://api.clickup.com/api/v2/task/${encodeURIComponent(clickupId)}/attachment`, {
       method: "POST", headers: { Authorization: token }, body: form, signal: AbortSignal.timeout(30_000),
     });
     if (!response.ok) console.warn("[mosaic-sync] media upload failed after record sync", { domain, recordId, status: response.status });

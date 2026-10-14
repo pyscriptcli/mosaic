@@ -154,6 +154,7 @@ async function clickUpRequest(token: string, input: string | URL, init?: Request
 export async function clickUpCalendarFetch(token: string, input: string | URL, init?: RequestInit, invalidatePaths?: string[], options: { skipCache?: boolean; maxRateLimitRetries?: number; timeoutMs?: number } = {}) {
   const url = String(input);
   const method = (init?.method || "GET").toUpperCase();
+  const skipCache = options.skipCache || init?.cache === "no-store";
   const scope = clickUpScope(token);
   if (method !== "GET") {
     const response = await clickUpRequest(token, input, init, options);
@@ -163,13 +164,13 @@ export async function clickUpCalendarFetch(token: string, input: string | URL, i
     return response;
   }
   const key = `${scope}:${digest(url)}`;
-  const pending = options.skipCache ? null : inFlightGets.get(key);
+  const pending = skipCache ? null : inFlightGets.get(key);
   if (pending) {
     scheduleClickUpTelemetry({ source: "clickup", operation: "clickup_cache_hit", processingMs: 0, success: true, metadata: { endpoint: safeEndpoint(url), cacheState: "inflight" } });
     return (await pending).clone();
   }
   const request = (async () => {
-    const cached = options.skipCache ? null : await readCachedClickUp(scope, url).catch(() => null);
+    const cached = skipCache ? null : await readCachedClickUp(scope, url).catch(() => null);
     if (cached) {
       scheduleClickUpTelemetry({ source: "clickup", operation: "clickup_cache_hit", processingMs: 0, success: true, metadata: { endpoint: safeEndpoint(url), cacheState: "stored" } });
       if (process.env.CLICKUP_PERF_LOGS === "true") console.info("[clickup-perf]", JSON.stringify({ path: new URL(url).pathname, method: "GET", cache: "hit" }));
@@ -181,18 +182,26 @@ export async function clickUpCalendarFetch(token: string, input: string | URL, i
     await writeCachedClickUp(scope, url, response, body);
     return response;
   })();
-  if (!options.skipCache) inFlightGets.set(key, request);
-  try { return (await request).clone(); } finally { if (!options.skipCache) inFlightGets.delete(key); }
+  if (!skipCache) inFlightGets.set(key, request);
+  try { return (await request).clone(); } finally { if (!skipCache) inFlightGets.delete(key); }
 }
 
 /** Route ClickUp traffic through one cache, rate budget, and concurrency limiter. */
 export async function clickUpFetch(input: RequestInfo | URL, init?: RequestInit) {
   const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
   if (!url.startsWith("https://api.clickup.com/")) return fetch(input, init);
-  const headers = new Headers(init?.headers || (typeof input === "object" && "headers" in input ? input.headers : undefined));
+  const request = typeof Request !== "undefined" && input instanceof Request ? input : null;
+  const headers = new Headers(request?.headers);
+  new Headers(init?.headers).forEach((value, key) => headers.set(key, value));
   const token = headers.get("Authorization") || "";
   if (!token) return fetch(input, init);
-  return clickUpCalendarFetch(token, url, init);
+  const requestInit = {
+    ...init,
+    ...(init?.method || !request ? {} : { method: request.method }),
+    headers,
+  };
+  const cacheMode = init?.cache || request?.cache;
+  return clickUpCalendarFetch(token, url, requestInit, undefined, { skipCache: cacheMode === "no-store" });
 }
 
 /** Read a complete live ClickUp list without serving the Supabase/HTTP response cache. */
