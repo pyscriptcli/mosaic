@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { clearBrowserPageCache, readBrowserPageCache, writeBrowserPageCache } from "@/lib/browserPageCache";
+import { clearBrowserPageCache, getBrowserPageCache, readBrowserPageCache, writeBrowserPageCache } from "@/lib/browserPageCache";
 import { requestCentralClickUpSync, trackClickUpLiveRefresh } from "@/lib/clickupSyncClient";
 import {
   AlertCircle,
@@ -197,6 +197,7 @@ export function NotebookView({ currentUserName, userId, initialDate, initialTab 
     ? insightMemberId === "all" ? "" : insightMemberId
     : selectedMemberId;
   const requestCurrentUser = activeTab !== "insights" && !requestedMemberId;
+  const currentUserMemberSlug = currentUserName?.trim().toLowerCase().replace(/\s+/g, "-");
   const publishActivityHistory = useCallback((source: NotebookPayload, isFresh: boolean) => {
     const normalizedCurrentUserName = currentUserName?.trim().toLowerCase();
     const selectedMemberIsCurrentUser = Boolean(
@@ -254,19 +255,29 @@ export function NotebookView({ currentUserName, userId, initialDate, initialTab 
 
   useEffect(() => {
     let active = true;
-    if (requestedMemberId && userId && requestedMemberId === userId && loadedCurrentUserRange.current === `${rangeStart}:${rangeEnd}`) return;
-    void (async () => {
-      const cacheKey = `notebook:${rangeStart}:${rangeEnd}:${requestedMemberId || (requestCurrentUser ? "current" : "all")}`;
-      const cached = userId ? await readBrowserPageCache<NotebookPayload>(userId, cacheKey) : undefined;
-      if (cached && active) {
-        setPayload(cached);
-        setLoading(false);
-        publishActivityHistory(cached, false);
-      }
-      if (active) await loadNotebook(Boolean(cached));
-    })();
+    if (
+      requestedMemberId && loadedCurrentUserRange.current === `${rangeStart}:${rangeEnd}` &&
+      (requestedMemberId === userId || requestedMemberId === currentUserMemberSlug)
+    ) return;
+    const cacheKey = `notebook:${rangeStart}:${rangeEnd}:${requestedMemberId || (requestCurrentUser ? "current" : "all")}`;
+    const publishCachedPreview = (cached: NotebookPayload) => {
+      setPayload(cached);
+      setLoading(false);
+      if (requestCurrentUser) loadedCurrentUserRange.current = `${rangeStart}:${rangeEnd}`;
+      publishActivityHistory(cached, false);
+    };
+    let liveRequestSettled = false;
+    const liveRequest = loadNotebook(false).finally(() => { liveRequestSettled = true; });
+    const inMemoryCache = userId ? getBrowserPageCache<NotebookPayload>(userId, cacheKey) : undefined;
+    if (inMemoryCache && !liveRequestSettled) publishCachedPreview(inMemoryCache);
+    if (userId && !inMemoryCache) {
+      void readBrowserPageCache<NotebookPayload>(userId, cacheKey).then((cached) => {
+        if (cached && active && !liveRequestSettled) publishCachedPreview(cached);
+      }).catch(() => undefined);
+    }
+    void liveRequest;
     return () => { active = false; };
-  }, [userId, rangeStart, rangeEnd, requestedMemberId, requestCurrentUser, publishActivityHistory]);
+  }, [userId, rangeStart, rangeEnd, requestedMemberId, requestCurrentUser, currentUserMemberSlug, publishActivityHistory]);
 
   useEffect(() => {
     const refreshAfterSync = (event: Event) => { trackClickUpLiveRefresh(event, () => loadNotebookRef.current(true), "Daily Log"); };
@@ -637,6 +648,7 @@ export function NotebookView({ currentUserName, userId, initialDate, initialTab 
         )}
       </div>
 
+      {loading && payload && <p role="status" className="border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">Loading this date range from ClickUp. Showing the last loaded range until it finishes.</p>}
       {error && <div className="border border-amber-200 bg-amber-50 text-amber-800 px-4 py-3 text-sm">Showing the last loaded data. Refresh failed: {error}</div>}
       {payload?.warning && <div role="status" className="border border-amber-200 bg-amber-50 text-amber-800 px-4 py-3 text-sm">{payload.warning}</div>}
 
