@@ -252,17 +252,24 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => ({}));
     const folderId = String(body.folderId || "");
+    const mode = String(body.mode || "");
+    const requestedListId = String(body.listId || "");
     if (!/^\d+$/.test(folderId)) return NextResponse.json({ error: "A valid project folder is required." }, { status: 400 });
     if (folderId !== SOURCE_FOLDER_ID) return NextResponse.json({ error: "Sites storage can only be set up in the source project folder." }, { status: 403 });
-    if (body.mode !== "all") return NextResponse.json({ error: "Choose all subprojects for site task setup." }, { status: 400 });
-    const access = await requireProjectAdmin(request);
+    if (mode !== "all" && mode !== "list") return NextResponse.json({ error: "Choose a subproject for site task setup." }, { status: 400 });
+    if (mode === "list" && !/^\d+$/.test(requestedListId)) return NextResponse.json({ error: "A valid subproject is required for site task setup." }, { status: 400 });
+    const access = mode === "all"
+      ? await requireProjectAdmin(request)
+      : await requireSubprojectEditor(request, folderId, requestedListId);
     if (!access.ok) return access.response;
     const { token } = access;
     const userId = String(getUserFromRequest(request)?.id || "");
     if (!userId) return NextResponse.json({ error: "Your ClickUp profile is required to set up site records." }, { status: 401 });
 
     const folderLists = await clickUpJson(token, `https://api.clickup.com/api/v2/folder/${folderId}/list`);
-    const subprojects = (folderLists.lists || []) as Array<{ id?: string | number; name?: string }>;
+    const allSubprojects = (folderLists.lists || []) as Array<{ id?: string | number; name?: string }>;
+    const subprojects = mode === "list" ? allSubprojects.filter((list) => String(list.id) === requestedListId) : allSubprojects;
+    if (mode === "list" && subprojects.length === 0) return NextResponse.json({ error: "This subproject does not belong to the selected project." }, { status: 403 });
     if (!subprojects.length) return NextResponse.json({ error: "No subprojects were found in this project." }, { status: 404 });
 
     let createdSites = 0;
@@ -280,7 +287,7 @@ export async function POST(request: NextRequest) {
         clickUpJson(token, `https://api.clickup.com/api/v2/list/${listId}/field`),
       ]);
       const fields = (fieldsPayload.fields || []) as ClickUpField[];
-      const existingTasks = await fetchAllClickUpListTasks<ClickUpTask>(token, listId);
+      const existingTasks = await fetchAllClickUpListTasks<ClickUpTask>(token, listId, { includeSubtasks: false });
       const statusOptions = (list.statuses || []) as Array<{ status?: string; type?: string }>;
       const closedStatus = statusOptions.find((status) => status.type?.toLocaleLowerCase() === "closed")?.status
         || statusOptions.find((status) => /^(closed|complete|completed|done)$/i.test(status.status || ""))?.status

@@ -1002,7 +1002,7 @@ function SubprojectSites({ folderId, listId, listName, userId, canEdit, canManag
       const response = await fetch("/api/projects/sites", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ folderId, mode: "all" }),
+        body: JSON.stringify(canManageAllSites ? { folderId, mode: "all" } : { folderId, listId, mode: "list" }),
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.error || "Site tasks could not be created.");
@@ -1030,8 +1030,8 @@ function SubprojectSites({ folderId, listId, listName, userId, canEdit, canManag
       </div>
       <div className="flex flex-wrap gap-2">
         {sites.length > 0 && <button type="button" onClick={exportSites} className="inline-flex min-h-9 items-center gap-2 border border-slate-300 bg-white px-3 text-[11px] font-semibold text-[#003366] hover:border-[#003366]"><Download aria-hidden="true" className="h-3.5 w-3.5" />Export CSV</button>}
-        {sites.length > 0 && !sites.every((site) => Boolean(site.taskId)) && canManageAllSites && (
-          <button type="button" onClick={() => void createClosedTasks()} disabled={syncing} className="min-h-9 border border-[#003366] bg-[#003366] px-3 text-[11px] font-semibold text-white hover:bg-[#174778] disabled:cursor-wait disabled:opacity-60">{syncing ? "Creating site tasks…" : "Create site tasks for all subprojects"}</button>
+        {sites.length > 0 && !sites.every((site) => Boolean(site.taskId)) && canEdit && (
+          <button type="button" onClick={() => void createClosedTasks()} disabled={syncing} className="min-h-9 border border-[#003366] bg-[#003366] px-3 text-[11px] font-semibold text-white hover:bg-[#174778] disabled:cursor-wait disabled:opacity-60">{syncing ? "Creating site tasks…" : canManageAllSites ? "Create site tasks for all subprojects" : "Set up site rows for this subproject"}</button>
         )}
       </div>
     </header>
@@ -1530,7 +1530,7 @@ export function ProjectWorkspace({ userId }: { userId?: string }) {
     const basePath = data && activeList ? `/projects/${routeSegment(data.folder.name, data.folder.id)}/${routeSegment(activeList.name, activeList.id)}` : "";
     const access = data?.accessByListId?.[activeListId];
     const canManageLead = Boolean(data?.isProjectAdmin);
-    const canEdit = Boolean(access?.canEdit || data?.isProjectAdmin || (data?.currentUserId && data.currentUserId === data?.defaultAssignees[activeListId]?.[0]));
+    const canEdit = Boolean(access?.canEdit);
     if (data && activeList) return <SubprojectWorkspace folderId={data.folder.id} folderUrl={data.folder.url} list={activeList} tasks={tasksByList.get(activeList.id) || []} members={data.members} defaultAssignees={data.defaultAssignees[activeList.id] || []} canEdit={canEdit} canManageLead={canManageLead} onAssign={(ids) => void saveDefaultAssignees(activeList.id, ids)} savingAssignees={savingAssigneeListId === activeList.id} assigneeSyncMessage={assigneeSyncMessage} onBack={() => router.push(`/projects/${routeSegment(data.folder.name, data.folder.id)}`)} onRefresh={refreshProject} tasksLoading={tasksLoading} onTaskChange={updateProjectTask} basePath={basePath} initialView={initialView} initialReviewId={initialReviewId} userId={userId} />;
     return <section className="mx-auto w-full max-w-[1440px] space-y-3 pb-8"><LoadingSkeleton variant="subproject" /></section>;
   }
