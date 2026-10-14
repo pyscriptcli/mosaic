@@ -82,7 +82,7 @@ export default function TasksPageView(props: Props) {
       )}
       {tab === "activity" && props.canAccessNotebook && (
         <div className="space-y-8">
-          <MyDayView key={`activity-editor-${selectedDate}`} userId={props.userId} currentUserName={props.currentUserName} initialDate={selectedDate} onDateChange={setSelectedDate} activityOnly showDailyActivity />
+          <MyDayView userId={props.userId} currentUserName={props.currentUserName} initialDate={selectedDate} onDateChange={setSelectedDate} activityOnly showDailyActivity />
           <NotebookView key="activity-history" currentUserName={props.currentUserName} userId={props.userId} initialTab="week" hideViewTabs hidePageTitle onOpenDay={(date) => { setSelectedDate(date); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
         </div>
       )}
