@@ -159,5 +159,7 @@ The per-token limiter starts at the conservative 667 ms interval (at most about 
 - [x] A failed mounted-view refresh is reported as a failed target, while successful targets remain marked Done; the Daily Log retains its last loaded snapshot and surfaces the refresh error.
 - [x] The report shows the successful ClickUp connection check and actual refreshed view targets; it does not label submitted list IDs as completed data refreshes.
 - [x] The central Sync button displays a moving progress indicator while syncing and honors the reduced-motion preference.
-- [ ] Production click-through after the report-label cleanup confirms the central report shows ClickUp connection validation plus real mounted-view refresh targets, without generic list-ID completion rows.
+- [x] Production click-through after the report-label cleanup confirms the central report shows ClickUp connection validation plus real mounted-view refresh targets, without generic list-ID completion rows.
 - [ ] Fault-injection confirms a failed refresh keeps the prior Daily Log snapshot and reports only the affected mounted view as needing retry.
+
+Production evidence for commit `ac16a73`: deployment reached Ready. Authenticated Daily Log displayed 10 activity days for October 1–14, with October 12/13 entries and October 14 editor values present. Main Sync visibly showed the animated progress bar while active, then reported `ClickUp connection: Done` and `Daily Log: Done` with no generic list-ID rows.
