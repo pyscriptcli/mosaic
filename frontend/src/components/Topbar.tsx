@@ -166,7 +166,7 @@ export function Topbar({
     const pending = getPendingClickUpMutationCount(userId);
     setSyncPendingCount(pending);
     setSyncItems([
-      { label: "ClickUp lists", state: "syncing" },
+      { label: "ClickUp connection", state: "syncing" },
       ...(pending > 0 ? [{ label: `${pending} saved task change${pending === 1 ? "" : "s"}`, state: "syncing" as const }] : []),
     ]);
     try {
@@ -181,7 +181,7 @@ export function Topbar({
       if (personalListId) listLabels[personalListId] = "Personal notes";
       const data = await requestCentralClickUpSync(listIds, listLabels);
       setSyncItems([
-        ...(data.items || []).map((item: { id?: unknown; label?: unknown }) => ({ id: typeof item.id === "string" ? item.id : undefined, label: typeof item.label === "string" ? item.label : "ClickUp list", state: "synced" as const })),
+        { label: "ClickUp connection", state: "synced" },
         ...(data.refreshed || []).map((label) => ({ label, state: "synced" as const })),
         ...(remainingLocalChanges > 0 ? [{ label: `${remainingLocalChanges} saved task change${remainingLocalChanges === 1 ? "" : "s"}`, state: "syncing" as const }] : []),
       ]);
@@ -334,7 +334,7 @@ export function Topbar({
                   <h2 className="text-xs font-semibold text-[#003366]">{effectiveState === "error" ? "Sync needs attention" : effectiveState === "synced" ? "Sync complete" : "Syncing in background"}</h2>
                     <button type="button" onClick={() => setSyncDetailsOpen(false)} aria-label="Close sync details" className="p-1 text-slate-500 hover:text-[#003366]"><X size={14} /></button>
                   </div>
-                  <p className="py-2 text-[11px] text-slate-600">{effectiveState === "error" ? clientSyncError || syncError || "Some changes could not be synced." : effectiveState === "synced" ? "The requested lists and saved changes are up to date." : "Your app stays available while these items sync."}</p>
+                  <p className="py-2 text-[11px] text-slate-600">{effectiveState === "error" ? clientSyncError || syncError || "Some changes could not be synced." : effectiveState === "synced" ? "Open data views and saved changes are up to date." : "Your app stays available while these items sync."}</p>
                   <ul className="space-y-1.5">
                     {syncItems.map((item) => (
                       <li key={`${item.id || item.label}`} className="flex items-center gap-2 text-[11px]">

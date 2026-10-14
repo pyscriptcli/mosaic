@@ -73,14 +73,6 @@ async function performCentralClickUpSync(listIds: string[], listLabels: Record<s
     throw error;
   }
   if (typeof window !== "undefined") {
-    try {
-      const prior: unknown = JSON.parse(localStorage.getItem("project_echo_clickup_sync_labels") || "{}");
-      const labels = prior && typeof prior === "object" ? { ...(prior as Record<string, string>) } : {};
-      for (const item of (data as ClickUpSyncResponse).items || []) {
-        if (item.id && item.label) labels[item.id] = item.label;
-      }
-      localStorage.setItem("project_echo_clickup_sync_labels", JSON.stringify(Object.fromEntries(Object.entries(labels).slice(-100))));
-    } catch { /* Telemetry falls back to the ClickUp list ID. */ }
     const responseData = data as ClickUpSyncResponse;
     window.dispatchEvent(new CustomEvent("mosaic-clickup-sync-requested", { detail: { runId: responseData.runId, live: true } }));
     const refreshes: Promise<unknown>[] = [];
