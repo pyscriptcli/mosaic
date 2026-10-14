@@ -279,6 +279,7 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
       if (requestVersion !== dayRequestVersion.current) return;
       setPersonalListLoading(false);
       setError(loadError instanceof Error ? loadError.message : "My Day could not be loaded.");
+      if (background) throw loadError;
     } finally {
       if (requestVersion === dayRequestVersion.current) {
         setLoading(false);
@@ -294,7 +295,7 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
 
   useEffect(() => {
     const refreshAfterSync = (event: Event) => {
-      trackClickUpLiveRefresh(event, () => activityOnly && activityHistory?.isCurrentUser ? Promise.resolve() : loadDay(true));
+      trackClickUpLiveRefresh(event, () => activityOnly && activityHistory?.isCurrentUser ? Promise.resolve() : loadDay(true), activityOnly ? "Daily Log" : "My Day");
     };
     window.addEventListener("mosaic-clickup-sync-complete", refreshAfterSync);
     return () => window.removeEventListener("mosaic-clickup-sync-complete", refreshAfterSync);

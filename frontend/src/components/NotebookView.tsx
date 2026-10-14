@@ -221,9 +221,10 @@ export function NotebookView({ currentUserName, userId, initialDate, initialTab 
       if (userId) void writeBrowserPageCache(userId, cacheKey, body as NotebookPayload);
     } catch (loadError) {
       if (requestVersion !== notebookRequestVersion.current) return;
-      onActivityHistoryLoadRef.current?.(null);
+      if (!payload) onActivityHistoryLoadRef.current?.(null);
       if (userId && loadError && typeof loadError === "object" && "status" in loadError && [401, 403].includes(Number(loadError.status))) await clearBrowserPageCache(userId);
       setError(loadError instanceof Error ? loadError.message : "Unable to load the daily log.");
+      if (background) throw loadError;
     } finally {
       if (requestVersion === notebookRequestVersion.current) setLoading(false);
     }
@@ -253,7 +254,7 @@ export function NotebookView({ currentUserName, userId, initialDate, initialTab 
   }, [userId, rangeStart, rangeEnd, requestedMemberId, requestCurrentUser]);
 
   useEffect(() => {
-    const refreshAfterSync = (event: Event) => { trackClickUpLiveRefresh(event, () => loadNotebookRef.current(true)); };
+    const refreshAfterSync = (event: Event) => { trackClickUpLiveRefresh(event, () => loadNotebookRef.current(true), "Daily Log"); };
     window.addEventListener("mosaic-clickup-sync-complete", refreshAfterSync);
     return () => window.removeEventListener("mosaic-clickup-sync-complete", refreshAfterSync);
   }, []);

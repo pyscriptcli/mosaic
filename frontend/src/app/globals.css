@@ -78,6 +78,33 @@
   }
 }
 
+@keyframes mosaic-sync-progress {
+  from { transform: translateX(-110%); }
+  to { transform: translateX(310%); }
+}
+
+.mosaic-sync-progress-track {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  overflow: hidden;
+  background: rgb(201 168 76 / 20%);
+}
+
+.mosaic-sync-progress-bar {
+  display: block;
+  width: 28%;
+  height: 100%;
+  background: #c9a84c;
+  animation: mosaic-sync-progress 1.1s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mosaic-sync-progress-bar { animation: none; transform: translateX(0); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

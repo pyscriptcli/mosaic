@@ -151,3 +151,11 @@ The per-token limiter starts at the conservative 667 ms interval (at most about 
 - [x] Main Sync bypassed the page cache, showed its animated syncing state, refreshed mounted views, and completed with all displayed targets marked Done.
 - [ ] Capture a production request trace proving the first month response included every activity day entry; the visible date navigation confirms the October 12 and 13 entries were available from the page cache, but the response body was not independently inspected.
 - [ ] Recheck the first cold load after eliminating the duplicate editor parent/tree read and record the API request count and elapsed time.
+
+### Central refresh feedback follow-up
+
+- [x] Every mounted ClickUp-backed view registered for the central refresh contributes its name to one Sync report; duplicate Daily Log editor/history registrations collapse to one displayed target.
+- [x] Simultaneous refresh triggers share one in-flight central refresh so they do not dispatch duplicate mounted-view refreshes.
+- [x] A failed mounted-view refresh is reported as a failed target, while successful targets remain marked Done; the Daily Log retains its last loaded snapshot and surfaces the refresh error.
+- [x] The central Sync button displays a moving progress indicator while syncing and honors the reduced-motion preference.
+- [ ] Production click-through confirms Daily Log refresh errors appear in the central report, date browsing still hydrates the editor from shared history, and the button animation completes with the refresh.

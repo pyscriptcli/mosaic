@@ -96,7 +96,7 @@ function TrackContent() {
   }, [fetchRequests]);
 
   useEffect(() => {
-    const refreshAfterSync = (event: Event) => { trackClickUpLiveRefresh(event, () => fetchRequests()); };
+    const refreshAfterSync = (event: Event) => { trackClickUpLiveRefresh(event, () => fetchRequests(), "Forms"); };
     window.addEventListener("mosaic-clickup-sync-complete", refreshAfterSync);
     return () => window.removeEventListener("mosaic-clickup-sync-complete", refreshAfterSync);
   }, [fetchRequests]);

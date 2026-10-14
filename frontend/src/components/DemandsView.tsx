@@ -88,7 +88,7 @@ export function DemandsView({ sector = "all", userId }: DemandsViewProps) {
   const loadError = demandQuery.data ? null : demandQuery.error || null;
 
   useEffect(() => {
-    const refreshAfterSync = (event: Event) => { trackClickUpLiveRefresh(event, () => demandQuery.refresh()); };
+    const refreshAfterSync = (event: Event) => { trackClickUpLiveRefresh(event, () => demandQuery.refresh(), "Demands"); };
     window.addEventListener("mosaic-clickup-sync-complete", refreshAfterSync);
     return () => window.removeEventListener("mosaic-clickup-sync-complete", refreshAfterSync);
   }, [demandQuery.refresh]);

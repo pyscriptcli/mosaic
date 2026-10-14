@@ -89,8 +89,8 @@ export function Topbar({
     if (!userId) return;
     const pending = getPendingClickUpMutationCount(userId);
     setSyncPendingCount(pending);
-    if (!clientSyncFailed) setSyncState(pending ? "syncing" : "synced");
-  }, [clientSyncFailed, userId]);
+    if (!clientSyncFailed && !syncError) setSyncState(pending ? "syncing" : "synced");
+  }, [clientSyncFailed, syncError, userId]);
 
   useEffect(() => {
     if (!userId) return;
@@ -112,21 +112,36 @@ export function Topbar({
       void poll();
     };
     const onCentralSyncRequested = () => {
+      setSyncError("");
       setSyncState("syncing");
+      setSyncDetailsOpen(true);
+    };
+    const onLiveRefreshStarted = (event: Event) => {
+      const detail = (event as CustomEvent<{ targets?: string[] }>).detail;
+      setSyncDetailsOpen(true);
+      setSyncItems((items) => [
+        ...items.filter((item) => !detail?.targets?.includes(item.label)),
+        ...(detail?.targets || []).map((label) => ({ label, state: "syncing" as const })),
+      ]);
     };
     const onLiveRefreshComplete = (event: Event) => {
-      const detail = (event as CustomEvent<{ state?: string }>).detail;
+      const detail = (event as CustomEvent<{ state?: string; error?: string; failedTargets?: string[] }>).detail;
+      setSyncDetailsOpen(true);
       const pending = getPendingClickUpMutationCount(userId);
       const synced = detail?.state === "synced";
       setSyncState(synced ? pending ? "syncing" : "synced" : "error");
-      setSyncItems((items) => items.map((item) => ({ ...item, state: synced ? "synced" : "error" })));
+      if (!synced && detail?.error) setSyncError(detail.error);
+      const failedTargets = new Set(detail?.failedTargets || []);
+      if (!synced && !failedTargets.size) setSyncItems([{ label: "ClickUp refresh", state: "error" }]);
+      else setSyncItems((items) => items.map((item) => ({ ...item, state: synced || !failedTargets.has(item.label) ? "synced" : "error" })));
     };
     void poll();
     void flushClickUpMutationQueue(userId, setSyncPendingCount);
     window.addEventListener("mosaic-clickup-sync", onQueueChange);
     window.addEventListener("mosaic-clickup-sync-requested", onCentralSyncRequested);
+    window.addEventListener("mosaic-clickup-live-refresh-started", onLiveRefreshStarted);
     window.addEventListener("mosaic-clickup-live-refresh-complete", onLiveRefreshComplete);
-    return () => { active = false; if (timer) window.clearTimeout(timer); window.removeEventListener("mosaic-clickup-sync", onQueueChange); window.removeEventListener("mosaic-clickup-sync-requested", onCentralSyncRequested); window.removeEventListener("mosaic-clickup-live-refresh-complete", onLiveRefreshComplete); };
+    return () => { active = false; if (timer) window.clearTimeout(timer); window.removeEventListener("mosaic-clickup-sync", onQueueChange); window.removeEventListener("mosaic-clickup-sync-requested", onCentralSyncRequested); window.removeEventListener("mosaic-clickup-live-refresh-started", onLiveRefreshStarted); window.removeEventListener("mosaic-clickup-live-refresh-complete", onLiveRefreshComplete); };
   }, [manualSyncing, refreshSyncStatus, syncState, userId]);
 
   useEffect(() => {
@@ -167,6 +182,7 @@ export function Topbar({
       const data = await requestCentralClickUpSync(listIds, listLabels);
       setSyncItems([
         ...(data.items || []).map((item: { id?: unknown; label?: unknown }) => ({ id: typeof item.id === "string" ? item.id : undefined, label: typeof item.label === "string" ? item.label : "ClickUp list", state: "synced" as const })),
+        ...(data.refreshed || []).map((label) => ({ label, state: "synced" as const })),
         ...(remainingLocalChanges > 0 ? [{ label: `${remainingLocalChanges} saved task change${remainingLocalChanges === 1 ? "" : "s"}`, state: "syncing" as const }] : []),
       ]);
       await refreshSyncStatus();
@@ -174,7 +190,8 @@ export function Topbar({
     } catch (error) {
       setSyncState("error");
       setSyncError(error instanceof Error ? error.message : "Manual sync could not be started.");
-      setSyncItems((items) => items.map((item) => ({ ...item, state: "error" })));
+      const failedTargets = error && typeof error === "object" && "failedTargets" in error && Array.isArray(error.failedTargets) ? new Set(error.failedTargets as string[]) : null;
+      setSyncItems((items) => items.map((item) => ({ ...item, state: failedTargets ? failedTargets.has(item.label) ? "error" : "synced" : "error" })));
     } finally {
       setManualSyncing(false);
     }
@@ -305,10 +322,11 @@ export function Topbar({
           const dot = effectiveState === "synced" ? "bg-emerald-600" : effectiveState === "error" ? "bg-red-600" : "bg-amber-500";
           return (
             <>
-              <button type="button" onClick={() => void runManualSync()} disabled={manualSyncing} aria-busy={manualSyncing || syncState === "syncing"} aria-label={`Sync now. ${label}${syncPendingCount ? `, ${syncPendingCount} pending` : ""}`} title={syncError || `${label}${syncPendingCount ? ` · ${syncPendingCount} pending` : ""}. Click to sync now.`} className={`inline-flex min-h-9 items-center gap-1.5 border border-slate-200 px-2.5 text-[11px] font-semibold transition-colors disabled:cursor-wait disabled:opacity-70 ${tone}`}>
+              <button type="button" onClick={() => void runManualSync()} disabled={manualSyncing} aria-busy={manualSyncing || syncState === "syncing"} aria-label={`Sync now. ${label}${syncPendingCount ? `, ${syncPendingCount} pending` : ""}`} title={syncError || `${label}${syncPendingCount ? ` · ${syncPendingCount} pending` : ""}. Click to sync now.`} className={`relative inline-flex min-h-9 items-center gap-1.5 overflow-hidden border border-slate-200 px-2.5 text-[11px] font-semibold transition-colors disabled:cursor-wait disabled:opacity-70 ${tone}`}>
                 <span aria-hidden="true" className={`h-2 w-2 shrink-0 rounded-full ${dot}`} />
                 <RefreshCw aria-hidden="true" size={13} className={effectiveState === "syncing" || manualSyncing ? "animate-spin motion-reduce:animate-none" : ""} />
                 <span>{label}</span>
+                {(effectiveState === "syncing" || manualSyncing) && <span aria-hidden="true" className="mosaic-sync-progress-track"><span className="mosaic-sync-progress-bar" /></span>}
               </button>
               {syncDetailsOpen && (
                 <section role="status" aria-live="polite" className="absolute left-0 top-full z-50 mt-2 w-[min(22rem,calc(100vw-2rem))] border border-[#003366]/20 bg-[#FFFCFB] p-3 text-[#1b1d1e] shadow-lg">

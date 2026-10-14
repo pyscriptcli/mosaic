@@ -18,7 +18,7 @@ export function MarketInsightsView({ userId }: { userId?: string }) {
   const [sector, setSector] = useState<Sector>("industrial"); const [draft, setDraft] = useState<Draft | null>(null); const [saving, setSaving] = useState(false); const [writeError, setWriteError] = useState(""); const [bulkOpen, setBulkOpen] = useState(false); const [bulkText, setBulkText] = useState("");
   const query = useBrowserPageQuery<{ articles: Article[] }>(userId, "market-insights:all", async () => { const res = await fetch("/api/market-insights", { cache: "no-store" }); const data = await res.json(); if (!res.ok) throw Object.assign(new Error(data.error || "Unable to load the archive."), { status: res.status }); return { articles: data.articles || [] }; }, Boolean(userId));
   useEffect(() => {
-    const refreshAfterSync = (event: Event) => { trackClickUpLiveRefresh(event, async () => { await query.refresh(); }); };
+    const refreshAfterSync = (event: Event) => { trackClickUpLiveRefresh(event, async () => { await query.refresh(); }, "Market Insights"); };
     window.addEventListener("mosaic-clickup-sync-complete", refreshAfterSync);
     return () => window.removeEventListener("mosaic-clickup-sync-complete", refreshAfterSync);
   }, [query.refresh]);

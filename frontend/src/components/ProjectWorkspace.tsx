@@ -1453,7 +1453,7 @@ export function ProjectWorkspace({ userId }: { userId?: string }) {
     else if (activeFolderId) reloadProjectData();
   };
   useEffect(() => {
-    const refreshAfterSync = (event: Event) => { trackClickUpLiveRefresh(event, async () => { await syncRefreshRef.current(); }); };
+    const refreshAfterSync = (event: Event) => { trackClickUpLiveRefresh(event, async () => { await syncRefreshRef.current(); }, "Projects"); };
     window.addEventListener("mosaic-clickup-sync-complete", refreshAfterSync);
     return () => window.removeEventListener("mosaic-clickup-sync-complete", refreshAfterSync);
   }, []);
