@@ -6,7 +6,7 @@ import dynamic from "next/dynamic";
 import { DeltaReview, DeltaReviewList } from "@/components/DeltaReview";
 import type { SavedDeltaReview } from "@/lib/delta/localStore";
 import { calculateSiteAmount, sitesForSubproject } from "@/lib/projectSites";
-import { getBrowserPageCache, readBrowserPageCache, refreshBrowserPageQuery, writeBrowserPageCache } from "@/lib/browserPageCache";
+import { getBrowserPageCache, readBrowserPageCache, refreshBrowserPageQuery, useBrowserPageQuery, writeBrowserPageCache } from "@/lib/browserPageCache";
 import { requestCentralClickUpSync, trackClickUpLiveRefresh } from "@/lib/clickupSyncClient";
 import { ClickUpLoadingPanel } from "@/components/ClickUpLoadingProvider";
 import {
@@ -201,32 +201,30 @@ function activityTypeLabel(type: string) {
   return labels[type] || type.replace(/-/g, " ").replace(/^./, (character) => character.toUpperCase());
 }
 
-function ProjectActivityFeed({ folderId, lists, fixedListId }: { folderId: string; lists: ProjectList[]; fixedListId?: string }) {
+function ProjectActivityFeed({ folderId, lists, fixedListId, userId }: { folderId: string; lists: ProjectList[]; fixedListId?: string; userId?: string }) {
   const [filter, setFilter] = useState(fixedListId || "all");
   const [dateFilter, setDateFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
-  const [activities, setActivities] = useState<ProjectActivityEvent[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const selectedListId = fixedListId || (filter !== "all" ? filter : "");
+  const queryKey = `project-activity:${folderId}:${selectedListId || "all"}`;
   const load = useCallback(async () => {
-    try {
-      const params = new URLSearchParams({ folderId });
-      if (fixedListId || filter !== "all") params.set("listId", fixedListId || filter);
-      const response = await fetch(`/api/projects/activity?${params}`, { cache: "no-store" });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload.error || "Project activity could not be loaded.");
-      setActivities(Array.isArray(payload.activities) ? payload.activities : []);
-      setError("");
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Project activity could not be loaded.");
-    } finally { setLoading(false); }
-  }, [filter, fixedListId, folderId]);
+    const params = new URLSearchParams({ folderId });
+    if (selectedListId) params.set("listId", selectedListId);
+    const response = await fetch(`/api/projects/activity?${params}`, { cache: "no-store" });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw Object.assign(new Error(payload.error || "Project activity could not be loaded."), { status: response.status });
+    return Array.isArray(payload.activities) ? payload.activities as ProjectActivityEvent[] : [];
+  }, [folderId, selectedListId]);
+  const { data: cachedActivities, loading, error, refresh } = useBrowserPageQuery<ProjectActivityEvent[]>(userId, queryKey, load);
+  const activities = cachedActivities || [];
   useEffect(() => {
-    const initialLoad = window.setTimeout(() => { void load(); }, 0);
-    const timer = window.setInterval(() => { if (document.visibilityState === "visible") void load(); }, 30_000);
-    window.addEventListener("focus", load);
-    return () => { window.clearTimeout(initialLoad); window.clearInterval(timer); window.removeEventListener("focus", load); };
-  }, [load]);
+    const refreshVisible = () => { if (document.visibilityState === "visible") void refresh(); };
+    const refreshAfterSync = () => { void refresh(); };
+    const timer = window.setInterval(refreshVisible, 60_000);
+    window.addEventListener("focus", refreshVisible);
+    window.addEventListener("mosaic-clickup-sync-complete", refreshAfterSync);
+    return () => { window.clearInterval(timer); window.removeEventListener("focus", refreshVisible); window.removeEventListener("mosaic-clickup-sync-complete", refreshAfterSync); };
+  }, [refresh]);
 
   const activityTypes = useMemo(() => Array.from(new Set(activities.map((event) => event.eventType))).sort(), [activities]);
   const filteredActivities = useMemo(() => activities.filter((event) => {
@@ -246,13 +244,11 @@ function ProjectActivityFeed({ folderId, lists, fixedListId }: { folderId: strin
           <input aria-label="Filter activity by date" type="date" value={dateFilter} onChange={(event) => setDateFilter(event.target.value)} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" />
         </label>
         <select aria-label="Filter activity by type" value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)} className="h-8 w-[155px] max-w-full border border-slate-200 bg-white px-2 text-[11px] text-[#003366]"><option value="all">All activity types</option>{activityTypes.map((type) => <option key={type} value={type}>{activityTypeLabel(type)}</option>)}</select>
-        <button type="button" onClick={() => void load()} disabled={loading} className="inline-flex h-8 items-center gap-1 border border-slate-300 px-2 text-[10px] font-semibold text-[#003366] disabled:opacity-50"><RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />Refresh</button>
       </div>
     </header>
-    {error ? <div role="alert" className="m-4 border border-amber-300 bg-[#FBF7E9] px-3 py-3 text-xs text-[#003366]">{error}<p className="mt-1 text-[10px]">Set up the activity table using <code>supabase/project_activity.sql</code>.</p></div>
-      : loading ? <div role="status" className="space-y-2 p-4">{[0, 1, 2].map((item) => <div key={item} className="h-14 animate-pulse border border-slate-100 bg-slate-50" />)}</div>
-        : filteredActivities.length ? <ol className="divide-y divide-slate-100">{filteredActivities.map((event) => <li key={event.id} className="flex gap-3 px-4 py-3"><span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#EEF3F8] text-[#31577D]"><Activity aria-hidden="true" className="h-3.5 w-3.5" /></span><div className="min-w-0 flex-1"><div className="flex flex-wrap items-baseline gap-x-1.5 text-xs"><span className="font-semibold text-[#003366]">{event.actorName}</span><span className="text-slate-600">{event.summary}</span>{event.taskName && <span className="font-medium text-slate-700">· {event.taskName}</span>}</div><div className="mt-1 flex flex-wrap items-center gap-x-2 text-[10px] text-slate-500"><span>{event.listName}</span><span aria-hidden="true">·</span><time dateTime={event.createdAt}>{new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(event.createdAt))}</time><span aria-hidden="true">·</span><span>{activityTypeLabel(event.eventType)}</span>{event.taskUrl && <a href={event.taskUrl} target="_blank" rel="noreferrer" className="font-semibold text-[#31577D] underline">Open task</a>}</div>{typeof event.details.remarks === "string" && event.details.remarks && <p className="mt-1 whitespace-pre-wrap text-[11px] leading-5 text-slate-600">{event.details.remarks}</p>}{typeof event.details.current === "string" && event.details.current && <p className="mt-1 whitespace-pre-wrap text-[11px] leading-5 text-slate-600">{event.details.current}</p>}{Array.isArray(event.details.links) && (event.details.links as string[]).map((href) => <a key={href} href={href} target="_blank" rel="noreferrer" className="mt-1 block truncate text-[10px] text-[#31577D] underline">{href}</a>)}</div></li>)}</ol>
-        : <div className="px-4 py-10 text-center"><Activity aria-hidden="true" className="mx-auto h-5 w-5 text-slate-400" /><p className="mt-2 text-xs font-semibold text-[#003366]">{activities.length ? "No activity matches these filters" : "No activity yet"}</p><p className="mt-1 text-[10px] text-slate-500">{activities.length ? "Choose another date or activity type." : "Task and action-plan changes will appear here."}</p></div>}
+    {error && activities.length === 0 ? <div role="alert" className="m-4 border border-amber-300 bg-[#FBF7E9] px-3 py-3 text-xs text-[#003366]">{error}<p className="mt-1 text-[10px]">Set up the activity table using <code>supabase/project_activity.sql</code>.</p></div>
+      : loading && activities.length === 0 ? <div role="status" className="space-y-2 p-4">{[0, 1, 2].map((item) => <div key={item} className="h-14 animate-pulse border border-slate-100 bg-slate-50" />)}</div>
+        : <>{error && activities.length > 0 && <p role="status" className="border-b border-amber-200 bg-[#FBF7E9] px-4 py-2 text-[10px] text-[#854D0E]">Showing saved activity; the latest refresh failed.</p>}{filteredActivities.length ? <ol className="divide-y divide-slate-100">{filteredActivities.map((event) => <li key={event.id} className="flex gap-3 px-4 py-3"><span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#EEF3F8] text-[#31577D]"><Activity aria-hidden="true" className="h-3.5 w-3.5" /></span><div className="min-w-0 flex-1"><div className="flex flex-wrap items-baseline gap-x-1.5 text-xs"><span className="font-semibold text-[#003366]">{event.actorName}</span><span className="text-slate-600">{event.summary}</span>{event.taskName && <span className="font-medium text-slate-700">· {event.taskName}</span>}</div><div className="mt-1 flex flex-wrap items-center gap-x-2 text-[10px] text-slate-500"><span>{event.listName}</span><span aria-hidden="true">·</span><time dateTime={event.createdAt}>{new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(event.createdAt))}</time><span aria-hidden="true">·</span><span>{activityTypeLabel(event.eventType)}</span>{event.taskUrl && <a href={event.taskUrl} target="_blank" rel="noreferrer" className="font-semibold text-[#31577D] underline">Open task</a>}</div>{typeof event.details.remarks === "string" && event.details.remarks && <p className="mt-1 whitespace-pre-wrap text-[11px] leading-5 text-slate-600">{event.details.remarks}</p>}{typeof event.details.current === "string" && event.details.current && <p className="mt-1 whitespace-pre-wrap text-[11px] leading-5 text-slate-600">{event.details.current}</p>}{Array.isArray(event.details.links) && (event.details.links as string[]).map((href) => <a key={href} href={href} target="_blank" rel="noreferrer" className="mt-1 block truncate text-[10px] text-[#31577D] underline">{href}</a>)}</div></li>)}</ol> : <div className="px-4 py-10 text-center"><Activity aria-hidden="true" className="mx-auto h-5 w-5 text-slate-400" /><p className="mt-2 text-xs font-semibold text-[#003366]">{activities.length ? "No activity matches these filters" : "No activity yet"}</p><p className="mt-1 text-[10px] text-slate-500">{activities.length ? "Choose another date or activity type." : "Task and action-plan changes will appear here."}</p></div>}</>}
   </section>;
 }
 
@@ -739,7 +735,7 @@ function SubprojectStatusCards({ folderId, listId, tasks, tasksLoading, onTaskCh
   </section>;
 }
 
-function SubprojectWorkspace({ folderId, folderUrl, list, tasks, members, defaultAssignees, canEdit, canManageLead, onAssign, savingAssignees, assigneeSyncMessage, onBack, onRefresh, tasksLoading, onTaskChange, basePath, initialView, initialReviewId }: {
+function SubprojectWorkspace({ folderId, folderUrl, list, tasks, members, defaultAssignees, canEdit, canManageLead, onAssign, savingAssignees, assigneeSyncMessage, onBack, onRefresh, tasksLoading, onTaskChange, basePath, initialView, initialReviewId, userId }: {
   folderId: string;
   folderUrl: string;
   list: ProjectList;
@@ -758,6 +754,7 @@ function SubprojectWorkspace({ folderId, folderUrl, list, tasks, members, defaul
   basePath: string;
   initialView: "dashboard" | "tasks" | "calendar" | "contract-review" | "sites" | "documentation";
   initialReviewId?: string;
+  userId?: string;
 }) {
   const router = useRouter();
   const [view, setView] = useState<"dashboard" | "tasks" | "calendar" | "contract-review" | "sites" | "documentation">(initialView);
@@ -806,10 +803,10 @@ function SubprojectWorkspace({ folderId, folderUrl, list, tasks, members, defaul
     {assigneeSyncMessage && <p role="status" className="border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">{assigneeSyncMessage}</p>}
     {!canEdit && <p role="note" className="border-l-2 border-[#C9A84C] bg-[#F7FAFC] px-3 py-2 text-xs text-slate-700">View only. The assigned subproject lead or Mosaic admin can make changes.</p>}
     <div role="tablist" aria-label={`${list.name} workspace views`} className="flex border-b border-slate-200">{tabs.map((tab) => <button key={tab.id} type="button" role="tab" aria-selected={view === tab.id} onClick={() => selectTab(tab.id)} className={`min-h-11 border-b-2 px-4 text-xs font-semibold ${view === tab.id ? "border-[#C9A84C] text-[#003366]" : "border-transparent text-slate-500 hover:text-[#003366]"}`}>{tab.label}</button>)}</div>
-    {view === "dashboard" ? <div className="space-y-5"><SubprojectStatusCards folderId={folderId} listId={list.id} tasks={tasks} tasksLoading={tasksLoading} onTaskChange={onTaskChange} canEdit={canEdit} /><ProjectActivityFeed folderId={folderId} lists={[list]} fixedListId={list.id} /></div>
+    {view === "dashboard" ? <div className="space-y-5"><SubprojectStatusCards folderId={folderId} listId={list.id} tasks={tasks} tasksLoading={tasksLoading} onTaskChange={onTaskChange} canEdit={canEdit} /><ProjectActivityFeed folderId={folderId} lists={[list]} fixedListId={list.id} userId={userId} /></div>
       : view === "tasks" ? tasksLoading ? <section className="space-y-2 border border-slate-200 bg-white p-4" role="status"><span className="flex items-center gap-2 text-xs text-slate-500"><LoaderCircle aria-hidden="true" className="h-4 w-4 animate-spin text-[#003366]" />Loading timeline tasks</span>{[0, 1, 2].map((row) => <div key={row} className="h-11 animate-pulse border border-slate-100 bg-slate-50" />)}</section> : tasks.length ? <section className="border border-slate-200 bg-white"><header className="flex items-center justify-between border-b border-slate-100 px-4 py-3"><div><h2 className="text-sm font-semibold text-[#003366]">Timeline</h2><p className="mt-0.5 text-[10px] text-slate-500">Phases, workstreams, and activities</p></div><span className="text-[10px] text-slate-500">{tasks.length} items</span></header><div className="p-3 sm:p-4"><TaskHierarchy folderId={folderId} listName={list.name} tasks={tasks} statuses={list.statuses || Array.from(new Set(tasks.map((task) => task.status)))} members={members} teamLeadIds={defaultAssignees} onTaskChange={onTaskChange} canEdit={canEdit} /></div></section> : <div className="border border-dashed border-slate-300 bg-white px-5 py-10 text-center"><h2 className="text-sm font-semibold text-[#003366]">No tasks in this subproject</h2><p className="mt-1 text-xs text-slate-600">Create tasks in ClickUp, then refresh this workspace.</p><button type="button" onClick={onRefresh} className="mt-3 min-h-10 border border-slate-300 px-3 text-xs font-semibold text-[#003366]">Refresh</button></div>
       : view === "calendar" ? <CalendarView folderId={folderId} tasks={tasks} lists={[list]} members={members} defaultAssignees={{ [list.id]: defaultAssignees }} onTaskChange={onTaskChange} canEdit={canEdit} />
-      : view === "sites" ? <SubprojectSites folderId={folderId} listId={list.id} listName={list.name} canEdit={canEdit} canManageAllSites={canManageLead} />
+      : view === "sites" ? <SubprojectSites folderId={folderId} listId={list.id} listName={list.name} userId={userId} canEdit={canEdit} canManageAllSites={canManageLead} />
         : view === "contract-review" ? contractReviewContent : null}
   </section>;
 }
@@ -860,9 +857,8 @@ function sanitizeSiteNumber(value: string) {
   return decimalIndex < 0 ? numericValue : `${numericValue.slice(0, decimalIndex + 1)}${numericValue.slice(decimalIndex + 1).replace(/\./g, "")}`;
 }
 
-function SubprojectSites({ folderId, listId, listName, canEdit, canManageAllSites }: { folderId: string; listId: string; listName: string; canEdit: boolean; canManageAllSites: boolean }) {
+function SubprojectSites({ folderId, listId, listName, userId, canEdit, canManageAllSites }: { folderId: string; listId: string; listName: string; userId?: string; canEdit: boolean; canManageAllSites: boolean }) {
   const [syncing, setSyncing] = useState(false);
-  const [loading, setLoading] = useState(false);
   const [syncMessage, setSyncMessage] = useState("");
   const [syncError, setSyncError] = useState("");
   const [saveState, setSaveState] = useState<{ kind: "idle" | "saving" | "saved" | "error"; message: string }>({ kind: "idle", message: "" });
@@ -872,7 +868,17 @@ function SubprojectSites({ folderId, listId, listName, canEdit, canManageAllSite
   const saveVersions = useRef(new Map<string, number>());
   const mounted = useRef(true);
   const sourceSites = useMemo(() => sitesForSubproject(listName), [listName]);
-  const [siteRows, setSiteRows] = useState<SiteRow[]>([]);
+  const siteQueryKey = `project-sites:${folderId}:${listId}`;
+  const loadSiteRows = useCallback(async () => {
+    const params = new URLSearchParams({ folderId, listId, listName });
+    const response = await fetch(`/api/projects/sites?${params}`, { cache: "no-store" });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw Object.assign(new Error(payload.error || "Site data could not be loaded."), { status: response.status });
+    return Array.isArray(payload.sites) ? payload.sites as SiteRow[] : [];
+  }, [folderId, listId, listName]);
+  const { data: cachedSiteRows, loading: siteLoading, refreshing: siteRefreshing, error: siteError, refresh: refreshSiteRows, update: updateCachedSiteRows } = useBrowserPageQuery<SiteRow[]>(userId, siteQueryKey, loadSiteRows);
+  const loading = siteLoading || siteRefreshing;
+  const sites = useMemo<SiteRow[]>(() => cachedSiteRows || sourceSites.map((site) => ({ ...site, status: "" })), [cachedSiteRows, sourceSites]);
   const [columnWidths, setColumnWidths] = useState([110, 280, 72, 170, 140, 150, 170, 140]);
   const resizingColumn = useRef<{ index: number; startX: number; startWidth: number } | null>(null);
 
@@ -884,7 +890,7 @@ function SubprojectSites({ folderId, listId, listName, canEdit, canManageAllSite
       });
     });
     return () => cancelAnimationFrame(frame);
-  }, [columnWidths, siteRows]);
+  }, [columnWidths, sites]);
 
   const resizeColumn = (index: number, width: number) => {
     setColumnWidths((current) => current.map((value, columnIndex) => columnIndex === index ? Math.max(72, width) : value));
@@ -903,22 +909,14 @@ function SubprojectSites({ folderId, listId, listName, canEdit, canManageAllSite
 
   const stopColumnResize = () => { resizingColumn.current = null; };
 
-  const loadSiteRows = useCallback(async () => {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams({ folderId, listId, listName });
-      const response = await fetch(`/api/projects/sites?${params}`, { cache: "no-store" });
-      if (!response.ok) return;
-      const payload = await response.json().catch(() => ({}));
-      if (Array.isArray(payload.sites)) setSiteRows(payload.sites as SiteRow[]);
-    } catch {
-      // The imported source rows remain available if ClickUp cannot be reached.
-    } finally {
-      setLoading(false);
-    }
-  }, [folderId, listId, listName]);
-
-  useEffect(() => { void loadSiteRows(); }, [loadSiteRows]);
+  useEffect(() => {
+    const refreshAfterSync = () => { void refreshSiteRows(); };
+    const refreshVisible = () => { if (document.visibilityState === "visible") void refreshSiteRows(); };
+    const timer = window.setInterval(refreshVisible, 60_000);
+    window.addEventListener("mosaic-clickup-sync-complete", refreshAfterSync);
+    window.addEventListener("focus", refreshVisible);
+    return () => { window.clearInterval(timer); window.removeEventListener("mosaic-clickup-sync-complete", refreshAfterSync); window.removeEventListener("focus", refreshVisible); };
+  }, [refreshSiteRows]);
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -927,11 +925,9 @@ function SubprojectSites({ folderId, listId, listName, canEdit, canManageAllSite
       for (const save of pendingSaves.current.values()) void save();
     };
   }, []);
-  const sites: SiteRow[] = siteRows.length ? siteRows : sourceSites.map((site) => ({ ...site, status: "Not imported" }));
-
   const updateSiteField = (site: SiteRow, field: EditableSiteField, value: string) => {
     if (!canEdit) return;
-    setSiteRows((rows) => rows.map((row) => {
+    updateCachedSiteRows((rows) => (rows || sites).map((row) => {
       if (row.taskId !== site.taskId) return row;
       const updated = { ...row, [field]: value };
       if (field === "monthlyRate" || field === "pfStructure") {
@@ -1015,7 +1011,7 @@ function SubprojectSites({ folderId, listId, listName, canEdit, canManageAllSite
       if (payload.totalFailures) parts.push(`${payload.totalFailures} failed`);
       if (Array.isArray(payload.missingFields) && payload.missingFields.length) parts.push(`ClickUp fields not set up: ${payload.missingFields.join(", ")}`);
       setSyncMessage(`${parts.join(" · ")}.`);
-      void loadSiteRows();
+      void refreshSiteRows();
     } catch (error) {
       setSyncError(error instanceof Error ? error.message : "Site tasks could not be created.");
     } finally {
@@ -1029,12 +1025,13 @@ function SubprojectSites({ folderId, listId, listName, canEdit, canManageAllSite
         <h2 className="text-sm font-semibold text-[#003366]">Sites</h2>
         <p className="mt-0.5 text-[10px] text-slate-500">{sites.length} site records{loading ? " · refreshing from ClickUp" : ""} · fields not included in the source are left blank.</p>
         <p className="mt-0.5 text-[10px] text-slate-500">Amount calculates as Monthly Rate × PF months. Enter PF Structure as a month count, such as 2.</p>
+        {siteError && <p role="status" className="mt-1 text-[10px] text-amber-700">Latest ClickUp data could not be refreshed; showing the available site list.</p>}
         {saveState.message && <p className={`mt-1 text-[10px] ${saveState.kind === "error" ? "text-red-700" : saveState.kind === "saving" ? "text-amber-700" : "text-slate-500"}`} aria-live="polite">{saveState.message}</p>}
       </div>
       <div className="flex flex-wrap gap-2">
-        {sites.length > 0 && <button type="button" onClick={exportSites} disabled={loading} className="inline-flex min-h-9 items-center gap-2 border border-slate-300 bg-white px-3 text-[11px] font-semibold text-[#003366] hover:border-[#003366] disabled:opacity-50"><Download aria-hidden="true" className="h-3.5 w-3.5" />Export CSV</button>}
+        {sites.length > 0 && <button type="button" onClick={exportSites} className="inline-flex min-h-9 items-center gap-2 border border-slate-300 bg-white px-3 text-[11px] font-semibold text-[#003366] hover:border-[#003366]"><Download aria-hidden="true" className="h-3.5 w-3.5" />Export CSV</button>}
         {sites.length > 0 && !sites.every((site) => Boolean(site.taskId)) && canManageAllSites && (
-          <button type="button" onClick={() => void createClosedTasks()} disabled={syncing || loading} className="min-h-9 border border-[#003366] bg-[#003366] px-3 text-[11px] font-semibold text-white hover:bg-[#174778] disabled:cursor-wait disabled:opacity-60">{syncing ? "Creating site tasks…" : "Create site tasks for all subprojects"}</button>
+          <button type="button" onClick={() => void createClosedTasks()} disabled={syncing} className="min-h-9 border border-[#003366] bg-[#003366] px-3 text-[11px] font-semibold text-white hover:bg-[#174778] disabled:cursor-wait disabled:opacity-60">{syncing ? "Creating site tasks…" : "Create site tasks for all subprojects"}</button>
         )}
       </div>
     </header>
@@ -1534,7 +1531,7 @@ export function ProjectWorkspace({ userId }: { userId?: string }) {
     const access = data?.accessByListId?.[activeListId];
     const canManageLead = Boolean(data?.isProjectAdmin);
     const canEdit = Boolean(access?.canEdit || data?.isProjectAdmin || (data?.currentUserId && data.currentUserId === data?.defaultAssignees[activeListId]?.[0]));
-    if (data && activeList) return <SubprojectWorkspace folderId={data.folder.id} folderUrl={data.folder.url} list={activeList} tasks={tasksByList.get(activeList.id) || []} members={data.members} defaultAssignees={data.defaultAssignees[activeList.id] || []} canEdit={canEdit} canManageLead={canManageLead} onAssign={(ids) => void saveDefaultAssignees(activeList.id, ids)} savingAssignees={savingAssigneeListId === activeList.id} assigneeSyncMessage={assigneeSyncMessage} onBack={() => router.push(`/projects/${routeSegment(data.folder.name, data.folder.id)}`)} onRefresh={refreshProject} tasksLoading={tasksLoading} onTaskChange={updateProjectTask} basePath={basePath} initialView={initialView} initialReviewId={initialReviewId} />;
+    if (data && activeList) return <SubprojectWorkspace folderId={data.folder.id} folderUrl={data.folder.url} list={activeList} tasks={tasksByList.get(activeList.id) || []} members={data.members} defaultAssignees={data.defaultAssignees[activeList.id] || []} canEdit={canEdit} canManageLead={canManageLead} onAssign={(ids) => void saveDefaultAssignees(activeList.id, ids)} savingAssignees={savingAssigneeListId === activeList.id} assigneeSyncMessage={assigneeSyncMessage} onBack={() => router.push(`/projects/${routeSegment(data.folder.name, data.folder.id)}`)} onRefresh={refreshProject} tasksLoading={tasksLoading} onTaskChange={updateProjectTask} basePath={basePath} initialView={initialView} initialReviewId={initialReviewId} userId={userId} />;
     return <section className="mx-auto w-full max-w-[1440px] space-y-3 pb-8"><LoadingSkeleton variant="subproject" /></section>;
   }
 
@@ -1585,7 +1582,7 @@ export function ProjectWorkspace({ userId }: { userId?: string }) {
           {data.lists.length === 0 && <p className="p-5 text-sm text-slate-600">No subprojects are included in this project yet.</p>}
         </section>
           : data && view === "calendar" ? <CalendarView folderId={data.folder.id} tasks={tasks} lists={data.lists} members={data.members} defaultAssignees={data.defaultAssignees} onTaskChange={updateProjectTask} loadingTasks={data.lists.some((list) => !data.loadedTaskListIds?.includes(list.id))} canEdit />
-          : data && view === "activity" ? <ProjectActivityFeed folderId={data.folder.id} lists={data.lists} />
+          : data && view === "activity" ? <ProjectActivityFeed folderId={data.folder.id} lists={data.lists} userId={userId} />
             : data && view === "map" ? <div className="h-[min(76vh,900px)] min-h-[560px] overflow-hidden border border-slate-200"><EmbeddedAtlasWorkspace workspaceType="mosaic_project" mosaicProjectId={data.folder.id} workspaceName={data.folder.name} /></div> : null}
     </section>
   );

@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getTokenFromRequest } from '@/lib/auth';
 import { clickUpCalendarFetch } from '@/lib/clickupCalendarApi';
 import { readProjectActivity } from '@/lib/projectActivity';
-import { clickUpFetch as fetch } from '@/lib/clickupCalendarApi';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,9 +12,15 @@ export async function GET(request: NextRequest) {
   const listId = request.nextUrl.searchParams.get('listId') || '';
   if (!/^\d+$/.test(folderId) || (listId && !/^\d+$/.test(listId))) return NextResponse.json({ error: 'A valid project and subproject are required.' }, { status: 400 });
   try {
-    const folderResponse = await clickUpCalendarFetch(token, `https://api.clickup.com/api/v2/folder/${folderId}`);
+    const [folderResult, activitiesResult] = await Promise.allSettled([
+      clickUpCalendarFetch(token, `https://api.clickup.com/api/v2/folder/${folderId}`),
+      readProjectActivity(folderId, listId || undefined),
+    ]);
+    if (folderResult.status === 'rejected') throw folderResult.reason;
+    const folderResponse = folderResult.value;
     if (!folderResponse.ok) return NextResponse.json({ error: 'This project is not available to your ClickUp account.' }, { status: folderResponse.status });
-    const activities = await readProjectActivity(folderId, listId || undefined);
+    if (activitiesResult.status === 'rejected') throw activitiesResult.reason;
+    const activities = activitiesResult.value;
     return NextResponse.json({ activities }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
     console.error('[Project activity] Could not load activity feed:', error);

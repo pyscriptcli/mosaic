@@ -104,10 +104,12 @@ export async function GET(request: NextRequest) {
     const selectedList = (lists.lists || []).find((list: { id?: string | number }) => String(list.id) === listId);
     if (!selectedList) return NextResponse.json({ error: "This subfolder does not belong to the selected project." }, { status: 403 });
     const sourceSites = sitesForSubproject(listName);
-    const fieldsPayload = await clickUpJson(token, `https://api.clickup.com/api/v2/list/${listId}/field`);
+    const [fieldsPayload, allTasks, stagedRows] = await Promise.all([
+      clickUpJson(token, `https://api.clickup.com/api/v2/list/${listId}/field`),
+      fetchAllClickUpListTasks<ClickUpTask>(token, listId, { includeSubtasks: false }),
+      readStagedMosaicRecords(clickUpScope(token), "project_sites", listId),
+    ]);
     const fields = (fieldsPayload.fields || []) as ClickUpField[];
-    const allTasks = await fetchAllClickUpListTasks<ClickUpTask>(token, listId);
-    const stagedRows = await readStagedMosaicRecords(clickUpScope(token), "project_sites", listId);
     const taskMap = new Map(allTasks.map((task) => [String(task.id || ""), task]));
     for (const row of stagedRows) {
       const id = String(row.clickup_id || row.record_id);
