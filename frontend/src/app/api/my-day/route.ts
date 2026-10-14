@@ -121,7 +121,13 @@ async function getKpiContext(token: string, date: string, req: NextRequest, forc
     const parent = task.parent ? byId.get(String(task.parent)) : undefined;
     return Boolean(parent && monthFromTaskName(parent.name) === date.slice(0, 7) && dateFromTask(task) === date && userMatches(task, byId, user));
   });
-  return { tasks, day, syncState: "synced", syncedAt: new Date().toISOString(), isFresh: true };
+  const dailyLogByDate = monthParent ? tasks.flatMap((task) => {
+    if (String(task.parent) !== String(monthParent.id) || !userMatches(task, byId, user)) return [];
+    const taskDate = dateFromTask(task);
+    if (!taskDate) return [];
+    return [{ date: taskDate, dayTask: { id: String(task.id), name: task.name || formatDailyName(taskDate), url: task.url || "" }, activity: categoriesFromTask(task) }];
+  }) : [];
+  return { tasks, day, dailyLogByDate, syncState: "synced", syncedAt: new Date().toISOString(), isFresh: true };
 }
 
 async function getDailyTaskById(token: string, id: string, date: string, req: NextRequest) {
@@ -160,7 +166,7 @@ export async function GET(req: NextRequest) {
   try {
     const includeNotes = req.nextUrl.searchParams.get("includeNotes") !== "0";
     const forceRefresh = req.nextUrl.searchParams.get("liveRefresh") === "1";
-    const [{ tasks, day, syncState, syncedAt, isFresh }, personalList, listInfo] = await Promise.all([
+    const [{ tasks, day, dailyLogByDate, syncState, syncedAt, isFresh }, personalList, listInfo] = await Promise.all([
       getKpiContext(token, date, req, forceRefresh),
       includeNotes ? getPersonalList(req) : Promise.resolve(null),
       clickUpJson(token, `https://api.clickup.com/api/v2/list/${DAILY_LOG_LIST_ID}`),
@@ -180,6 +186,7 @@ export async function GET(req: NextRequest) {
       syncState,
       syncedAt,
       isFresh,
+      dailyLogByDate: includeNotes ? undefined : dailyLogByDate,
       tasks: children, notes: note?.description || "", noteTask: note, activity: categoriesFromTask(day),
       completeStatus, openStatus,
       personalList: personalList ? { id: personalList.id, name: personalList.name } : null, notesError,

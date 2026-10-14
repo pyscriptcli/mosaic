@@ -14,6 +14,7 @@ type DayPayload = {
   date: string; dayTask: { id: string; name: string; url: string } | null; tasks: DayTask[];
   notes: string; noteTask: { id: string; name: string; url: string } | null; activity: DailyActivity;
   personalList: { id: string; name: string } | null; completeStatus: string; openStatus: string; notesError?: string;
+  dailyLogByDate?: Array<{ date: string; dayTask: { id: string; name: string; url: string }; activity: DailyActivity }>;
 };
 type Props = { userId?: string; currentUserName?: string; showDailyActivity?: boolean; activityOnly?: boolean; initialDate?: string; onDateChange?: (date: string) => void };
 
@@ -223,7 +224,7 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
       activityReady.current = true;
       notesReady.current = true;
     };
-    if (!background && cached && Date.now() - cached.cachedAt < 20_000) {
+    if (!background && cached && Date.now() - cached.cachedAt < (activityOnly ? 5 * 60_000 : 20_000)) {
       applyDay(cached.payload);
       setError("");
       setLoading(false);
@@ -239,7 +240,17 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
       if (requestVersion !== dayRequestVersion.current) return;
       if (body.date !== requestedDate) throw new Error("ClickUp returned a different day than the one requested.");
       const loaded = body as DayPayload;
-      dayPayloadCache.current.set(cacheKey, { payload: loaded, cachedAt: Date.now() });
+      const cachedAt = Date.now();
+      dayPayloadCache.current.set(cacheKey, { payload: loaded, cachedAt });
+      if (activityOnly) {
+        for (const entry of loaded.dailyLogByDate || []) {
+          const dayPayload: DayPayload = {
+            ...loaded, date: entry.date, dayTask: entry.dayTask, tasks: [], notes: "", noteTask: null,
+            activity: entry.activity, dailyLogByDate: undefined,
+          };
+          dayPayloadCache.current.set(`${entry.date}:${personalList?.id || "default"}`, { payload: dayPayload, cachedAt });
+        }
+      }
       if (dayPayloadCache.current.size > 64) {
         const oldestKey = dayPayloadCache.current.keys().next().value;
         if (oldestKey) dayPayloadCache.current.delete(oldestKey);

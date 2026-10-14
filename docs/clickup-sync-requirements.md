@@ -136,7 +136,7 @@ The per-token limiter starts at the conservative 667 ms interval (at most about 
 
 - [x] Date editor and history views use direct live ClickUp requests and do not read the durable task snapshot.
 - [x] Date editor fetches parent tasks without subtasks, then retrieves the selected member/month tree directly; tree fetches coalesce within a running instance.
-- [x] Live Daily Log reads reuse the in-process parent index and monthly task tree for 30 seconds during date navigation; the Sync and explicit refresh paths pass `liveRefresh=1` to bypass those caches and fetch fresh ClickUp data.
+- [x] Activity-only My Day responses include the selected member's daily entries from the already fetched live monthly ClickUp tree. The page caches those date payloads for five minutes so browsing within the loaded month is immediate; Sync and explicit refresh paths pass `liveRefresh=1` to fetch a fresh ClickUp tree.
 - [x] History requests are bounded to the selected date range and expand only relevant monthly parent task trees; all matching pages and subtasks remain available.
 - [x] The default history request loads the authenticated member; selecting a different member loads that member, and All Team Insights loads all members for the chosen range.
 - [x] Daily Log editor skips Personal List lookup and pagination when it does not render notes.
@@ -145,4 +145,5 @@ The per-token limiter starts at the conservative 667 ms interval (at most about 
 - [ ] Authenticated production check confirms uncached current-month log and date-editor data load within five seconds with all categories and matching dates present; record first-load and range-change duration. On deployment `27213b3`, October 12 and October 13 values loaded correctly, but each uncached date took about 10 seconds; the five-second target was not met.
 - [ ] Confirm the ClickUp workspace's actual plan/headers and measured request rate using production telemetry; ensure there are no 429 retries under normal navigation.
 - [x] Commit `27213b3` (`fix(notebook): import ClickUp scope for live reads`) fixed the Vercel TypeScript build failure. Its production deployment reached Ready; authenticated October 1–14 history showed nine activity days, October 12 loaded Admin/Ad hoc/Meetings content, and October 13 loaded Admin content. Central Sync visibly animated, then completed with all listed targets Done.
-- [ ] Push the 30-second live tree/index navigation cache and forced-refresh change; verify its production deployment reaches Ready and repeat the date-browsing check to record first-load and cached range-change durations.
+- [ ] Push the in-process live tree cache and forced-refresh change; verify its production deployment reaches Ready and repeat the date-browsing check to record first-load and cached range-change durations.
+- [ ] Verify in production that the first uncached monthly pull returns all member day entries and subsequent same-month date changes render from the page cache immediately; confirm Sync replaces the cached entries with a fresh ClickUp pull.
