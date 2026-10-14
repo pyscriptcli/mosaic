@@ -5,7 +5,7 @@ import { requireProjectAdmin, requireSubprojectEditor } from "@/lib/project-perm
 import { clickUpCalendarFetch, fetchAllClickUpListTasks } from "@/lib/clickupCalendarApi";
 import { getUserFromRequest } from "@/lib/auth";
 import { readStagedMosaicRecords, scheduleMosaicWriteSync, stageMosaicWrite } from "@/lib/mosaicWriteStore";
-import { clickUpScope } from "@/lib/clickupReadStore";
+import { clickUpScope, queueClickUpSync, readClickUpTaskSnapshot } from "@/lib/clickupReadStore";
 import { calculateSiteAmount, projectSiteFields, siteRecordDescription, siteRecordMarker, sitesForSubproject } from "@/lib/projectSites";
 
 type ClickUpField = {
@@ -104,18 +104,33 @@ export async function GET(request: NextRequest) {
     const selectedList = (lists.lists || []).find((list: { id?: string | number }) => String(list.id) === listId);
     if (!selectedList) return NextResponse.json({ error: "This subfolder does not belong to the selected project." }, { status: 403 });
     const sourceSites = sitesForSubproject(listName);
-    const [fieldsPayload, allTasks, stagedRows] = await Promise.all([
+    const scope = clickUpScope(token);
+    const [fieldsPayload, snapshot, stagedRows] = await Promise.all([
       clickUpJson(token, `https://api.clickup.com/api/v2/list/${listId}/field`),
-      fetchAllClickUpListTasks<ClickUpTask>(token, listId, { includeSubtasks: false }),
-      readStagedMosaicRecords(clickUpScope(token), "project_sites", listId),
+      readClickUpTaskSnapshot(scope, listId, 30 * 24 * 60 * 60_000),
+      readStagedMosaicRecords(scope, "project_sites", listId),
     ]);
+    const snapshotIsFresh = Boolean(snapshot && snapshot.syncState === "ready" && Date.now() - Date.parse(snapshot.syncedAt) < 5 * 60_000);
+    if (!snapshotIsFresh) {
+      const clickUpUserId = String(getUserFromRequest(request)?.id || "");
+      void queueClickUpSync(token, clickUpUserId, listId, snapshot?.syncState === "failed").catch(() => undefined);
+    }
+    // Serve the durable task snapshot while the sync worker refreshes stale data.
+    // Only a cold cache needs to wait for ClickUp's paginated list endpoint.
+    const allTasks = snapshot?.tasks
+      ? snapshot.tasks as ClickUpTask[]
+      : await fetchAllClickUpListTasks<ClickUpTask>(token, listId, { includeSubtasks: false });
     const fields = (fieldsPayload.fields || []) as ClickUpField[];
     const taskMap = new Map(allTasks.map((task) => [String(task.id || ""), task]));
+    const pendingTaskIds = new Set<string>();
+    const failedTaskIds = new Set<string>();
     for (const row of stagedRows) {
       const id = String(row.clickup_id || row.record_id);
       if (row.is_deleted) { taskMap.delete(id); taskMap.delete(String(row.record_id)); continue; }
       const data = row.record_data && typeof row.record_data === "object" ? row.record_data as Record<string, unknown> : {};
       taskMap.set(id, { ...(taskMap.get(id) || {}), ...data, id } as ClickUpTask);
+      if (!row.clickup_id && row.sync_state === "failed") failedTaskIds.add(id);
+      else if (!row.clickup_id || row.sync_state !== "synced") pendingTaskIds.add(id);
     }
     allTasks.splice(0, allTasks.length, ...taskMap.values());
     const taskMatchesSite = (task: ClickUpTask, site: typeof sourceSites[number]) => {
@@ -143,7 +158,9 @@ export async function GET(request: NextRequest) {
       const task = taskForSite(site);
       return {
         ...site,
-        taskId: task?.id || null,
+        taskId: task?.id && !pendingTaskIds.has(String(task.id)) && !failedTaskIds.has(String(task.id)) ? task.id : null,
+        taskPending: Boolean(task?.id && pendingTaskIds.has(String(task.id))),
+        taskFailed: Boolean(task?.id && failedTaskIds.has(String(task.id))),
         siteNo: textValue("Site No", task) || site.siteNo,
         siteName: textValue("Site Name", task) || site.siteName,
         priority: textValue("P/S", task) || site.priority,
@@ -282,12 +299,13 @@ export async function POST(request: NextRequest) {
       const listName = String(subproject.name || "Subproject");
       if (!/^\d+$/.test(listId)) continue;
       const sites = sitesForSubproject(listName);
-      const [list, fieldsPayload] = await Promise.all([
+      const [list, fieldsPayload, existingTasks, stagedRows] = await Promise.all([
         clickUpJson(token, `https://api.clickup.com/api/v2/list/${listId}`),
         clickUpJson(token, `https://api.clickup.com/api/v2/list/${listId}/field`),
+        fetchAllClickUpListTasks<ClickUpTask>(token, listId, { includeSubtasks: false }),
+        readStagedMosaicRecords(clickUpScope(token), "project_sites", listId),
       ]);
       const fields = (fieldsPayload.fields || []) as ClickUpField[];
-      const existingTasks = await fetchAllClickUpListTasks<ClickUpTask>(token, listId, { includeSubtasks: false });
       const statusOptions = (list.statuses || []) as Array<{ status?: string; type?: string }>;
       const closedStatus = statusOptions.find((status) => status.type?.toLocaleLowerCase() === "closed")?.status
         || statusOptions.find((status) => /^(closed|complete|completed|done)$/i.test(status.status || ""))?.status
@@ -296,10 +314,15 @@ export async function POST(request: NextRequest) {
         if (!findField(fields, name)) missingFields.add(name);
       }
       for (const site of sites) {
-        const alreadyExists = existingTasks.some((task) => {
+        const matchesSite = (task: ClickUpTask) => {
           if (task.parent) return false;
           const description = task.description || task.text_content || "";
           return description.includes(siteRecordMarker(site)) || (task.name?.startsWith(`Site ${site.siteNo} `) && task.name.endsWith(site.siteName));
+        };
+        const alreadyExists = existingTasks.some(matchesSite) || stagedRows.some((row) => {
+          if (row.is_deleted || row.sync_state === "failed") return false;
+          const data = row.record_data && typeof row.record_data === "object" ? row.record_data as ClickUpTask : {};
+          return matchesSite(data);
         });
         if (alreadyExists) {
           existingSites += 1;

@@ -814,6 +814,8 @@ function SubprojectWorkspace({ folderId, folderUrl, list, tasks, members, defaul
 const siteColumns = ["Site No", "Site Name", "P/S", "Lessor", "Status", "Monthly Rate (Php)", "PF Structure (months)", "Amount (Php)"] as const;
 type SiteRow = ReturnType<typeof sitesForSubproject>[number] & {
   taskId?: string | null;
+  taskPending?: boolean;
+  taskFailed?: boolean;
   lessor?: string;
   status?: string;
   monthlyRate?: string;
@@ -879,6 +881,8 @@ function SubprojectSites({ folderId, listId, listName, userId, canEdit, canManag
   const { data: cachedSiteRows, loading: siteLoading, refreshing: siteRefreshing, error: siteError, refresh: refreshSiteRows, update: updateCachedSiteRows } = useBrowserPageQuery<SiteRow[]>(userId, siteQueryKey, loadSiteRows);
   const loading = siteLoading || siteRefreshing;
   const sites = useMemo<SiteRow[]>(() => cachedSiteRows || sourceSites.map((site) => ({ ...site, status: "" })), [cachedSiteRows, sourceSites]);
+  const hasPendingSiteRows = sites.some((site) => site.taskPending);
+  const hasFailedSiteRows = sites.some((site) => site.taskFailed);
   const [columnWidths, setColumnWidths] = useState([110, 280, 72, 170, 140, 150, 170, 140]);
   const resizingColumn = useRef<{ index: number; startX: number; startWidth: number } | null>(null);
 
@@ -913,10 +917,11 @@ function SubprojectSites({ folderId, listId, listName, userId, canEdit, canManag
     const refreshAfterSync = () => { void refreshSiteRows(); };
     const refreshVisible = () => { if (document.visibilityState === "visible") void refreshSiteRows(); };
     const timer = window.setInterval(refreshVisible, 60_000);
+    const pendingTimer = hasPendingSiteRows ? window.setInterval(refreshVisible, 2_000) : null;
     window.addEventListener("mosaic-clickup-sync-complete", refreshAfterSync);
     window.addEventListener("focus", refreshVisible);
-    return () => { window.clearInterval(timer); window.removeEventListener("mosaic-clickup-sync-complete", refreshAfterSync); window.removeEventListener("focus", refreshVisible); };
-  }, [refreshSiteRows]);
+    return () => { window.clearInterval(timer); if (pendingTimer) window.clearInterval(pendingTimer); window.removeEventListener("mosaic-clickup-sync-complete", refreshAfterSync); window.removeEventListener("focus", refreshVisible); };
+  }, [hasPendingSiteRows, refreshSiteRows]);
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -994,7 +999,7 @@ function SubprojectSites({ folderId, listId, listName, userId, canEdit, canManag
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
-  const createClosedTasks = async () => {
+  const createClosedTasks = async (mode: "list" | "all") => {
     setSyncing(true);
     setSyncMessage("");
     setSyncError("");
@@ -1002,7 +1007,7 @@ function SubprojectSites({ folderId, listId, listName, userId, canEdit, canManag
       const response = await fetch("/api/projects/sites", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(canManageAllSites ? { folderId, mode: "all" } : { folderId, listId, mode: "list" }),
+        body: JSON.stringify(mode === "all" ? { folderId, mode } : { folderId, listId, mode }),
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.error || "Site tasks could not be created.");
@@ -1031,12 +1036,15 @@ function SubprojectSites({ folderId, listId, listName, userId, canEdit, canManag
       <div className="flex flex-wrap gap-2">
         {sites.length > 0 && <button type="button" onClick={exportSites} className="inline-flex min-h-9 items-center gap-2 border border-slate-300 bg-white px-3 text-[11px] font-semibold text-[#003366] hover:border-[#003366]"><Download aria-hidden="true" className="h-3.5 w-3.5" />Export CSV</button>}
         {sites.length > 0 && !sites.every((site) => Boolean(site.taskId)) && canEdit && (
-          <button type="button" onClick={() => void createClosedTasks()} disabled={syncing} className="min-h-9 border border-[#003366] bg-[#003366] px-3 text-[11px] font-semibold text-white hover:bg-[#174778] disabled:cursor-wait disabled:opacity-60">{syncing ? "Creating site tasks…" : canManageAllSites ? "Create site tasks for all subprojects" : "Set up site rows for this subproject"}</button>
+          <button type="button" onClick={() => void createClosedTasks("list")} disabled={syncing || hasPendingSiteRows} className="min-h-9 border border-[#003366] bg-[#003366] px-3 text-[11px] font-semibold text-white hover:bg-[#174778] disabled:cursor-wait disabled:opacity-60">{syncing ? "Setting up this subproject…" : hasPendingSiteRows ? "Site rows syncing…" : "Set up site rows for this subproject"}</button>
         )}
+        {sites.length > 0 && !sites.every((site) => Boolean(site.taskId)) && canManageAllSites && <button type="button" onClick={() => void createClosedTasks("all")} disabled={syncing || hasPendingSiteRows} className="min-h-9 border border-slate-300 bg-white px-3 text-[11px] font-semibold text-[#003366] hover:border-[#003366] disabled:cursor-wait disabled:opacity-60">Set up all subprojects</button>}
       </div>
     </header>
     {syncMessage && <p role="status" className="border-b border-emerald-200 bg-emerald-50 px-4 py-2 text-xs text-emerald-900">{syncMessage}</p>}
     {syncError && <p role="alert" className="border-b border-red-200 bg-red-50 px-4 py-2 text-xs text-red-800">{syncError}</p>}
+    {hasPendingSiteRows && <p role="status" className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900">Site rows are syncing to ClickUp. Editing unlocks as each row finishes syncing.</p>}
+    {hasFailedSiteRows && <p role="alert" className="border-b border-red-200 bg-red-50 px-4 py-2 text-xs text-red-800">Some site rows could not sync to ClickUp. Retry setup for this subproject to try those rows again.</p>}
     {sites.length ? <div className="overflow-x-auto"><table className="w-full min-w-[1120px] table-fixed border-collapse text-left text-xs"><colgroup>{columnWidths.map((width, index) => <col key={index} style={{ width }} />)}</colgroup><thead className="bg-slate-50 text-[10px] font-semibold text-slate-600"><tr>{siteColumns.map((column, index) => <th key={column} scope="col" className="relative border border-slate-200/70 px-3 py-2.5">{column}<span
         role="separator"
         aria-label={`Resize ${column} column`}
