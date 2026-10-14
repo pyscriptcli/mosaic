@@ -188,6 +188,7 @@ export function NotebookView({ currentUserName, userId, initialDate, initialTab 
     setError("");
     try {
       const query = new URLSearchParams({ start: rangeStart, end: rangeEnd });
+      if (background) query.set("liveRefresh", "1");
       if (requestedMemberId) query.set("memberId", requestedMemberId);
       else if (requestCurrentUser) query.set("currentUser", "1");
       const response = await fetch(`/api/notebook?${query}`, { cache: "no-store" });

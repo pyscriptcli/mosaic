@@ -53,13 +53,14 @@ export async function GET(req: NextRequest) {
     const rangeStart = req.nextUrl.searchParams.get("start") || defaultStart;
     const rangeEnd = req.nextUrl.searchParams.get("end") || today;
     const selectedMemberId = req.nextUrl.searchParams.get("memberId") || "";
+    const forceRefresh = req.nextUrl.searchParams.get("liveRefresh") === "1";
     if (!isValidDate(rangeStart) || !isValidDate(rangeEnd) || rangeStart > rangeEnd) {
       return NextResponse.json({ error: "A valid Daily Log date range is required." }, { status: 400 });
     }
     const requestedMonths = new Set(monthsInRange(rangeStart, rangeEnd));
     const currentUserOnly = req.nextUrl.searchParams.get("currentUser") === "1";
     const currentUser = getUserFromRequest(req);
-    const remoteTasks = await fetchDailyLogParents(token);
+    const remoteTasks = await fetchDailyLogParents(token, forceRefresh);
     const stagedRows = await readStagedMosaicRecords(clickUpScope(token), "notebook", DAILY_LOG_LIST_ID);
     const stagedIdMap = new Map(stagedRows.map((row) => [String(row.record_id), String(row.clickup_id || row.record_id)]));
     const applyStaged = (source: typeof remoteTasks) => {
@@ -84,7 +85,7 @@ export async function GET(req: NextRequest) {
       // Staged local IDs are not yet addressable in ClickUp. Their queued writes
       // remain visible through the staged overlay below.
       if (stagedRows.some((row) => String(row.record_id) === id && !row.clickup_id)) return [];
-      return flattenClickUpTaskTree(await fetchDailyLogParentTree(token, id));
+      return flattenClickUpTaskTree(await fetchDailyLogParentTree(token, id, forceRefresh));
     }));
     const rawTasks = applyStaged([...rootTasks, ...trees.flat()] as typeof remoteTasks);
     const byId = new Map(rawTasks.map((task) => [String(task.id), task]));

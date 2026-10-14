@@ -96,8 +96,8 @@ function serializeDayTask(task: ClickUpTask) {
   };
 }
 
-async function getKpiContext(token: string, date: string, req: NextRequest) {
-  const remoteTasks = await fetchDailyLogParents(token) as ClickUpTask[];
+async function getKpiContext(token: string, date: string, req: NextRequest, forceRefresh = false) {
+  const remoteTasks = await fetchDailyLogParents(token, forceRefresh) as ClickUpTask[];
   const stagedRows = await readStagedMosaicRecords(clickUpScope(token), "notebook", DAILY_LOG_LIST_ID);
   const stagedIds = new Map(stagedRows.map((row) => [String(row.record_id), String(row.clickup_id || row.record_id)]));
   const applyStaged = (source: ClickUpTask[]) => {
@@ -114,7 +114,7 @@ async function getKpiContext(token: string, date: string, req: NextRequest) {
   const user = getUserFromRequest(req);
   const monthParent = rootTasks.find((task) => !task.parent && monthFromTaskName(task.name) === date.slice(0, 7) && userMatches(task, new Map(rootTasks.map((item) => [String(item.id), item])), user));
   const tasks = monthParent
-    ? applyStaged([...rootTasks, ...flattenClickUpTaskTree(await fetchDailyLogParentTree(token, String(monthParent.id))) as ClickUpTask[]])
+    ? applyStaged([...rootTasks, ...flattenClickUpTaskTree(await fetchDailyLogParentTree(token, String(monthParent.id), forceRefresh)) as ClickUpTask[]])
     : rootTasks;
   const byId = new Map(tasks.map((task) => [String(task.id), task]));
   const day = tasks.find((task) => {
@@ -159,8 +159,9 @@ export async function GET(req: NextRequest) {
   if (!isValidDate(date)) return NextResponse.json({ error: "A valid day is required." }, { status: 400 });
   try {
     const includeNotes = req.nextUrl.searchParams.get("includeNotes") !== "0";
+    const forceRefresh = req.nextUrl.searchParams.get("liveRefresh") === "1";
     const [{ tasks, day, syncState, syncedAt, isFresh }, personalList, listInfo] = await Promise.all([
-      getKpiContext(token, date, req),
+      getKpiContext(token, date, req, forceRefresh),
       includeNotes ? getPersonalList(req) : Promise.resolve(null),
       clickUpJson(token, `https://api.clickup.com/api/v2/list/${DAILY_LOG_LIST_ID}`),
     ]);

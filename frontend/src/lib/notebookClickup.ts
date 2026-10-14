@@ -37,6 +37,8 @@ export interface RawClickUpTask {
 
 type ClickUpTaskTree = RawClickUpTask & { subtasks?: ClickUpTaskTree[] };
 const liveDailyLogParentTrees = new Map<string, Promise<ClickUpTaskTree>>();
+const liveDailyLogParentTreeCache = new Map<string, { expiresAt: number; tree: ClickUpTaskTree }>();
+const liveDailyLogParentIndexCache = new Map<string, { expiresAt: number; tasks: RawClickUpTask[] }>();
 
 export interface NotebookMemberInput {
   id: string;
@@ -185,14 +187,22 @@ export async function fetchAllTasks(token: string) {
   return fetchAllClickUpListTasks<RawClickUpTask>(token, DAILY_LOG_LIST_ID);
 }
 
-export async function fetchDailyLogParents(token: string) {
-  return fetchAllClickUpListTasks<RawClickUpTask>(token, DAILY_LOG_LIST_ID, { includeSubtasks: false });
+export async function fetchDailyLogParents(token: string, forceRefresh = false) {
+  const key = clickUpScope(token);
+  const cached = liveDailyLogParentIndexCache.get(key);
+  if (!forceRefresh && cached && cached.expiresAt > Date.now()) return cached.tasks;
+  const tasks = await fetchAllClickUpListTasks<RawClickUpTask>(token, DAILY_LOG_LIST_ID, { includeSubtasks: false });
+  liveDailyLogParentIndexCache.set(key, { tasks, expiresAt: Date.now() + 30_000 });
+  return tasks;
 }
 
-export async function fetchDailyLogParentTree(token: string, parentId: string) {
+export async function fetchDailyLogParentTree(token: string, parentId: string, forceRefresh = false) {
   const key = `${clickUpScope(token)}:daily-log-parent:${parentId}`;
+  const cached = liveDailyLogParentTreeCache.get(key);
+  if (!forceRefresh && cached && cached.expiresAt > Date.now()) return cached.tree;
   const pending = liveDailyLogParentTrees.get(key);
-  if (pending) return pending;
+  if (pending && !forceRefresh) return pending;
+  if (pending && forceRefresh) await pending.catch(() => undefined);
   const request = (async () => {
     const url = `https://api.clickup.com/api/v2/task/${encodeURIComponent(parentId)}?include_subtasks=true`;
     const response = await clickUpCalendarFetch(token, url, undefined, undefined, { skipCache: true, timeoutMs: 12_000 });
@@ -201,7 +211,11 @@ export async function fetchDailyLogParentTree(token: string, parentId: string) {
     return body;
   })();
   liveDailyLogParentTrees.set(key, request);
-  try { return await request; } finally { liveDailyLogParentTrees.delete(key); }
+  try {
+    const tree = await request;
+    liveDailyLogParentTreeCache.set(key, { tree, expiresAt: Date.now() + 30_000 });
+    return tree;
+  } finally { if (liveDailyLogParentTrees.get(key) === request) liveDailyLogParentTrees.delete(key); }
 }
 
 export function flattenClickUpTaskTree(root: ClickUpTaskTree) {
