@@ -199,11 +199,12 @@ export async function clickUpFetch(input: RequestInfo | URL, init?: RequestInit)
 export async function fetchAllClickUpListTasks<T = Record<string, unknown>>(
   token: string,
   listId: string,
-  options: { includeClosed?: boolean; includeMarkdownDescription?: boolean; includeSubtasks?: boolean; timeoutMs?: number } = {},
+  options: { assignees?: string[]; includeClosed?: boolean; includeMarkdownDescription?: boolean; includeSubtasks?: boolean; timeoutMs?: number } = {},
 ): Promise<T[]> {
   const scope = clickUpScope(token);
   const includeSubtasks = options.includeSubtasks !== false;
-  const key = `${scope}:live-list:${listId}:${options.includeClosed === false ? "open" : "closed"}:${includeSubtasks ? "with-subtasks" : "parents-only"}:${options.includeMarkdownDescription ? "markdown" : "plain"}`;
+  const assigneeKey = [...new Set((options.assignees || []).filter(Boolean))].sort().join(",") || "all-assignees";
+  const key = `${scope}:live-list:${listId}:${options.includeClosed === false ? "open" : "closed"}:${includeSubtasks ? "with-subtasks" : "parents-only"}:${options.includeMarkdownDescription ? "markdown" : "plain"}:${assigneeKey}`;
   const existing = liveTaskListReads.get(key);
   if (existing) return existing as Promise<T[]>;
 
@@ -213,6 +214,7 @@ export async function fetchAllClickUpListTasks<T = Record<string, unknown>>(
       url.searchParams.set("include_closed", String(options.includeClosed !== false));
       url.searchParams.set("subtasks", String(includeSubtasks));
       url.searchParams.set("include_timl", "true");
+      for (const assigneeId of options.assignees || []) url.searchParams.append("assignees[]", assigneeId);
       if (options.includeMarkdownDescription) url.searchParams.set("include_markdown_description", "true");
       url.searchParams.set("page", String(page));
       const response = await clickUpCalendarFetch(token, url, undefined, undefined, {

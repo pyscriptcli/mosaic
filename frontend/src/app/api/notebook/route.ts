@@ -60,7 +60,8 @@ export async function GET(req: NextRequest) {
     const requestedMonths = new Set(monthsInRange(rangeStart, rangeEnd));
     const currentUserOnly = req.nextUrl.searchParams.get("currentUser") === "1";
     const currentUser = getUserFromRequest(req);
-    const remoteTasks = await fetchDailyLogParents(token, forceRefresh);
+    const parentAssigneeId = selectedMemberId || (currentUserOnly ? currentUser?.id : undefined);
+    const remoteTasks = await fetchDailyLogParents(token, { assigneeId: parentAssigneeId, forceRefresh, requiredMonths: Array.from(requestedMonths) });
     const stagedRows = await readStagedMosaicRecords(clickUpScope(token), "notebook", DAILY_LOG_LIST_ID);
     const stagedIdMap = new Map(stagedRows.map((row) => [String(row.record_id), String(row.clickup_id || row.record_id)]));
     const applyStaged = (source: typeof remoteTasks) => {

@@ -135,7 +135,7 @@ The per-token limiter starts at the conservative 667 ms interval (at most about 
 ### Live Daily Log acceptance criteria
 
 - [x] Date editor and history views use direct live ClickUp requests and do not read the durable task snapshot.
-- [x] Date editor fetches parent tasks without subtasks, then retrieves the selected member/month tree directly; tree fetches coalesce within a running instance.
+- [x] Date editor fetches parent tasks without subtasks, filters the common single-member request by ClickUp's assignee filter, and retrieves only the selected member/month tree. If the filtered response misses any required month (including legacy unassigned month parents), it falls back to the complete parent list. Tree fetches coalesce within a running instance.
 - [x] Activity-only My Day responses include the selected member's daily entries from the already fetched live monthly ClickUp tree. The page caches those date payloads for five minutes so browsing within the loaded month is immediate; Sync and explicit refresh paths pass `liveRefresh=1` to fetch a fresh ClickUp tree.
 - [x] History requests are bounded to the selected date range and expand only relevant monthly parent task trees; all matching pages and subtasks remain available.
 - [x] The default history request loads the authenticated member; selecting a different member loads that member, and All Team Insights loads all members for the chosen range.
@@ -143,7 +143,7 @@ The per-token limiter starts at the conservative 667 ms interval (at most about 
 - [x] Shared request limiter keeps the default below ClickUp's lowest documented plan, honors 429 reset headers, and records rate-limit headers when provided.
 - [x] No Supabase schema, migration, scheduler, or stored limiter configuration was changed for this optimization.
 - [ ] Authenticated production check confirms uncached current-month log and date-editor data load within five seconds with all categories and matching dates present; record first-load and range-change duration. On deployment `27213b3`, October 12 and October 13 values loaded correctly, but each uncached date took about 10 seconds; the five-second target was not met.
-- [ ] Confirm the ClickUp workspace's actual plan/headers and measured request rate using production telemetry; ensure there are no 429 retries under normal navigation.
+- [x] Production telemetry observed `X-RateLimit-Limit: 100` on ClickUp responses. In the 30-minute observation ending 2026-10-14 03:12 UTC, the app recorded 70 ClickUp requests, at most 17 in any minute, and zero retries; this window stayed within the observed limit.
 - [x] Commit `27213b3` (`fix(notebook): import ClickUp scope for live reads`) fixed the Vercel TypeScript build failure. Its production deployment reached Ready; authenticated October 1–14 history showed nine activity days, October 12 loaded Admin/Ad hoc/Meetings content, and October 13 loaded Admin content. Central Sync visibly animated, then completed with all listed targets Done.
 - [x] Push the in-process live tree cache and forced-refresh change; production deployment for `fbd1a9e` reached Ready.
 - [x] Production date browsing after the first monthly request loaded October 13 and October 12 immediately (under one second per UI interaction), including October 12 Admin, Ad hoc, and Meetings values. The first uncached selected-day load still took about 10 seconds, so the five-second cold-load target remains open.

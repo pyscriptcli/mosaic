@@ -97,7 +97,8 @@ function serializeDayTask(task: ClickUpTask) {
 }
 
 async function getKpiContext(token: string, date: string, req: NextRequest, forceRefresh = false) {
-  const remoteTasks = await fetchDailyLogParents(token, forceRefresh) as ClickUpTask[];
+  const user = getUserFromRequest(req);
+  const remoteTasks = await fetchDailyLogParents(token, { assigneeId: user?.id, forceRefresh, requiredMonths: [date.slice(0, 7)] }) as ClickUpTask[];
   const stagedRows = await readStagedMosaicRecords(clickUpScope(token), "notebook", DAILY_LOG_LIST_ID);
   const stagedIds = new Map(stagedRows.map((row) => [String(row.record_id), String(row.clickup_id || row.record_id)]));
   const applyStaged = (source: ClickUpTask[]) => {
@@ -111,7 +112,6 @@ async function getKpiContext(token: string, date: string, req: NextRequest, forc
     return [...taskMap.values()];
   };
   const rootTasks = applyStaged(remoteTasks);
-  const user = getUserFromRequest(req);
   const monthParent = rootTasks.find((task) => !task.parent && monthFromTaskName(task.name) === date.slice(0, 7) && userMatches(task, new Map(rootTasks.map((item) => [String(item.id), item])), user));
   const tasks = monthParent
     ? applyStaged([...rootTasks, ...flattenClickUpTaskTree(await fetchDailyLogParentTree(token, String(monthParent.id), forceRefresh)) as ClickUpTask[]])

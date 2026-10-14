@@ -187,12 +187,43 @@ export async function fetchAllTasks(token: string) {
   return fetchAllClickUpListTasks<RawClickUpTask>(token, DAILY_LOG_LIST_ID);
 }
 
-export async function fetchDailyLogParents(token: string, forceRefresh = false) {
+export async function fetchDailyLogParents(token: string, options: { assigneeId?: string | number; forceRefresh?: boolean; requiredMonths?: string[] } = {}) {
   const key = clickUpScope(token);
-  const cached = liveDailyLogParentIndexCache.get(key);
-  if (!forceRefresh && cached && cached.expiresAt > Date.now()) return cached.tasks;
-  const tasks = await fetchAllClickUpListTasks<RawClickUpTask>(token, DAILY_LOG_LIST_ID, { includeSubtasks: false });
-  liveDailyLogParentIndexCache.set(key, { tasks, expiresAt: Date.now() + 30_000 });
+  const requestedAssigneeId = options.assigneeId ? String(options.assigneeId) : "";
+  const assigneeId = /^\d{1,24}$/.test(requestedAssigneeId) ? requestedAssigneeId : "";
+  const indexKey = `${key}:${assigneeId || "all"}`;
+  const matchesRequiredParents = (tasks: RawClickUpTask[]) => {
+    if (!assigneeId) return true;
+    const byId = new Map(tasks.map((task) => [String(task.id), task]));
+    const matchingMonths = new Set(tasks.filter((task) => !task.parent && taskOwner(task, byId).id === assigneeId).map((task) => monthFromTaskName(task.name)));
+    const requiredMonths = options.requiredMonths || [];
+    return requiredMonths.length ? requiredMonths.every((month) => matchingMonths.has(month)) : matchingMonths.size > 0;
+  };
+  const loadAll = async () => {
+    const allKey = `${key}:all`;
+    const allCached = !options.forceRefresh ? liveDailyLogParentIndexCache.get(allKey) : undefined;
+    if (allCached && allCached.expiresAt > Date.now()) return allCached.tasks;
+    const allTasks = await fetchAllClickUpListTasks<RawClickUpTask>(token, DAILY_LOG_LIST_ID, { includeSubtasks: false });
+    liveDailyLogParentIndexCache.set(allKey, { tasks: allTasks, expiresAt: Date.now() + 30_000 });
+    return allTasks;
+  };
+  const cached = liveDailyLogParentIndexCache.get(indexKey) || (!options.forceRefresh ? liveDailyLogParentIndexCache.get(`${key}:all`) : undefined);
+  if (!options.forceRefresh && cached && cached.expiresAt > Date.now()) {
+    if (!assigneeId || !liveDailyLogParentIndexCache.has(indexKey)) {
+      const filtered = assigneeId ? cached.tasks.filter((task) => taskOwner(task, new Map(cached.tasks.map((item) => [String(item.id), item]))).id === assigneeId) : cached.tasks;
+      if (assigneeId && !matchesRequiredParents(filtered)) return loadAll();
+      liveDailyLogParentIndexCache.set(indexKey, { tasks: filtered, expiresAt: cached.expiresAt });
+      return filtered;
+    }
+    if (!assigneeId || matchesRequiredParents(cached.tasks)) return cached.tasks;
+    return loadAll();
+  }
+  const tasks = await fetchAllClickUpListTasks<RawClickUpTask>(token, DAILY_LOG_LIST_ID, {
+    includeSubtasks: false,
+    ...(assigneeId ? { assignees: [assigneeId] } : {}),
+  });
+  if (assigneeId && !matchesRequiredParents(tasks)) return loadAll();
+  liveDailyLogParentIndexCache.set(indexKey, { tasks, expiresAt: Date.now() + 30_000 });
   return tasks;
 }
 
