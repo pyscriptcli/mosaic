@@ -22,6 +22,22 @@ import {
 
 type CategoryKey = "client" | "admin" | "adhoc" | "meetings";
 
+export interface NotebookActivityHistoryEntry {
+  id: string;
+  name: string;
+  date: string;
+  url: string;
+  member: { id: string; name: string };
+  categories: Record<CategoryKey, string>;
+}
+
+export interface NotebookActivityHistory {
+  start: string;
+  end: string;
+  isCurrentUser: boolean;
+  entries: NotebookActivityHistoryEntry[];
+}
+
 interface NotebookMember {
   id: string;
   name: string;
@@ -31,14 +47,9 @@ interface NotebookMember {
   months?: string[];
 }
 
-interface NotebookEntry {
-  id: string;
-  name: string;
-  date: string;
-  url: string;
+interface NotebookEntry extends NotebookActivityHistoryEntry {
   status: string;
   member: NotebookMember;
-  categories: Record<CategoryKey, string>;
   hasContent: boolean;
   dailyTasks?: Array<{ id: string; name: string; status: string; completed: boolean; dueDate: string; url: string }>;
 }
@@ -140,7 +151,7 @@ function MemberAvatar({ member }: { member: NotebookMember }) {
   );
 }
 
-export function NotebookView({ currentUserName, userId, initialDate, initialTab = "today", hideViewTabs = false, hidePageTitle = false, onOpenDay }: {
+export function NotebookView({ currentUserName, userId, initialDate, initialTab = "today", hideViewTabs = false, hidePageTitle = false, onOpenDay, onActivityHistoryLoad }: {
   currentUserName?: string;
   userId?: string;
   initialDate?: string;
@@ -148,6 +159,7 @@ export function NotebookView({ currentUserName, userId, initialDate, initialTab 
   hideViewTabs?: boolean;
   hidePageTitle?: boolean;
   onOpenDay?: (date: string) => void;
+  onActivityHistoryLoad?: (history: NotebookActivityHistory | null) => void;
 }) {
   const today = localIso(new Date());
   const [activeTab, setActiveTab] = useState<"today" | "week" | "insights">(initialTab);
@@ -172,6 +184,9 @@ export function NotebookView({ currentUserName, userId, initialDate, initialTab 
   const [generatingProgress, setGeneratingProgress] = useState("");
   const [generateFeedback, setGenerateFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const notebookRequestVersion = useRef(0);
+  const loadedCurrentUserRange = useRef("");
+  const onActivityHistoryLoadRef = useRef(onActivityHistoryLoad);
+  onActivityHistoryLoadRef.current = onActivityHistoryLoad;
 
   useEffect(() => {
     setTargetGenMonth(selectedDate.slice(0, 7));
@@ -196,9 +211,17 @@ export function NotebookView({ currentUserName, userId, initialDate, initialTab 
       if (!response.ok) throw Object.assign(new Error(body.error || "Unable to load the daily log."), { status: response.status });
       if (requestVersion !== notebookRequestVersion.current) return;
       setPayload(body);
+      if (requestCurrentUser) loadedCurrentUserRange.current = `${rangeStart}:${rangeEnd}`;
+      onActivityHistoryLoadRef.current?.({
+        start: rangeStart,
+        end: rangeEnd,
+        isCurrentUser: requestCurrentUser || Boolean(userId && requestedMemberId === userId),
+        entries: body.entries || [],
+      });
       if (userId) void writeBrowserPageCache(userId, cacheKey, body as NotebookPayload);
     } catch (loadError) {
       if (requestVersion !== notebookRequestVersion.current) return;
+      onActivityHistoryLoadRef.current?.(null);
       if (userId && loadError && typeof loadError === "object" && "status" in loadError && [401, 403].includes(Number(loadError.status))) await clearBrowserPageCache(userId);
       setError(loadError instanceof Error ? loadError.message : "Unable to load the daily log.");
     } finally {
@@ -219,6 +242,7 @@ export function NotebookView({ currentUserName, userId, initialDate, initialTab 
 
   useEffect(() => {
     let active = true;
+    if (requestedMemberId && userId && requestedMemberId === userId && loadedCurrentUserRange.current === `${rangeStart}:${rangeEnd}`) return;
     void (async () => {
       const cacheKey = `notebook:${rangeStart}:${rangeEnd}:${requestedMemberId || (requestCurrentUser ? "current" : "all")}`;
       const cached = userId ? await readBrowserPageCache<NotebookPayload>(userId, cacheKey) : undefined;

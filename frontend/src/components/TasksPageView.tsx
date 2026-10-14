@@ -3,7 +3,7 @@
 import { useState } from "react";
 import MyDayView from "@/components/MyDayView";
 import TasksView from "@/components/TasksView";
-import { NotebookView } from "@/components/NotebookView";
+import { NotebookView, type NotebookActivityHistory } from "@/components/NotebookView";
 
 type WorkspaceTab = "my-day" | "all-tasks" | "activity" | "dashboard";
 type Props = {
@@ -19,6 +19,7 @@ type Props = {
 };
 
 export default function TasksPageView(props: Props) {
+  const [activityHistory, setActivityHistory] = useState<NotebookActivityHistory | null | undefined>(undefined);
   const [selectedDate, setSelectedDate] = useState(() => {
     const today = new Date();
     return today.getFullYear() + "-" + String(today.getMonth() + 1).padStart(2, "0") + "-" + String(today.getDate()).padStart(2, "0");
@@ -82,8 +83,8 @@ export default function TasksPageView(props: Props) {
       )}
       {tab === "activity" && props.canAccessNotebook && (
         <div className="space-y-8">
-          <MyDayView userId={props.userId} currentUserName={props.currentUserName} initialDate={selectedDate} onDateChange={setSelectedDate} activityOnly showDailyActivity />
-          <NotebookView key="activity-history" currentUserName={props.currentUserName} userId={props.userId} initialTab="week" hideViewTabs hidePageTitle onOpenDay={(date) => { setSelectedDate(date); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
+          <MyDayView userId={props.userId} currentUserName={props.currentUserName} initialDate={selectedDate} onDateChange={setSelectedDate} activityHistory={activityHistory} activityOnly showDailyActivity />
+          <NotebookView key="activity-history" currentUserName={props.currentUserName} userId={props.userId} initialTab="week" hideViewTabs hidePageTitle onActivityHistoryLoad={setActivityHistory} onOpenDay={(date) => { setSelectedDate(date); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
         </div>
       )}
       {tab === "dashboard" && props.canAccessNotebook && (

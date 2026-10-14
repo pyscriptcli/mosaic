@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, Bold, Bell, BellOff, CalendarDays, Check, CheckCircle2, ChevronLeft, ChevronRight, ExternalLink, Highlighter, Italic, Link2, List, ListOrdered, LoaderCircle, Plus, Quote, Redo2, RefreshCw, Save, Sparkles, Trash2, Underline, Undo2, X } from "lucide-react";
 import { getStoredClickUpListId, getStoredClickUpToken } from "@/lib/api";
 import { requestCentralClickUpSync, trackClickUpLiveRefresh } from "@/lib/clickupSyncClient";
+import type { NotebookActivityHistory } from "@/components/NotebookView";
 
 type DayTask = {
   id: string; name: string; description: string; status: string; completed: boolean;
@@ -16,7 +17,7 @@ type DayPayload = {
   personalList: { id: string; name: string } | null; completeStatus: string; openStatus: string; notesError?: string;
   dailyLogByDate?: Array<{ date: string; dayTask: { id: string; name: string; url: string }; activity: DailyActivity }>;
 };
-type Props = { userId?: string; currentUserName?: string; showDailyActivity?: boolean; activityOnly?: boolean; initialDate?: string; onDateChange?: (date: string) => void };
+type Props = { userId?: string; currentUserName?: string; showDailyActivity?: boolean; activityOnly?: boolean; initialDate?: string; onDateChange?: (date: string) => void; activityHistory?: NotebookActivityHistory | null };
 
 const todayIso = () => {
   const date = new Date();
@@ -116,7 +117,7 @@ function requestHeaders(personalList?: { id: string; name: string } | null) {
   return headers;
 }
 
-export default function MyDayView({ userId, currentUserName, showDailyActivity = true, activityOnly = false, initialDate, onDateChange }: Props) {
+export default function MyDayView({ userId, currentUserName, showDailyActivity = true, activityOnly = false, initialDate, onDateChange, activityHistory }: Props) {
   const [date, setDate] = useState(() => initialDate || todayIso());
   const [payload, setPayload] = useState<DayPayload | null>(null);
   const [optimisticTasks, setOptimisticTasks] = useState<DayTask[]>([]);
@@ -224,6 +225,24 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
       activityReady.current = true;
       notesReady.current = true;
     };
+    if (activityOnly && !background && activityHistory === undefined) return;
+    if (activityOnly && activityHistory?.isCurrentUser && requestedDate >= activityHistory.start && requestedDate <= activityHistory.end) {
+      const entry = activityHistory.entries.find((item) => item.date === requestedDate && (
+        item.member.id === String(userId || "") || item.member.name.trim().toLowerCase() === String(currentUserName || "").trim().toLowerCase()
+      )) || (activityHistory.isCurrentUser ? activityHistory.entries.find((item) => item.date === requestedDate) : undefined);
+      const fromHistory: DayPayload = {
+        date: requestedDate,
+        dayTask: entry ? { id: entry.id, name: entry.name, url: entry.url } : null,
+        tasks: [], notes: "", noteTask: null, activity: entry?.categories || EMPTY_ACTIVITY,
+        personalList: null, completeStatus: "complete", openStatus: "to do",
+      };
+      dayPayloadCache.current.set(cacheKey, { payload: fromHistory, cachedAt: Date.now() });
+      applyDay(fromHistory);
+      setError("");
+      setLoading(false);
+      setRefreshing(false);
+      return;
+    }
     if (!background && cached && Date.now() - cached.cachedAt < (activityOnly ? 5 * 60_000 : 20_000)) {
       applyDay(cached.payload);
       setError("");
@@ -266,7 +285,7 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
         setRefreshing(false);
       }
     }
-  }, [date, personalList?.id, personalList?.name]);
+  }, [activityHistory, activityOnly, currentUserName, date, personalList?.id, personalList?.name, userId]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => { notesReady.current = false; void loadDay(); }, 0);
@@ -274,10 +293,12 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
   }, [loadDay]);
 
   useEffect(() => {
-    const refreshAfterSync = (event: Event) => { trackClickUpLiveRefresh(event, () => loadDay(true)); };
+    const refreshAfterSync = (event: Event) => {
+      trackClickUpLiveRefresh(event, () => activityOnly && activityHistory?.isCurrentUser ? Promise.resolve() : loadDay(true));
+    };
     window.addEventListener("mosaic-clickup-sync-complete", refreshAfterSync);
     return () => window.removeEventListener("mosaic-clickup-sync-complete", refreshAfterSync);
-  }, [loadDay]);
+  }, [activityHistory?.isCurrentUser, activityOnly, loadDay]);
 
   const requestDayRefresh = async () => {
     setRefreshing(true);
