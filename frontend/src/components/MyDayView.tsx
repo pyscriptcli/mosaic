@@ -165,6 +165,8 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
   const lastReminderAt = useRef(0);
   const notesTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activityTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dayRequestVersion = useRef(0);
+  const dayPayloadCache = useRef(new Map<string, { payload: DayPayload; cachedAt: number }>());
   const notesReady = useRef(false);
   const activityReady = useRef(false);
 
@@ -202,15 +204,13 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
   }, []);
 
   const loadDay = useCallback(async (background = false) => {
-    if (!background) activityReady.current = false;
-    if (background) setRefreshing(true); else setLoading(true);
-    setError("");
-    try {
-      const response = await fetch(`/api/my-day?date=${encodeURIComponent(date)}&personalListId=${encodeURIComponent(personalList?.id || "")}&personalListName=${encodeURIComponent(personalList?.name || "Personal List")}`, { headers: requestHeaders(personalList), cache: "no-store" });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error || "My Day could not be loaded.");
+    const requestVersion = ++dayRequestVersion.current;
+    const requestedDate = date;
+    const cacheKey = `${requestedDate}:${personalList?.id || "default"}`;
+    const cached = dayPayloadCache.current.get(cacheKey);
+    const applyDay = (body: DayPayload) => {
       setPayload(body);
-      setOptimisticTasks((current) => current.filter((task) => !body.tasks?.some((loaded: DayTask) => loaded.id === task.id)));
+      setOptimisticTasks((current) => current.filter((task) => !body.tasks?.some((loaded) => loaded.id === task.id)));
       setPersonalList(body.personalList || null);
       setPersonalListLoading(false);
       setNoteDraft(body.notes || "");
@@ -222,12 +222,38 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
       setActivityError("");
       activityReady.current = true;
       notesReady.current = true;
+    };
+    if (!background && cached && Date.now() - cached.cachedAt < 20_000) {
+      applyDay(cached.payload);
+      setError("");
+      setLoading(false);
+      return;
+    }
+    if (!background) activityReady.current = false;
+    if (background) setRefreshing(true); else setLoading(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/my-day?date=${encodeURIComponent(requestedDate)}&personalListId=${encodeURIComponent(personalList?.id || "")}&personalListName=${encodeURIComponent(personalList?.name || "Personal List")}`, { headers: requestHeaders(personalList), cache: "no-store" });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "My Day could not be loaded.");
+      if (requestVersion !== dayRequestVersion.current) return;
+      if (body.date !== requestedDate) throw new Error("ClickUp returned a different day than the one requested.");
+      const loaded = body as DayPayload;
+      dayPayloadCache.current.set(cacheKey, { payload: loaded, cachedAt: Date.now() });
+      if (dayPayloadCache.current.size > 64) {
+        const oldestKey = dayPayloadCache.current.keys().next().value;
+        if (oldestKey) dayPayloadCache.current.delete(oldestKey);
+      }
+      applyDay(loaded);
     } catch (loadError) {
+      if (requestVersion !== dayRequestVersion.current) return;
       setPersonalListLoading(false);
       setError(loadError instanceof Error ? loadError.message : "My Day could not be loaded.");
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (requestVersion === dayRequestVersion.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   }, [date, personalList?.id, personalList?.name]);
 
@@ -589,6 +615,7 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
               </div>
               <div className="flex items-center gap-3"><span role="status" className="text-[10px] font-semibold text-slate-500">{activitySave === "saved" ? "Saved" : activitySave === "saving" ? "Saving…" : activitySave === "pending" ? "Autosave pending" : "Save failed"}</span><button type="button" onClick={() => void generateSummary()} disabled={summaryState === "loading" || tasks.length === 0} title={summaryState === "loading" ? "Generating summary…" : "Generate summary with AI"} aria-label={summaryState === "loading" ? "Generating summary with AI" : "Generate summary with AI"} aria-busy={summaryState === "loading"} className="inline-flex min-h-8 min-w-8 items-center justify-center border border-slate-300 text-[#003366] hover:border-[#003366] disabled:opacity-50"><Sparkles size={14} aria-hidden="true" /></button></div>
             </div>
+            {payload?.date !== date && <p role="status" className="border-b border-slate-200 bg-slate-50 px-4 py-2 text-xs text-slate-600">Loading {dateLabel(date)} from ClickUp…</p>}
             {(summaryState === "loading" || summaryError || taskSummary) && <div className="border-b border-slate-200 bg-slate-50/70 px-4 py-2 text-xs text-slate-600" role={summaryError ? "alert" : "status"}>{summaryState === "loading" ? "Preparing a task summary…" : summaryError || (taskSummary ? "A bullet summary of your My Day tasks is included in Ad hoc activity." : "")}</div>}
             <div className="grid grid-cols-1 gap-3 p-4 md:grid-cols-2">
               {ACTIVITY_FIELDS.map((field) => (
@@ -597,6 +624,7 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
                   <textarea
                     value={activityDraft[field.key]}
                     onChange={(event) => setActivityDraft((current) => ({ ...current, [field.key]: event.target.value }))}
+                    disabled={loading || payload?.date !== date}
                     placeholder={"Log " + field.label.toLowerCase() + " work"}
                     rows={3}
                     className="w-full resize-y border border-slate-200 bg-[#FFFCFB] px-3 py-2 text-sm leading-relaxed text-slate-700 outline-none focus:border-[#C9A84C]"
@@ -612,7 +640,7 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
                   if (activityTimer.current) clearTimeout(activityTimer.current);
                   void saveActivity();
                 }}
-                disabled={activitySave === "saving"}
+                disabled={activitySave === "saving" || loading || payload?.date !== date}
                 className="inline-flex min-h-10 items-center gap-2 border border-[#003366] px-3 text-xs font-semibold text-[#003366] hover:bg-[#003366] hover:text-white disabled:opacity-50"
               >
                 <Save size={13} />Save now

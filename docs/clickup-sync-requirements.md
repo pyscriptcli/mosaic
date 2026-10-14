@@ -114,5 +114,12 @@ ClickUp documents 100 tasks per Get Tasks page and base-plan limits of 100 reque
 - [x] The Sync control dispatches a live refresh to mounted feature views and waits for their refresh handlers; its request path does not enqueue a Supabase sync run.
 - [x] No Supabase migration, schema, scheduler, or stored secret was changed for interim live-read mode.
 - [x] TypeScript check passed for interim live-read changes.
-- [ ] Run the production build, then perform an authenticated Notebook date-browse and Sync click-through against ClickUp; record the observed refresh duration and confirm dates with activity render.
+- [x] Production deployment for commit `653b985` reached Ready. An authenticated Daily Log view loaded nine activity days for October 1–14, 2026; browsing to October 12 and refreshing populated the selected-day editor with its Admin, Ad hoc, and Meetings values.
+- [ ] Deploy the date-browse race fix and verify date changes never leave fields editable for the wrong date, stale responses cannot replace the selected date, and cached revisits render immediately. Record first-load and refresh durations.
+- [ ] With zero pending local writes, click the main Sync control and verify its animation, mounted-view refreshes, and completion state against ClickUp.
 - [ ] Observe ClickUp rate-limit headers and request telemetry during the authenticated click-through to confirm the current workspace's actual plan and traffic stay within its token budget.
+- [x] TypeScript check and production build passed after the date-browse race fix.
+
+### Date-browse follow-up (2026-10-14)
+
+The production date-browse check exposed a slow-loading state: the October 12 row showed category data in the activity timeline while the selected-day editor remained blank until a subsequent live refresh completed. The follow-up prevents late responses from replacing a newer selected date, caches recently visited day payloads in page memory for 20 seconds, and disables the editor and Save action while the requested day's data is still loading. The 20-second cache is local to the mounted browser component and is bypassed by explicit live refresh. The production deployment and authenticated verification of this follow-up remain pending.
