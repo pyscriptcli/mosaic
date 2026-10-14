@@ -175,9 +175,9 @@ The Daily Log history and selected-day read routes now start the live ClickUp pa
 
 - [x] Daily Log live parent-index reads and staged-write overlay reads start concurrently in both the history and selected-day routes.
 - [x] Sync control and its open detail panel display the moving progress indicator while refresh work is active and honor reduced-motion preferences.
-- [ ] Production verifies that manual Sync no longer reports a refresh-queue failure and that a mounted Daily Log refresh completes from ClickUp.
-- [ ] Measure an uncached current-month history load and selected-day load in production; confirm full date/category results and record timings. The five-second cold-load target remains open until measured.
-- [ ] Confirm ClickUp plan headers and live request traffic remain within the per-token budget during that same production run.
+- [x] Production verifies that manual Sync no longer reports a refresh-queue failure and that a mounted Daily Log refresh completes from ClickUp. On 2026-10-14, the authenticated production Sync completed with `ClickUp connection: Done` and `Daily Log: Done`; no queue failure appeared.
+- [ ] Measure an uncached current-month history load and selected-day load in production; confirm full date/category results and record timings. Selected-day values load from history, but the latest attempt to change the range was reset by the period control, so it did not yield a valid cold-history measurement. Keep the five-second target open.
+- [x] Confirm ClickUp plan headers and live request traffic remain within the per-token budget during that same production run. Focused telemetry for the authenticated Sync showed a 100/minute limit, 85–99 requests remaining, and zero retries on the sampled Daily Log routes.
 - [x] No Supabase schema, cache configuration, limiter RPC, scheduler, or stored secret was changed.
 
 ### Complete ClickUp request-path audit (2026-10-14)
@@ -191,6 +191,6 @@ The telemetry observed before this correction covered only wrapper-routed reques
 - [x] All authenticated ClickUp API calls in application source use the shared request limiter and telemetry, except the unauthenticated OAuth token exchange.
 - [x] ClickUp calls marked `cache: "no-store"` bypass the shared HTTP response cache.
 - [x] Strategic Alliance list discovery no longer has a fixed 20-page ceiling and uses the central complete paginated reader.
-- [ ] Post-deploy telemetry confirms the direct-read routes are visible, no 429s occur, and request starts remain within the observed per-token plan limit.
-- [ ] Production Daily Log cold history and date selection complete with all expected records; record total load time and per-call rate wait/upstream timings.
+- [x] Focused post-deploy telemetry confirms the Daily Log direct-read routes are visible and no 429s occurred during the verified Sync. The sampled `/api/v2/user`, `/api/v2/task/:id`, and `/api/v2/list/:id/task` responses reported a 100/minute limit, with 85–99 requests remaining and zero retries. This verifies the sampled Sync, not every possible production ClickUp request path.
+- [ ] Production Daily Log cold history completes within five seconds with all expected records; record total load time and per-call rate wait/upstream timings. Date selection is verified separately below; a controlled uncached range measurement remains outstanding.
 - [x] No Supabase schema, cache, limiter RPC, scheduler, or secret configuration was changed.
