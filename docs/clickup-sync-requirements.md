@@ -71,6 +71,7 @@ Writes may continue to use the durable write outbox and may read current state w
 ## Release evidence
 
 - On 2026-10-14, the user screenshot's queue rejection was traced to PostgreSQL `42702` errors in production: the enqueue function had PL/pgSQL variables named `list_id`/`run_id` colliding with SQL columns, and the scheduled claim function selected an unqualified `run_id`. This caused refresh enqueue and worker claims to fail. Migration `clickup_sync_queue_ambiguity_fix` replaced the colliding variables with `v_` names, qualified the claim CTE reference, and made list ID validation explicit. A real daily-log target was accepted into the durable queue after the migration.
+- After the migration, the one-minute Cron endpoint returned HTTP 200 and processed other queued targets; no PostgreSQL `ERROR` entries appeared after 01:52 UTC. The daily-log run itself was still queued behind the existing backlog at 01:54 UTC, so its completion and publication remain unverified.
 - The production Supabase project previously reported a 1,000-row Data API ceiling, 556 cached daily-log tasks, and 16 queued jobs. This motivated explicit pagination and queue health reporting; it did not reproduce the user-reported missing date.
 - The durable schema and one-minute Cron schedule were applied to Project Echo. One Cron invocation was recorded as `succeeded`; this alone does not prove that an HTTP worker completed a sync.
 - The prior production build passed. The authenticated UI flow and the missing-date root cause were not verified in that build.
