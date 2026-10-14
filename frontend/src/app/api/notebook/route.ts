@@ -12,12 +12,12 @@ import {
   monthFromTaskName,
   normalizeFieldName,
   requestToken,
-  RawClickUpTask,
+  fetchAllTasks,
   taskOwner,
   writeCategories,
 } from "@/lib/notebookClickup";
 import { getUserFromRequest } from "@/lib/auth";
-import { clickUpScope, queueClickUpSync, readClickUpTaskSnapshot } from "@/lib/clickupReadStore";
+import { clickUpScope } from "@/lib/clickupReadStore";
 import { readStagedMosaicRecords, scheduleMosaicWriteSync, stageMosaicWrite } from "@/lib/mosaicWriteStore";
 
 export const maxDuration = 60;
@@ -30,14 +30,7 @@ export async function GET(req: NextRequest) {
 
   try {
     const scope = clickUpScope(token);
-    const snapshot = await readClickUpTaskSnapshot(scope, DAILY_LOG_LIST_ID, 30 * 24 * 60 * 60_000);
-    const userId = String(getUserFromRequest(req)?.id || "");
-    const snapshotIsFresh = Boolean(snapshot && snapshot.syncState === "ready" && Date.now() - Date.parse(snapshot.syncedAt) < 5 * 60_000);
-    let refreshWarning = "";
-    if (!snapshotIsFresh && userId) await queueClickUpSync(token, userId, DAILY_LOG_LIST_ID);
-    if (!snapshot) refreshWarning = "Daily logs are being loaded from ClickUp for the first time. This page will update when that sync completes.";
-    else if (!snapshotIsFresh) refreshWarning = "Showing the last complete daily log snapshot while ClickUp updates in the background.";
-    const remoteTasks = (snapshot?.tasks || []) as unknown as RawClickUpTask[];
+    const remoteTasks = await fetchAllTasks(token);
     const stagedRows = await readStagedMosaicRecords(clickUpScope(token), "notebook", DAILY_LOG_LIST_ID);
     const stagedIdMap = new Map(stagedRows.map((row) => [String(row.record_id), String(row.clickup_id || row.record_id)]));
     const taskMap = new Map(remoteTasks.map((task) => [String(task.id), task]));
@@ -111,15 +104,18 @@ export async function GET(req: NextRequest) {
       }];
     });
 
+    const fetchedAt = new Date().toISOString();
     return NextResponse.json({
       listId: DAILY_LOG_LIST_ID,
       entries,
       members: Array.from(members.values())
         .map((member) => ({ ...member, months: Array.from(memberMonths.get(member.id) || []) }))
         .sort((a, b) => a.name.localeCompare(b.name)),
-      fetchedAt: new Date().toISOString(),
-      ...(refreshWarning ? { warning: refreshWarning } : {}),
-    });
+      fetchedAt,
+      syncedAt: fetchedAt,
+      syncState: "synced",
+      source: "clickup-live",
+    }, { headers: { "Cache-Control": "no-store", "X-ClickUp-Data-Source": "live" } });
   } catch (error) {
     console.error("Notebook ClickUp read failed:", error);
     return NextResponse.json(

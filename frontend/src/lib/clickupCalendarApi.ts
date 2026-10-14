@@ -11,6 +11,7 @@ const localStartQueues = new Map<string, Promise<void>>();
 const activeByToken = new Map<string, number>();
 const waiters = new Map<string, Array<() => void>>();
 const inFlightGets = new Map<string, Promise<Response>>();
+const liveTaskListReads = new Map<string, Promise<unknown[]>>();
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
@@ -65,10 +66,15 @@ async function reserveStart(scope: string) {
 }
 
 function retryDelay(response: Response, attempt: number) {
-  const retryAfter = Number(response.headers.get("Retry-After"));
+  const retryAfterHeader = response.headers.get("Retry-After") || "";
+  const retryAfterSeconds = Number(retryAfterHeader);
+  const retryAfterDate = Date.parse(retryAfterHeader);
+  const retryAfter = retryAfterSeconds > 0
+    ? retryAfterSeconds * 1000
+    : Number.isFinite(retryAfterDate) ? Math.max(0, retryAfterDate - Date.now()) : 0;
   const reset = Number(response.headers.get("X-RateLimit-Reset"));
-  const serverDelay = retryAfter > 0 ? retryAfter * 1000 : reset > Date.now() / 1000 ? reset * 1000 - Date.now() : 0;
-  return Math.min(30_000, Math.max(serverDelay, 500 * (2 ** attempt)) + Math.random() * 250);
+  const serverDelay = retryAfter > 0 ? retryAfter : reset > Date.now() / 1000 ? reset * 1000 - Date.now() : 0;
+  return serverDelay > 0 ? serverDelay + 250 : Math.min(30_000, 500 * (2 ** attempt) + Math.random() * 250);
 }
 
 async function clickUpRequest(token: string, input: string | URL, init?: RequestInit, options: { maxRateLimitRetries?: number; timeoutMs?: number } = {}) {
@@ -88,15 +94,21 @@ async function clickUpRequest(token: string, input: string | URL, init?: Request
     let upstreamMs = 0;
     const headers = new Headers(init?.headers);
     headers.set("Authorization", token);
+    const send = () => fetch(input, {
+      ...init,
+      headers,
+      cache: "no-store",
+      signal: init?.signal || (options.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined),
+    });
     const upstreamStartedAt = Date.now();
-    response = await fetch(input, { ...init, headers, cache: "no-store", signal: init?.signal || (options.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined) });
+    response = await send();
     upstreamMs += Date.now() - upstreamStartedAt;
     for (let attempt = 0; response.status === 429 && attempt < (options.maxRateLimitRetries ?? 3); attempt += 1) {
       retries += 1;
       await sleep(retryDelay(response, attempt));
       await reserveStart(scope);
       const retryStartedAt = Date.now();
-      response = await fetch(input, { ...init, headers, cache: "no-store", signal: init?.signal || (options.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined) });
+      response = await send();
       upstreamMs += Date.now() - retryStartedAt;
     }
     if (process.env.CLICKUP_PERF_LOGS === "true") {
@@ -169,6 +181,59 @@ export async function clickUpFetch(input: RequestInfo | URL, init?: RequestInit)
   const token = headers.get("Authorization") || "";
   if (!token) return fetch(input, init);
   return clickUpCalendarFetch(token, url, init);
+}
+
+/** Read a complete live ClickUp list without serving the Supabase/HTTP response cache. */
+export async function fetchAllClickUpListTasks<T = Record<string, unknown>>(
+  token: string,
+  listId: string,
+  options: { includeClosed?: boolean; includeMarkdownDescription?: boolean; timeoutMs?: number } = {},
+): Promise<T[]> {
+  const scope = clickUpScope(token);
+  const key = `${scope}:live-list:${listId}:${options.includeClosed === false ? "open" : "closed"}:${options.includeMarkdownDescription ? "markdown" : "plain"}`;
+  const existing = liveTaskListReads.get(key);
+  if (existing) return existing as Promise<T[]>;
+
+  const read = (async () => {
+    const fetchPage = async (page: number) => {
+      const url = new URL(`https://api.clickup.com/api/v2/list/${encodeURIComponent(listId)}/task`);
+      url.searchParams.set("include_closed", String(options.includeClosed !== false));
+      url.searchParams.set("subtasks", "true");
+      url.searchParams.set("include_timl", "true");
+      if (options.includeMarkdownDescription) url.searchParams.set("include_markdown_description", "true");
+      url.searchParams.set("page", String(page));
+      const response = await clickUpCalendarFetch(token, url, undefined, undefined, {
+        skipCache: true,
+        timeoutMs: options.timeoutMs ?? 12_000,
+      });
+      const body = await response.json().catch(() => null) as { tasks?: unknown; last_page?: unknown; err?: string; error?: string } | null;
+      if (!response.ok) throw new Error(body?.err || body?.error || `ClickUp returned ${response.status} while loading list ${listId}.`);
+      if (!body || !Array.isArray(body.tasks)) throw new Error(`ClickUp returned an invalid task page for list ${listId}.`);
+      return { tasks: body.tasks as T[], lastPage: body.last_page === true };
+    };
+
+    const all: T[] = [];
+    const first = await fetchPage(0);
+    all.push(...first.tasks);
+    if (first.lastPage || first.tasks.length < 100) return all;
+
+    // Small parallel page windows keep total latency down while the shared
+    // per-token request gate stays below ClickUp's lowest documented limit.
+    let nextPage = 1;
+    while (true) {
+      const pages = await Promise.all([nextPage, nextPage + 1, nextPage + 2].map(fetchPage));
+      let complete = false;
+      for (const page of pages) {
+        all.push(...page.tasks);
+        if (page.lastPage || page.tasks.length < 100) { complete = true; break; }
+      }
+      if (complete) return all;
+      nextPage += pages.length;
+    }
+  })();
+  liveTaskListReads.set(key, read);
+  try { return await read as T[]; }
+  finally { liveTaskListReads.delete(key); }
 }
 
 export function clearClickUpCalendarCache(token: string, resourcePaths?: string[]) {

@@ -7,7 +7,7 @@ import { DeltaReview, DeltaReviewList } from "@/components/DeltaReview";
 import type { SavedDeltaReview } from "@/lib/delta/localStore";
 import { calculateSiteAmount, sitesForSubproject } from "@/lib/projectSites";
 import { getBrowserPageCache, readBrowserPageCache, refreshBrowserPageQuery, writeBrowserPageCache } from "@/lib/browserPageCache";
-import { requestCentralClickUpSync } from "@/lib/clickupSyncClient";
+import { requestCentralClickUpSync, trackClickUpLiveRefresh } from "@/lib/clickupSyncClient";
 import { ClickUpLoadingPanel } from "@/components/ClickUpLoadingProvider";
 import {
   ArrowLeft,
@@ -1453,7 +1453,7 @@ export function ProjectWorkspace({ userId }: { userId?: string }) {
     else if (activeFolderId) reloadProjectData();
   };
   useEffect(() => {
-    const refreshAfterSync = () => syncRefreshRef.current();
+    const refreshAfterSync = (event: Event) => { trackClickUpLiveRefresh(event, async () => { await syncRefreshRef.current(); }); };
     window.addEventListener("mosaic-clickup-sync-complete", refreshAfterSync);
     return () => window.removeEventListener("mosaic-clickup-sync-complete", refreshAfterSync);
   }, []);

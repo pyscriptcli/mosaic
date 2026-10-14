@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireSubprojectAdmin } from "@/lib/project-permissions";
 import { AdminConfigError, loadAdminConfig, saveAdminConfig } from "@/lib/admin-config/store";
-import { clearClickUpCalendarCache, clickUpCalendarFetch } from "@/lib/clickupCalendarApi";
+import { clearClickUpCalendarCache, fetchAllClickUpListTasks } from "@/lib/clickupCalendarApi";
 import { recordProjectActivity } from "@/lib/projectActivity";
 import { getUserFromRequest } from "@/lib/auth";
 import { scheduleMosaicWriteSync, stageMosaicWrite } from "@/lib/mosaicWriteStore";
@@ -28,15 +28,9 @@ export async function PUT(req: NextRequest) {
     let alreadyAssignedCount = 0;
     let failedCount = 0;
     if (Number.isFinite(leadId)) {
-      const tasks: Array<{ id: string | number; assignees?: Array<{ id: string | number }> }> = [];
-      for (let page = 0; ; page += 1) {
-        const response = await clickUpCalendarFetch(token, `https://api.clickup.com/api/v2/list/${encodeURIComponent(listId)}/task?subtasks=true&include_closed=true&page=${page}`);
-        if (!response.ok) return NextResponse.json({ error: `Lead saved was canceled because existing tasks could not be loaded (${response.status}).` }, { status: response.status });
-        const payload = await response.json() as { tasks?: typeof tasks };
-        const pageTasks = payload.tasks || [];
-        tasks.push(...pageTasks);
-        if (pageTasks.length < 100) break;
-      }
+      let tasks: Array<{ id: string | number; assignees?: Array<{ id: string | number }> }>;
+      try { tasks = await fetchAllClickUpListTasks(token, listId); }
+      catch (error) { return NextResponse.json({ error: `Lead saved was canceled because existing tasks could not be loaded: ${error instanceof Error ? error.message : "ClickUp is unavailable."}` }, { status: 502 }); }
       for (const task of tasks) {
         const taskId = String(task.id);
         if ((task.assignees || []).some((assignee) => String(assignee.id) === String(leadId))) { alreadyAssignedCount += 1; taskIds.push(taskId); continue; }

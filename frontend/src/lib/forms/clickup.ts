@@ -6,6 +6,7 @@ import {
   FormType,
 } from "@/types/forms/rfp";
 import { clickUpFetch as fetch } from "@/lib/clickupCalendarApi";
+import { fetchAllClickUpListTasks } from "@/lib/clickupCalendarApi";
 import { randomUUID } from "node:crypto";
 import { stageMosaicWrite } from "@/lib/mosaicWriteStore";
 
@@ -521,24 +522,7 @@ export async function getListTasks(includeClosed: boolean = true, context: Click
     return [];
   }
 
-  try {
-    const url = `${CLICKUP_API_BASE}/list/${listId}/task?include_closed=${includeClosed}&subtasks=true&include_markdown_description=true`;
-    const res = await fetch(url, {
-      headers: { Authorization: token },
-      cache: "no-store",
-    });
-
-    if (!res.ok) {
-      console.error(`Failed to fetch tasks from list ${listId}:`, await res.text());
-      return [];
-    }
-
-    const data = await res.json();
-    return data.tasks || [];
-  } catch (err) {
-    console.error("Error fetching list tasks:", err);
-    return [];
-  }
+  return fetchAllClickUpListTasks(token, listId, { includeClosed, includeMarkdownDescription: true });
 }
 
 /**

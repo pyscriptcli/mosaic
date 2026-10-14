@@ -1,6 +1,6 @@
 import type { EchoSourcePage } from "./access";
 import type { EvidenceSource } from "./retrieval";
-import { clickUpFetch } from "@/lib/clickupCalendarApi";
+import { clickUpFetch, fetchAllClickUpListTasks } from "@/lib/clickupCalendarApi";
 
 const PAGE_LISTS: Partial<Record<EchoSourcePage, string>> = {
   notebook: "901418075633",
@@ -28,6 +28,10 @@ function taskSource(task: any, page: EchoSourcePage): EvidenceSource {
 }
 
 async function fetchList(token: string, listId: string, page: EchoSourcePage, fetcher: Fetcher) {
+  if (fetcher === clickUpFetch) {
+    const tasks = await fetchAllClickUpListTasks<Record<string, any>>(token, listId, { includeMarkdownDescription: true });
+    return tasks.map((task) => taskSource(task, page));
+  }
   const response = await fetcher(`https://api.clickup.com/api/v2/list/${encodeURIComponent(listId)}/task?include_closed=true&subtasks=true&include_markdown_description=true&page=0`, { headers: { Authorization: token }, cache: "no-store" });
   if (!response.ok) return [];
   const body = await response.json();

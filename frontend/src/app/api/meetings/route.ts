@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getTokenFromRequest, getUserFromRequest } from "@/lib/auth";
 import { parseDiscussionItems } from "@/lib/meetingArchive";
-import { clickUpFetch as fetch } from "@/lib/clickupCalendarApi";
+import { clickUpCalendarFetch, clickUpFetch as fetch, fetchAllClickUpListTasks } from "@/lib/clickupCalendarApi";
 import { scheduleMosaicWriteSync, stageMosaicWrite } from "@/lib/mosaicWriteStore";
 
 export const maxDuration = 60;
@@ -202,20 +202,18 @@ async function getPersonalListForUser(req: NextRequest): Promise<{ id: string; n
 }
 
 async function fetchMeetingsFromPersonalList(personalList: { id: string; name: string }, token: string): Promise<any[]> {
-  const headers = { Authorization: token };
   try {
     const [listRes, tasksRes] = await Promise.all([
-      fetch(`https://api.clickup.com/api/v2/list/${personalList.id}`, { headers, cache: "no-store" }).catch(() => null),
-      fetch(`https://api.clickup.com/api/v2/list/${personalList.id}/task?include_closed=true&subtasks=true&include_markdown_description=true`, { headers, cache: "no-store" }).catch(() => null),
+      clickUpCalendarFetch(token, `https://api.clickup.com/api/v2/list/${personalList.id}`, undefined, undefined, { skipCache: true }).catch(() => null),
+      fetchAllClickUpListTasks<Record<string, any>>(token, personalList.id, { includeMarkdownDescription: true }).catch(() => null),
     ]);
     const listData = listRes?.ok ? await listRes.json().catch(() => ({})) : {};
     const listName = listData.name || personalList.name || "Personal List";
     const spaceName = listData.space?.name || "Personal List";
     const spaceId = listData.space?.id ? String(listData.space.id) : "__personal__";
 
-    if (!tasksRes?.ok) return [];
-    const tasksData = await tasksRes.json();
-    const tasks = tasksData.tasks || [];
+    if (!tasksRes) return [];
+    const tasks = tasksRes;
 
     const meetingTasks = tasks.filter((t: any) => {
       const tags = Array.isArray(t.tags) ? t.tags.map((tg: any) => (typeof tg === "string" ? tg : tg.name || "").toLowerCase()) : [];
@@ -236,7 +234,6 @@ async function fetchMeetingsFromPersonalList(personalList: { id: string; name: s
 }
 
 async function fetchMeetingsFromWorkspace(teamId: string, token: string, spaceId?: string | null): Promise<any[]> {
-  const headers = { Authorization: token };
   const params = new URLSearchParams({
     include_closed: "true",
     subtasks: "true",
@@ -248,15 +245,17 @@ async function fetchMeetingsFromWorkspace(teamId: string, token: string, spaceId
   }
 
   try {
-    const res = await fetch(`https://api.clickup.com/api/v2/team/${teamId}/task?${params.toString()}`, {
-      headers,
-      cache: "no-store",
-    });
-    if (res.ok) {
-      const data = await res.json();
-      const tasks = data.tasks || [];
-      return tasks.map((t: any) => parseMeetingTask(t, t.space?.id || spaceId || "", t.space?.name || "Workspace", t.list || {}));
+    const tasks: any[] = [];
+    for (let page = 0; ; page += 1) {
+      params.set("page", String(page));
+      const res = await clickUpCalendarFetch(token, `https://api.clickup.com/api/v2/team/${teamId}/task?${params.toString()}`, undefined, undefined, { skipCache: true });
+      if (!res.ok) throw new Error(`ClickUp workspace task search returned ${res.status}.`);
+      const data = await res.json() as { tasks?: any[] };
+      const batch = Array.isArray(data.tasks) ? data.tasks : [];
+      tasks.push(...batch);
+      if (batch.length < 100) break;
     }
+    return tasks.map((task) => parseMeetingTask(task, task.space?.id || spaceId || "", task.space?.name || "Workspace", task.list || {}));
   } catch (err) {
     console.warn("Tag-based workspace task query failed:", err);
   }
@@ -264,12 +263,10 @@ async function fetchMeetingsFromWorkspace(teamId: string, token: string, spaceId
 }
 
 async function fetchMeetingsFromSpaceLegacy(spaceId: string, token: string): Promise<any[]> {
-  const headers = { Authorization: token };
-  
   const [spaceRes, listsRes, foldersRes] = await Promise.all([
-    fetch(`https://api.clickup.com/api/v2/space/${spaceId}`, { headers, cache: "no-store" }).catch(() => null),
-    fetch(`https://api.clickup.com/api/v2/space/${spaceId}/list`, { headers, cache: "no-store" }).catch(() => null),
-    fetch(`https://api.clickup.com/api/v2/space/${spaceId}/folder`, { headers, cache: "no-store" }).catch(() => null),
+    clickUpCalendarFetch(token, `https://api.clickup.com/api/v2/space/${spaceId}`, undefined, undefined, { skipCache: true }).catch(() => null),
+    clickUpCalendarFetch(token, `https://api.clickup.com/api/v2/space/${spaceId}/list`, undefined, undefined, { skipCache: true }).catch(() => null),
+    clickUpCalendarFetch(token, `https://api.clickup.com/api/v2/space/${spaceId}/folder`, undefined, undefined, { skipCache: true }).catch(() => null),
   ]);
 
   const spaceData = spaceRes?.ok ? await spaceRes.json().catch(() => ({})) : {};
@@ -302,13 +299,8 @@ async function fetchMeetingsFromSpaceLegacy(spaceId: string, token: string): Pro
   const allTasksArrays = await Promise.all(
     targetLists.map(async (list) => {
       try {
-        const tasksRes = await fetch(
-          `https://api.clickup.com/api/v2/list/${list.id}/task?include_closed=true&subtasks=true&include_markdown_description=true`,
-          { headers, cache: "no-store" }
-        );
-        if (!tasksRes.ok) return [];
-        const tasksData = await tasksRes.json();
-        return (tasksData.tasks || []).map((t: any) => parseMeetingTask(t, spaceId, spaceName, list));
+        const tasks = await fetchAllClickUpListTasks<Record<string, any>>(token, list.id, { includeMarkdownDescription: true });
+        return tasks.map((task) => parseMeetingTask(task, spaceId, spaceName, list));
       } catch (e) {
         return [];
       }

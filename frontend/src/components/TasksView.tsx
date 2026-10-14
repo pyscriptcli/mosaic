@@ -46,7 +46,7 @@ import { WORKSPACE_STATUS_CATEGORIES, ALL_WORKSPACE_STATUSES } from "@/lib/click
 import { SearchableMemberSelect } from "./SearchableMemberSelect";
 import { formatEchoDate } from "@/lib/dateUtils";
 import { clearBrowserPageCache, readBrowserPageCache, writeBrowserPageCache } from "@/lib/browserPageCache";
-import { requestCentralClickUpSync } from "@/lib/clickupSyncClient";
+import { requestCentralClickUpSync, trackClickUpLiveRefresh } from "@/lib/clickupSyncClient";
 import { flushClickUpMutationQueue, getPendingClickUpMutationCount, mergePendingClickUpMutations, queueClickUpDelete, queueClickUpUpdate } from "@/lib/clickUpMutationQueue";
 
 export interface ClickUpTask {
@@ -295,7 +295,7 @@ export default function TasksView({
   const loadTasksRef = useRef(loadTasks);
   useEffect(() => { loadTasksRef.current = loadTasks; });
   useEffect(() => {
-    const refreshAfterSync = () => { void loadTasksRef.current(false, undefined, true); };
+    const refreshAfterSync = (event: Event) => { trackClickUpLiveRefresh(event, () => loadTasksRef.current(false, undefined, true)); };
     window.addEventListener("mosaic-clickup-sync-complete", refreshAfterSync);
     return () => window.removeEventListener("mosaic-clickup-sync-complete", refreshAfterSync);
   }, []);

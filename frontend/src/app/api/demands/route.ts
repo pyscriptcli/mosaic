@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getTokenFromRequest } from "@/lib/auth";
 import { getUserFromRequest } from "@/lib/auth";
 import { randomUUID } from "node:crypto";
-import { clickUpCalendarFetch } from "@/lib/clickupCalendarApi";
-import { clickUpScope, loadClickUpTaskSnapshot } from "@/lib/clickupReadStore";
+import { clickUpCalendarFetch, fetchAllClickUpListTasks } from "@/lib/clickupCalendarApi";
+import { clickUpScope } from "@/lib/clickupReadStore";
 import { readStagedMosaicRecords, stageMosaicWrite, scheduleMosaicWriteSync } from "@/lib/mosaicWriteStore";
 import { DEMANDS_CLICKUP_LIST_ID, formatDemandClickUpTitle } from "@/lib/demands/clickupSync";
 import type { DemandLocationRequirement, DemandPriority, DemandRecord, DemandType } from "@/types/demands";
@@ -135,10 +135,10 @@ export async function GET(request: NextRequest) {
   try {
     const accessCheck = await clickUpCalendarFetch(token, `https://api.clickup.com/api/v2/list/${DEMANDS_CLICKUP_LIST_ID}`, undefined, undefined, { skipCache: true });
     if (!accessCheck.ok) return NextResponse.json({ error: "This account cannot access the demands list." }, { status: accessCheck.status });
-    const userId = String(getUserFromRequest(request)?.id || "");
-    const { snapshot, isFresh, syncState } = await loadClickUpTaskSnapshot({ token, userId, listId: DEMANDS_CLICKUP_LIST_ID });
-    const remote = snapshot?.tasks.map((task) => parseTask(task as ClickUpTask)).filter((demand): demand is DemandRecord => demand !== null) || [];
-    return NextResponse.json({ demands: await mergeStagedDemands(token, remote), syncedAt: snapshot?.syncedAt || null, syncState, isFresh, source: "snapshot" });
+    const tasks = await fetchAllClickUpListTasks<ClickUpTask>(token, DEMANDS_CLICKUP_LIST_ID);
+    const remote = tasks.map(parseTask).filter((demand): demand is DemandRecord => demand !== null);
+    const fetchedAt = new Date().toISOString();
+    return NextResponse.json({ demands: await mergeStagedDemands(token, remote), syncedAt: fetchedAt, fetchedAt, syncState: "synced", isFresh: true, source: "clickup-live" }, { headers: { "Cache-Control": "no-store", "X-ClickUp-Data-Source": "live" } });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unable to load demands." },

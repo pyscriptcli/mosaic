@@ -4,11 +4,19 @@ export interface ClickUpSyncItem {
 }
 
 export interface ClickUpSyncResponse {
-  runId: string;
+  runId?: string;
   accepted: number;
   requested: number;
   items: ClickUpSyncItem[];
-  state: "syncing";
+  state: "syncing" | "synced";
+  source?: "clickup-live";
+}
+
+export function trackClickUpLiveRefresh(event: Event, refresh: () => Promise<unknown>) {
+  const work = Promise.resolve().then(refresh);
+  const detail = (event as CustomEvent<{ refreshes?: Promise<unknown>[] }>).detail;
+  if (Array.isArray(detail?.refreshes)) detail.refreshes.push(work);
+  return work;
 }
 
 function storedProjectListIds() {
@@ -48,7 +56,12 @@ export async function requestCentralClickUpSync(listIds: string[] = [], listLabe
       }
       localStorage.setItem("project_echo_clickup_sync_labels", JSON.stringify(Object.fromEntries(Object.entries(labels).slice(-100))));
     } catch { /* Telemetry falls back to the ClickUp list ID. */ }
-    window.dispatchEvent(new CustomEvent("mosaic-clickup-sync-requested", { detail: { runId: (data as ClickUpSyncResponse).runId } }));
+    const responseData = data as ClickUpSyncResponse;
+    window.dispatchEvent(new CustomEvent("mosaic-clickup-sync-requested", { detail: { runId: responseData.runId, live: true } }));
+    const refreshes: Promise<unknown>[] = [];
+    window.dispatchEvent(new CustomEvent("mosaic-clickup-sync-complete", { detail: { refreshes } }));
+    await Promise.all(refreshes);
+    window.dispatchEvent(new CustomEvent("mosaic-clickup-live-refresh-complete", { detail: { state: "synced", count: refreshes.length } }));
   }
   return data as ClickUpSyncResponse;
 }

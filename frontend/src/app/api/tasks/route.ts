@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTokenFromRequest, getUserFromRequest } from "@/lib/auth";
 import { formatEchoDate } from "@/lib/dateUtils";
-import { clickUpCalendarFetch, clickUpFetch as fetch } from "@/lib/clickupCalendarApi";
+import { clickUpCalendarFetch, clickUpFetch as fetch, fetchAllClickUpListTasks } from "@/lib/clickupCalendarApi";
 import { WORKSPACE_STATUS_CATEGORIES, ALL_WORKSPACE_STATUSES } from "@/lib/clickupStatuses";
 import { loadAdminConfig, saveAdminConfig } from "@/lib/admin-config/store";
 import { recordProjectActivity } from "@/lib/projectActivity";
 import { after } from "next/server";
 import { recordTelemetry } from "@/lib/telemetry";
 import { getSubprojectAccess, getVerifiedClickUpUser, isSubprojectAdmin, requireManagedTaskEditor, requireSubprojectEditor } from "@/lib/project-permissions";
-import { clickUpScope, loadClickUpTaskSnapshot, readClickUpTaskSnapshot } from "@/lib/clickupReadStore";
+import { clickUpScope } from "@/lib/clickupReadStore";
 import { findStagedMosaicRecord, mergeStagedClickUpTasks, readStagedMosaicRecords, scheduleMosaicWriteSync, stageMosaicWrite } from "@/lib/mosaicWriteStore";
 import { randomUUID } from "node:crypto";
 
@@ -294,9 +294,7 @@ export async function GET(req: NextRequest) {
       const belongsToFolder = ((folderListsPayload.lists || []) as ClickUpProjectList[]).some((list) => String(list.id) === projectListId);
       if (!belongsToFolder) return NextResponse.json({ error: "This subproject does not belong to the selected project." }, { status: 403 });
       try {
-        const currentUser = await getVerifiedClickUpUser(projectToken).catch(() => null);
-        const { snapshot, syncState } = await loadClickUpTaskSnapshot({ token: projectToken, userId: String(currentUser?.id || ""), listId: projectListId });
-        const baseTasks = (snapshot?.tasks as unknown as ClickUpProjectTask[] || []).filter((task) => {
+        const baseTasks = (await fetchAllClickUpListTasks<ClickUpProjectTask>(projectToken, projectListId)).filter((task) => {
           const description = task.description_text || task.description || "";
           return task.name?.trim().toLocaleLowerCase() !== "sites" && !description.includes("MOSAIC_SITES_STORAGE:") && !description.includes("MOSAIC_SITE_RECORD:");
         });
@@ -306,7 +304,8 @@ export async function GET(req: NextRequest) {
           const description = String(task.description_text || task.description || "");
           return String(task.name || "").trim().toLocaleLowerCase() !== "sites" && !description.includes("MOSAIC_SITES_STORAGE:") && !description.includes("MOSAIC_SITE_RECORD:");
         }).map((task) => serializeProjectTask(task as unknown as ClickUpProjectTask, projectListId));
-        return NextResponse.json({ tasks, syncState, syncedAt: snapshot?.syncedAt || null }, { headers: { "Cache-Control": "no-store", ...(snapshot?.syncedAt ? { "X-Data-Synced-At": snapshot.syncedAt } : {}) } });
+        const fetchedAt = new Date().toISOString();
+        return NextResponse.json({ tasks, syncState: "synced", syncedAt: fetchedAt, fetchedAt, source: "clickup-live" }, { headers: { "Cache-Control": "no-store", "X-ClickUp-Data-Source": "live", "X-Data-Synced-At": fetchedAt } });
       } catch (error) {
         return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to load subproject tasks." }, { status: 502 });
       }
@@ -322,15 +321,14 @@ export async function GET(req: NextRequest) {
       if (!listResponse.ok) return NextResponse.json({ error: listsPayload.err || "Unable to load project subprojects." }, { status: listResponse.status });
       try {
         const lists = (listsPayload.lists || []) as ClickUpProjectList[];
-        const currentUser = await getVerifiedClickUpUser(projectToken).catch(() => null);
         const groups = await Promise.all(lists.map(async (list) => {
           const listId = String(list.id);
-          const [{ snapshot, syncState }, staged] = await Promise.all([
-            loadClickUpTaskSnapshot({ token: projectToken, userId: String(currentUser?.id || ""), listId }),
+          const [tasks, staged] = await Promise.all([
+            fetchAllClickUpListTasks<ClickUpProjectTask>(projectToken, listId),
             readStagedMosaicRecords(clickUpScope(projectToken), "project_tasks", listId),
           ]);
-          const merged = mergeStagedClickUpTasks((snapshot?.tasks || []) as unknown as Array<Record<string, unknown>>, staged);
-          return { listId, syncState, tasks: merged.map((task) => serializeProjectTask(task as unknown as ClickUpProjectTask, listId)) };
+          const merged = mergeStagedClickUpTasks(tasks as unknown as Array<Record<string, unknown>>, staged);
+          return { listId, syncState: "synced", tasks: merged.map((task) => serializeProjectTask(task as unknown as ClickUpProjectTask, listId)) };
         }));
         return NextResponse.json({ tasks: groups.flatMap((group) => group.tasks), syncStateByList: Object.fromEntries(groups.map(({ listId, syncState }) => [listId, syncState])) }, { headers: { "Cache-Control": "no-store" } });
       } catch (error) {
@@ -508,52 +506,25 @@ export async function GET(req: NextRequest) {
     }
 
     const scope = clickUpScope(token);
-    const userProfile = req.cookies.get("echo_user_profile")?.value;
-    let syncUserId = "";
-    try { syncUserId = String(JSON.parse(userProfile || "{}").id || ""); } catch { /* no snapshot sync without a signed-in profile */ }
-    let snapshot: Awaited<ReturnType<typeof readClickUpTaskSnapshot>> = null;
-    let verifiedListResponse: Response | null = null;
-    const loadedSnapshot = await loadClickUpTaskSnapshot({ token, userId: syncUserId, listId: targetListId });
-    snapshot = loadedSnapshot.snapshot;
-    verifiedListResponse = await clickUpCalendarFetch(token, `https://api.clickup.com/api/v2/list/${encodeURIComponent(targetListId)}`);
+    const syncUserId = String(getUserFromRequest(req)?.id || "");
+    const verifiedListResponse = await clickUpCalendarFetch(token, `https://api.clickup.com/api/v2/list/${encodeURIComponent(targetListId)}`, undefined, undefined, { skipCache: true });
     if (!verifiedListResponse.ok) {
       const status = verifiedListResponse.status;
       return NextResponse.json({ error: status === 401 ? "Your ClickUp session has expired. Sign in again to continue." : "This account cannot access the selected ClickUp list." }, { status });
     }
 
     const membersUrl = `https://api.clickup.com/api/v2/list/${encodeURIComponent(targetListId)}/member`;
-    let tasksRes: Response;
     let listInfoRes: Response | null;
     let listMembersRes: Response | null;
-    tasksRes = new Response(JSON.stringify({ tasks: snapshot?.tasks || [] }), { status: 200, headers: { "Content-Type": "application/json" } });
-    [listInfoRes, listMembersRes] = await Promise.all([
+    let rawTasks: ClickUpProjectTask[];
+    [rawTasks, listInfoRes, listMembersRes] = await Promise.all([
+      fetchAllClickUpListTasks<ClickUpProjectTask>(token, targetListId),
       verifiedListResponse || clickUpCalendarFetch(token, `https://api.clickup.com/api/v2/list/${encodeURIComponent(targetListId)}`),
       clickUpCalendarFetch(token, membersUrl),
     ]);
-
-    if (!tasksRes.ok) {
-      let errMsg = "Failed to fetch tasks from ClickUp";
-      try {
-        const errJson = await tasksRes.json();
-        errMsg = errJson.err || errJson.error || errMsg;
-      } catch (e) {}
-      const isNotFound = tasksRes.status === 404 || errMsg.toLowerCase().includes("list not found");
-      return NextResponse.json(
-        {
-          error: isNotFound
-            ? "ClickUp list not found. Please select a valid list from your workspace."
-            : errMsg,
-          needsListSelection: isNotFound,
-        },
-        { status: tasksRes.status }
-      );
-    }
-
-    const tasksData = await tasksRes.json();
-    let rawTasks = tasksData.tasks || [];
     if (syncUserId) {
       const staged = await readStagedMosaicRecords(scope, "tasks", targetListId);
-      rawTasks = mergeStagedClickUpTasks(rawTasks, staged);
+      rawTasks = mergeStagedClickUpTasks(rawTasks as unknown as Array<Record<string, unknown>>, staged) as unknown as ClickUpProjectTask[];
     }
 
     // Parse list statuses & space ID
@@ -719,11 +690,14 @@ export async function GET(req: NextRequest) {
       };
     });
 
+    const fetchedAt = new Date().toISOString();
     const response = NextResponse.json({
       tasks,
       total: tasks.length,
-      syncState: loadedSnapshot.syncState,
-      syncedAt: snapshot?.syncedAt || null,
+      syncState: "synced",
+      syncedAt: fetchedAt,
+      fetchedAt,
+      source: "clickup-live",
       listId: targetListId,
       listName: listName || "Active List",
       spaceName: spaceName || "",
@@ -733,23 +707,23 @@ export async function GET(req: NextRequest) {
       categories: WORKSPACE_STATUS_CATEGORIES,
     }, { headers: {
       "Server-Timing": `clickup;dur=${Date.now() - routeStartedAt}`,
-      "X-ClickUp-Data-Source": snapshot ? "snapshot" : "api-read",
-      ...(snapshot?.syncedAt ? { "X-Data-Synced-At": snapshot.syncedAt, "X-ClickUp-Sync-State": snapshot.syncState } : {}),
+      "Cache-Control": "no-store",
+      "X-ClickUp-Data-Source": "live",
+      "X-Data-Synced-At": fetchedAt,
+      "X-ClickUp-Sync-State": "synced",
     } });
     const durationMs = Date.now() - routeStartedAt;
-    const snapshotAgeMs = snapshot?.syncedAt ? Math.max(0, Date.now() - Date.parse(snapshot.syncedAt)) : null;
     after(() => recordTelemetry({
       source: "clickup",
       operation: "tasks_route",
       processingMs: durationMs,
       success: true,
       metadata: {
-        dataSource: snapshot ? "snapshot" : "api-read",
+        dataSource: "clickup-live",
         recordCount: tasks.length,
-        ...(snapshotAgeMs !== null ? { snapshotAgeMs } : {}),
       },
     }));
-    if (process.env.CLICKUP_PERF_LOGS === "true") console.info("[clickup-perf]", JSON.stringify({ operation: "tasks-route", source: snapshot ? "snapshot" : "api-read", durationMs, records: tasks.length, snapshotAgeMs: snapshotAgeMs ?? undefined }));
+    if (process.env.CLICKUP_PERF_LOGS === "true") console.info("[clickup-perf]", JSON.stringify({ operation: "tasks-route", source: "clickup-live", durationMs, records: tasks.length }));
     return response;
   } catch (error: any) {
     console.error("ClickUp Tasks GET error:", error);
@@ -981,33 +955,22 @@ export async function POST(req: NextRequest) {
     // Check if task with this discussionPointId already exists in this list to avoid duplicates
     if (body.discussionPointId) {
       try {
-        const existingRes = await fetch(
-          `https://api.clickup.com/api/v2/list/${targetListId}/task?subtasks=true&include_closed=true`,
-          {
-            headers: { Authorization: token },
-            cache: "no-store",
-          }
-        );
-        if (existingRes.ok) {
-          const existingData = await existingRes.json();
-          const found = (existingData.tasks || []).find((t: any) => {
-            const d = t.text_content || t.description || "";
-            return (
-              d.includes(`echo_point_id:${body.discussionPointId}`) ||
-              d.includes(`[Echo-Point-ID:${body.discussionPointId}]`) ||
-              t.name.trim().toLowerCase() === body.name.trim().toLowerCase()
-            );
+        const existingTasks = await fetchAllClickUpListTasks<Record<string, any>>(token, targetListId);
+        const found = existingTasks.find((task) => {
+          const description = task.text_content || task.description || "";
+          return description.includes(`echo_point_id:${body.discussionPointId}`) ||
+            description.includes(`[Echo-Point-ID:${body.discussionPointId}]`) ||
+            task.name?.trim().toLowerCase() === body.name.trim().toLowerCase();
+        });
+        if (found) {
+          return NextResponse.json({
+            success: true,
+            task: found,
+            url: found.url,
+            id: found.id,
+            alreadyExisted: true,
+            message: "Task already exists in ClickUp",
           });
-          if (found) {
-            return NextResponse.json({
-              success: true,
-              task: found,
-              url: found.url,
-              id: found.id,
-              alreadyExisted: true,
-              message: "Task already exists in ClickUp",
-            });
-          }
         }
       } catch (checkErr) {
         console.warn("Duplicate check failed:", checkErr);

@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { clickUpFetch as fetch } from "@/lib/clickupCalendarApi";
+import { fetchAllClickUpListTasks } from "@/lib/clickupCalendarApi";
 import { getTokenFromRequest } from "@/lib/auth";
 import { randomUUID } from "node:crypto";
 import { getUserFromRequest } from "@/lib/auth";
-import { clickUpScope, loadClickUpTaskSnapshot, readClickUpTaskSnapshot } from "@/lib/clickupReadStore";
+import { clickUpScope } from "@/lib/clickupReadStore";
 import { MARKET_INSIGHTS_LIST_ID } from "@/lib/marketInsights";
 import { readStagedMosaicRecords, stageMosaicWrite, scheduleMosaicWriteSync } from "@/lib/mosaicWriteStore";
 
@@ -52,16 +52,12 @@ function parseTask(task: InsightTask): ArticleRecord | null {
 }
 
 async function listTasks(token: string) {
-  const response = await fetch(`https://api.clickup.com/api/v2/list/${MARKET_INSIGHTS_LIST_ID}/task?include_closed=true&include_markdown_description=true&page=0`, { headers: { Authorization: token }, cache: "no-store" });
-  if (!response.ok) throw new Error("Unable to read the Market Insights archive from ClickUp.");
-  const body = await response.json() as { tasks?: InsightTask[] };
-  return (body.tasks || []).map(parseTask).filter((article): article is ArticleRecord => article !== null);
+  const tasks = await fetchAllClickUpListTasks<InsightTask>(token, MARKET_INSIGHTS_LIST_ID, { includeMarkdownDescription: true });
+  return tasks.map(parseTask).filter((article): article is ArticleRecord => article !== null);
 }
 
-async function listArticles(token: string, snapshot: Awaited<ReturnType<typeof readClickUpTaskSnapshot>> = null, allowLiveRead = true) {
-  const remote = snapshot
-    ? snapshot.tasks.map((task) => parseTask(task as InsightTask)).filter((article): article is ArticleRecord => article !== null)
-    : allowLiveRead ? await listTasks(token) : [];
+async function listArticles(token: string) {
+  const remote = await listTasks(token);
   const staged = await readStagedMosaicRecords(clickUpScope(token), "market_insights", MARKET_INSIGHTS_LIST_ID);
   const articles = new Map<string, ArticleRecord>();
   for (const article of remote) articles.set(article.id, article);
@@ -81,11 +77,9 @@ export async function GET(req: NextRequest) {
   const token = tokenFor(req);
   if (!token) return NextResponse.json({ error: "ClickUp authentication required." }, { status: 401 });
   try {
-    const scope = clickUpScope(token);
-    const userId = String(getUserFromRequest(req)?.id || "");
-    const { snapshot, isFresh, syncState } = await loadClickUpTaskSnapshot({ token, userId, listId: MARKET_INSIGHTS_LIST_ID });
-    const articles = await listArticles(token, snapshot, false);
-    return NextResponse.json({ listId: MARKET_INSIGHTS_LIST_ID, articles, syncState, syncedAt: snapshot?.syncedAt || null, isFresh });
+    const articles = await listArticles(token);
+    const fetchedAt = new Date().toISOString();
+    return NextResponse.json({ listId: MARKET_INSIGHTS_LIST_ID, articles, syncState: "synced", syncedAt: fetchedAt, fetchedAt, isFresh: true, source: "clickup-live" }, { headers: { "Cache-Control": "no-store", "X-ClickUp-Data-Source": "live" } });
   }
   catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to load Market Insights." }, { status: 502 }); }
 }

@@ -1,8 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useEffect } from "react";
 import { useBrowserPageQuery } from "@/lib/browserPageCache";
-import { requestCentralClickUpSync } from "@/lib/clickupSyncClient";
+import { requestCentralClickUpSync, trackClickUpLiveRefresh } from "@/lib/clickupSyncClient";
 import { ExternalLink, Plus, RefreshCw, Save, X } from "lucide-react";
 
 type Sector = "industrial" | "retail";
@@ -16,6 +17,11 @@ function inCurrentWeek(date: string) { const day = new Date(`${date}T00:00:00`);
 export function MarketInsightsView({ userId }: { userId?: string }) {
   const [sector, setSector] = useState<Sector>("industrial"); const [draft, setDraft] = useState<Draft | null>(null); const [saving, setSaving] = useState(false); const [writeError, setWriteError] = useState(""); const [bulkOpen, setBulkOpen] = useState(false); const [bulkText, setBulkText] = useState("");
   const query = useBrowserPageQuery<{ articles: Article[] }>(userId, "market-insights:all", async () => { const res = await fetch("/api/market-insights", { cache: "no-store" }); const data = await res.json(); if (!res.ok) throw Object.assign(new Error(data.error || "Unable to load the archive."), { status: res.status }); return { articles: data.articles || [] }; }, Boolean(userId));
+  useEffect(() => {
+    const refreshAfterSync = (event: Event) => { trackClickUpLiveRefresh(event, async () => { await query.refresh(); }); };
+    window.addEventListener("mosaic-clickup-sync-complete", refreshAfterSync);
+    return () => window.removeEventListener("mosaic-clickup-sync-complete", refreshAfterSync);
+  }, [query.refresh]);
   const articles = query.data?.articles || []; const loading = query.loading || query.refreshing; const error = query.data ? writeError : query.error || writeError;
   const load = async () => { await query.refresh(); };
   const requestRefresh = async () => { setWriteError(""); try { await requestCentralClickUpSync(); } catch (error) { setWriteError(error instanceof Error ? error.message : "Unable to start ClickUp sync."); } };

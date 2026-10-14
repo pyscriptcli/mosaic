@@ -3,7 +3,7 @@
 import React, { useState, useMemo, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useBrowserPageQuery } from "@/lib/browserPageCache";
-import { requestCentralClickUpSync } from "@/lib/clickupSyncClient";
+import { requestCentralClickUpSync, trackClickUpLiveRefresh } from "@/lib/clickupSyncClient";
 import { 
   DemandRecord, 
   DemandAssetClass, 
@@ -88,7 +88,7 @@ export function DemandsView({ sector = "all", userId }: DemandsViewProps) {
   const loadError = demandQuery.data ? null : demandQuery.error || null;
 
   useEffect(() => {
-    const refreshAfterSync = () => { void demandQuery.refresh(); };
+    const refreshAfterSync = (event: Event) => { trackClickUpLiveRefresh(event, () => demandQuery.refresh()); };
     window.addEventListener("mosaic-clickup-sync-complete", refreshAfterSync);
     return () => window.removeEventListener("mosaic-clickup-sync-complete", refreshAfterSync);
   }, [demandQuery.refresh]);
@@ -199,10 +199,10 @@ export function DemandsView({ sector = "all", userId }: DemandsViewProps) {
 
   const handleRefreshDemands = async () => {
     setIsSyncing(true);
-    setSyncStatusMsg("Starting centralized ClickUp sync…");
+    setSyncStatusMsg("Refreshing demands from ClickUp…");
     try {
       await requestCentralClickUpSync();
-      setSyncStatusMsg("ClickUp sync started. Demands will refresh when it completes.");
+      setSyncStatusMsg("Demands refreshed from ClickUp.");
     } catch (error) {
       setSyncStatusMsg(error instanceof Error ? error.message : "Unable to start ClickUp sync.");
     } finally {

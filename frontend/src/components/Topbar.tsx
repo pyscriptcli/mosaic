@@ -23,7 +23,6 @@ import { ArchivedMeeting } from "@/types/meeting";
 import { ClickUpTask } from "./TasksView";
 import { formatEchoDate } from "@/lib/dateUtils";
 import { flushClickUpMutationQueue, getPendingClickUpMutationCount } from "@/lib/clickUpMutationQueue";
-import { refreshBrowserPageQueries } from "@/lib/browserPageCache";
 import { requestCentralClickUpSync } from "@/lib/clickupSyncClient";
 
 interface TopbarProps {
@@ -84,47 +83,14 @@ export function Topbar({
   const [isOnline, setIsOnline] = useState(true);
   const [syncDetailsOpen, setSyncDetailsOpen] = useState(false);
   const [syncItems, setSyncItems] = useState<Array<{ id?: string; label: string; state: "syncing" | "synced" | "error" }>>([]);
-  const previousSyncState = useRef(syncState);
-  const activeSyncRunId = useRef<string | null>(null);
   const searchContainerRef = useRef<HTMLDivElement>(null);
 
   const refreshSyncStatus = React.useCallback(async () => {
     if (!userId) return;
-    try {
-      const response = await fetch("/api/integrations/clickup/sync", { cache: "no-store" });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok || !data.configured) throw new Error(data.error || "Background sync is not configured.");
-      const nextState = data.state === "error" ? "error" : data.state === "syncing" ? "syncing" : "synced";
-      const previousState = previousSyncState.current;
-      previousSyncState.current = nextState;
-      setSyncState(nextState);
-      setSyncPendingCount(Number(data.pendingCount || 0) + getPendingClickUpMutationCount(userId));
-      setSyncError(data.state === "error"
-        ? `${Number(data.failedCount || 0)} change${Number(data.failedCount || 0) === 1 ? "" : "s"} need attention.${data.lastError ? ` ${String(data.lastError)}` : ""}`
-        : "");
-      if (activeSyncRunId.current) {
-        const runResponse = await fetch(`/api/integrations/clickup/sync?runId=${encodeURIComponent(activeSyncRunId.current)}`, { cache: "no-store" });
-        const runData = await runResponse.json().catch(() => ({}));
-        const run = runData.run as { state?: string; echo_clickup_sync_run_targets?: Array<{ list_id?: string; list_label?: string; state?: string; last_error?: string }> } | undefined;
-        if (run?.echo_clickup_sync_run_targets) {
-          setSyncItems(run.echo_clickup_sync_run_targets.map((target) => ({
-            id: target.list_id,
-            label: target.list_label || target.list_id || "ClickUp list",
-            state: target.state === "synced" ? "synced" : target.state === "failed" ? "error" : "syncing",
-          })));
-        }
-        if (["synced", "partial", "failed"].includes(run?.state || "")) activeSyncRunId.current = null;
-      }
-      if ((previousState === "syncing" || previousState === "error") && nextState !== "syncing" && nextState !== previousState) {
-        window.dispatchEvent(new CustomEvent("mosaic-clickup-sync-complete"));
-        void refreshBrowserPageQueries(userId);
-        setSyncItems((items) => items.map((item) => ({ ...item, state: nextState === "synced" ? "synced" : "error" })));
-      }
-    } catch (error) {
-      setSyncState("error");
-      setSyncError(error instanceof Error ? error.message : "Sync status is unavailable.");
-    }
-  }, [userId]);
+    const pending = getPendingClickUpMutationCount(userId);
+    setSyncPendingCount(pending);
+    if (!clientSyncFailed) setSyncState(pending ? "syncing" : "synced");
+  }, [clientSyncFailed, userId]);
 
   useEffect(() => {
     if (!userId) return;
@@ -145,17 +111,22 @@ export function Topbar({
       if (timer) window.clearTimeout(timer);
       void poll();
     };
-    const onCentralSyncRequested = (event: Event) => {
-      const detail = (event as CustomEvent<{ runId?: string }>).detail;
-      if (detail?.runId) activeSyncRunId.current = detail.runId;
-      previousSyncState.current = "syncing";
+    const onCentralSyncRequested = () => {
       setSyncState("syncing");
+    };
+    const onLiveRefreshComplete = (event: Event) => {
+      const detail = (event as CustomEvent<{ state?: string }>).detail;
+      const pending = getPendingClickUpMutationCount(userId);
+      const synced = detail?.state === "synced";
+      setSyncState(synced ? pending ? "syncing" : "synced" : "error");
+      setSyncItems((items) => items.map((item) => ({ ...item, state: synced ? "synced" : "error" })));
     };
     void poll();
     void flushClickUpMutationQueue(userId, setSyncPendingCount);
     window.addEventListener("mosaic-clickup-sync", onQueueChange);
     window.addEventListener("mosaic-clickup-sync-requested", onCentralSyncRequested);
-    return () => { active = false; if (timer) window.clearTimeout(timer); window.removeEventListener("mosaic-clickup-sync", onQueueChange); window.removeEventListener("mosaic-clickup-sync-requested", onCentralSyncRequested); };
+    window.addEventListener("mosaic-clickup-live-refresh-complete", onLiveRefreshComplete);
+    return () => { active = false; if (timer) window.clearTimeout(timer); window.removeEventListener("mosaic-clickup-sync", onQueueChange); window.removeEventListener("mosaic-clickup-sync-requested", onCentralSyncRequested); window.removeEventListener("mosaic-clickup-live-refresh-complete", onLiveRefreshComplete); };
   }, [manualSyncing, refreshSyncStatus, syncState, userId]);
 
   useEffect(() => {
@@ -194,14 +165,12 @@ export function Topbar({
       if (taskListId) listLabels[taskListId] = "Tasks";
       if (personalListId) listLabels[personalListId] = "Personal notes";
       const data = await requestCentralClickUpSync(listIds, listLabels);
-      activeSyncRunId.current = data.runId;
-      if (Array.isArray(data.items)) {
-        setSyncItems([
-          ...data.items.map((item: { id?: unknown; label?: unknown }) => ({ id: typeof item.id === "string" ? item.id : undefined, label: typeof item.label === "string" ? item.label : "ClickUp list", state: "syncing" as const })),
-          ...(pending > 0 ? [{ label: `${pending} saved task change${pending === 1 ? "" : "s"}`, state: "syncing" as const }] : []),
-        ]);
-      }
+      setSyncItems([
+        ...(data.items || []).map((item: { id?: unknown; label?: unknown }) => ({ id: typeof item.id === "string" ? item.id : undefined, label: typeof item.label === "string" ? item.label : "ClickUp list", state: "synced" as const })),
+        ...(remainingLocalChanges > 0 ? [{ label: `${remainingLocalChanges} saved task change${remainingLocalChanges === 1 ? "" : "s"}`, state: "syncing" as const }] : []),
+      ]);
       await refreshSyncStatus();
+      if (!remainingLocalChanges) setSyncState("synced");
     } catch (error) {
       setSyncState("error");
       setSyncError(error instanceof Error ? error.message : "Manual sync could not be started.");

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import { getTokenFromRequest } from "@/lib/auth";
 import { requireProjectAdmin, requireSubprojectEditor } from "@/lib/project-permissions";
-import { clickUpCalendarFetch } from "@/lib/clickupCalendarApi";
+import { clickUpCalendarFetch, fetchAllClickUpListTasks } from "@/lib/clickupCalendarApi";
 import { getUserFromRequest } from "@/lib/auth";
 import { readStagedMosaicRecords, scheduleMosaicWriteSync, stageMosaicWrite } from "@/lib/mosaicWriteStore";
 import { clickUpScope } from "@/lib/clickupReadStore";
@@ -106,13 +106,7 @@ export async function GET(request: NextRequest) {
     const sourceSites = sitesForSubproject(listName);
     const fieldsPayload = await clickUpJson(token, `https://api.clickup.com/api/v2/list/${listId}/field`);
     const fields = (fieldsPayload.fields || []) as ClickUpField[];
-    const allTasks: ClickUpTask[] = [];
-    for (let page = 0; ; page += 1) {
-      const taskPage = await clickUpJson(token, `https://api.clickup.com/api/v2/list/${listId}/task?include_closed=true&subtasks=true&page=${page}`);
-      const batch = (taskPage.tasks || []) as ClickUpTask[];
-      allTasks.push(...batch);
-      if (batch.length < 100) break;
-    }
+    const allTasks = await fetchAllClickUpListTasks<ClickUpTask>(token, listId);
     const stagedRows = await readStagedMosaicRecords(clickUpScope(token), "project_sites", listId);
     const taskMap = new Map(allTasks.map((task) => [String(task.id || ""), task]));
     for (const row of stagedRows) {
@@ -284,13 +278,7 @@ export async function POST(request: NextRequest) {
         clickUpJson(token, `https://api.clickup.com/api/v2/list/${listId}/field`),
       ]);
       const fields = (fieldsPayload.fields || []) as ClickUpField[];
-      const existingTasks: ClickUpTask[] = [];
-      for (let page = 0; ; page += 1) {
-        const taskPage = await clickUpJson(token, `https://api.clickup.com/api/v2/list/${listId}/task?include_closed=true&subtasks=true&page=${page}`);
-        const batch = (taskPage.tasks || []) as ClickUpTask[];
-        existingTasks.push(...batch);
-        if (batch.length < 100) break;
-      }
+      const existingTasks = await fetchAllClickUpListTasks<ClickUpTask>(token, listId);
       const statusOptions = (list.statuses || []) as Array<{ status?: string; type?: string }>;
       const closedStatus = statusOptions.find((status) => status.type?.toLocaleLowerCase() === "closed")?.status
         || statusOptions.find((status) => /^(closed|complete|completed|done)$/i.test(status.status || ""))?.status

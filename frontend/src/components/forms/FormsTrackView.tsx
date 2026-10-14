@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import { TrackedRfp } from "@/types/forms/tracked";
 import { DEPARTMENT_NAMES } from "@/types/forms/rfp";
-import { requestCentralClickUpSync } from "@/lib/clickupSyncClient";
+import { requestCentralClickUpSync, trackClickUpLiveRefresh } from "@/lib/clickupSyncClient";
 
 const DEPARTMENTS = ["All Departments", ...DEPARTMENT_NAMES];
 
@@ -96,7 +96,7 @@ function TrackContent() {
   }, [fetchRequests]);
 
   useEffect(() => {
-    const refreshAfterSync = () => { void fetchRequests(); };
+    const refreshAfterSync = (event: Event) => { trackClickUpLiveRefresh(event, () => fetchRequests()); };
     window.addEventListener("mosaic-clickup-sync-complete", refreshAfterSync);
     return () => window.removeEventListener("mosaic-clickup-sync-complete", refreshAfterSync);
   }, [fetchRequests]);

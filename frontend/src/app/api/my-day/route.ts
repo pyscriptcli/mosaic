@@ -13,7 +13,8 @@ import {
 import { randomUUID } from "node:crypto";
 import { scheduleMosaicWriteSync, stageMosaicWrite } from "@/lib/mosaicWriteStore";
 import { readStagedMosaicRecords } from "@/lib/mosaicWriteStore";
-import { clickUpScope, loadClickUpTaskSnapshot } from "@/lib/clickupReadStore";
+import { clickUpScope } from "@/lib/clickupReadStore";
+import { fetchAllClickUpListTasks } from "@/lib/clickupCalendarApi";
 
 export const maxDuration = 60;
 
@@ -63,20 +64,8 @@ function userMatches(task: RawClickUpTask, byId: Map<string, RawClickUpTask>, us
   return owner.id === String(user.id) || owner.email.toLowerCase() === user.email.toLowerCase() || owner.name.toLowerCase() === user.username.toLowerCase();
 }
 
-async function readPersonalNotes(token: string, listId: string, date: string, userId: string, preferSnapshot = false) {
-  const tasks: ClickUpTask[] = [];
-  const { snapshot } = preferSnapshot
-    ? await loadClickUpTaskSnapshot({ token, userId, listId })
-    : { snapshot: null };
-  if (snapshot) tasks.push(...snapshot.tasks as unknown as ClickUpTask[]);
-  else if (!preferSnapshot) {
-    for (let page = 0; page < 20; page += 1) {
-      const body = await clickUpJson(token, `https://api.clickup.com/api/v2/list/${encodeURIComponent(listId)}/task?include_closed=true&subtasks=true&include_markdown_description=true&page=${page}`);
-      const batch = (body.tasks || []) as ClickUpTask[];
-      tasks.push(...batch);
-      if (batch.length < 100 || body.last_page === true) break;
-    }
-  }
+async function readPersonalNotes(token: string, listId: string, date: string) {
+  const tasks = await fetchAllClickUpListTasks<ClickUpTask>(token, listId, { includeMarkdownDescription: true });
   const stagedRows = await readStagedMosaicRecords(clickUpScope(token), "notebook", listId);
   const stagedIds = new Map(stagedRows.map((row) => [String(row.record_id), String(row.clickup_id || row.record_id)]));
   const taskMap = new Map(tasks.map((task) => [String(task.id), task]));
@@ -106,12 +95,8 @@ function serializeDayTask(task: ClickUpTask) {
   };
 }
 
-async function getKpiContext(token: string, date: string, req: NextRequest, preferSnapshot = false) {
-  const userId = String(getUserFromRequest(req)?.id || "");
-  const { snapshot, isFresh, syncState } = preferSnapshot
-    ? await loadClickUpTaskSnapshot({ token, userId, listId: DAILY_LOG_LIST_ID })
-    : { snapshot: null, isFresh: false, syncState: "unknown" };
-  const remoteTasks = snapshot ? snapshot.tasks as unknown as ClickUpTask[] : preferSnapshot ? [] : await fetchAllTasks(token) as ClickUpTask[];
+async function getKpiContext(token: string, date: string, req: NextRequest) {
+  const remoteTasks = await fetchAllTasks(token) as ClickUpTask[];
   const stagedRows = await readStagedMosaicRecords(clickUpScope(token), "notebook", DAILY_LOG_LIST_ID);
   const stagedIds = new Map(stagedRows.map((row) => [String(row.record_id), String(row.clickup_id || row.record_id)]));
   const taskMap = new Map(remoteTasks.map((task) => [String(task.id), task]));
@@ -128,7 +113,7 @@ async function getKpiContext(token: string, date: string, req: NextRequest, pref
     const parent = task.parent ? byId.get(String(task.parent)) : undefined;
     return Boolean(parent && monthFromTaskName(parent.name) === date.slice(0, 7) && dateFromTask(task) === date && userMatches(task, byId, user));
   });
-  return { tasks, day, syncState: preferSnapshot ? syncState : "unknown", syncedAt: snapshot?.syncedAt || null, isFresh };
+  return { tasks, day, syncState: "synced", syncedAt: new Date().toISOString(), isFresh: true };
 }
 
 async function getDailyTaskById(token: string, id: string, date: string, req: NextRequest) {
@@ -166,7 +151,7 @@ export async function GET(req: NextRequest) {
   if (!isValidDate(date)) return NextResponse.json({ error: "A valid day is required." }, { status: 400 });
   try {
     const [{ tasks, day, syncState, syncedAt, isFresh }, personalList, listInfo] = await Promise.all([
-      getKpiContext(token, date, req, true),
+      getKpiContext(token, date, req),
       getPersonalList(req),
       clickUpJson(token, `https://api.clickup.com/api/v2/list/${DAILY_LOG_LIST_ID}`),
     ]);
@@ -176,7 +161,7 @@ export async function GET(req: NextRequest) {
     let note = null;
     let notesError = "";
     if (personalList) {
-      try { note = (await readPersonalNotes(token, personalList.id, date, String(getUserFromRequest(req)?.id || ""), true)).note; }
+      try { note = (await readPersonalNotes(token, personalList.id, date)).note; }
       catch (error) { notesError = error instanceof Error ? error.message : "Personal notes could not be loaded."; }
     }
     const children = day ? tasks.filter((task) => String(task.parent) === String(day.id)).map(serializeDayTask) : [];
@@ -209,7 +194,7 @@ export async function POST(req: NextRequest) {
     if (action === "note") {
       const personalList = await getPersonalList(req);
       if (!personalList) return NextResponse.json({ error: "Choose a Personal List before saving day notes." }, { status: 400 });
-      const notes = await readPersonalNotes(token, personalList.id, body.date, String(user.id));
+      const notes = await readPersonalNotes(token, personalList.id, body.date);
       let parent = notes.parent;
       if (!parent) {
         parent = await createTask(token, { name: "Notes", description: "Day notes are stored as dated subtasks." }, ownerUserId, personalList.id);

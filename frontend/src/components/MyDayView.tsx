@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, Bold, Bell, BellOff, CalendarDays, Check, CheckCircle2, ChevronLeft, ChevronRight, ExternalLink, Highlighter, Italic, Link2, List, ListOrdered, LoaderCircle, Plus, Quote, Redo2, RefreshCw, Save, Sparkles, Trash2, Underline, Undo2, X } from "lucide-react";
 import { getStoredClickUpListId, getStoredClickUpToken } from "@/lib/api";
-import { requestCentralClickUpSync } from "@/lib/clickupSyncClient";
+import { requestCentralClickUpSync, trackClickUpLiveRefresh } from "@/lib/clickupSyncClient";
 
 type DayTask = {
   id: string; name: string; description: string; status: string; completed: boolean;
@@ -237,7 +237,7 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
   }, [loadDay]);
 
   useEffect(() => {
-    const refreshAfterSync = () => { void loadDay(true); };
+    const refreshAfterSync = (event: Event) => { trackClickUpLiveRefresh(event, () => loadDay(true)); };
     window.addEventListener("mosaic-clickup-sync-complete", refreshAfterSync);
     return () => window.removeEventListener("mosaic-clickup-sync-complete", refreshAfterSync);
   }, [loadDay]);

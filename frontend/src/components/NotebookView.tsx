@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { clearBrowserPageCache, readBrowserPageCache, writeBrowserPageCache } from "@/lib/browserPageCache";
-import { requestCentralClickUpSync } from "@/lib/clickupSyncClient";
+import { requestCentralClickUpSync, trackClickUpLiveRefresh } from "@/lib/clickupSyncClient";
 import {
   AlertCircle,
   BarChart3,
@@ -215,7 +215,7 @@ export function NotebookView({ currentUserName, userId, initialDate, initialTab 
   }, [userId]);
 
   useEffect(() => {
-    const refreshAfterSync = () => { void loadNotebookRef.current(true); };
+    const refreshAfterSync = (event: Event) => { trackClickUpLiveRefresh(event, () => loadNotebookRef.current(true)); };
     window.addEventListener("mosaic-clickup-sync-complete", refreshAfterSync);
     return () => window.removeEventListener("mosaic-clickup-sync-complete", refreshAfterSync);
   }, []);

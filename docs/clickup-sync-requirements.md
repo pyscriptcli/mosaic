@@ -99,3 +99,20 @@ Every item must have evidence recorded here or in the linked deployment/diagnost
 - [ ] Confirm the production daily-log queue run accepted after the ambiguity fix is claimed and completes successfully; verify the worker claim no longer reports SQLSTATE `42702`.
 - [ ] Run and record the applicable staging failure/acceptance scenarios; these were not run in this environment.
 - [ ] Commit only ClickUp sync task files, push the intended branch, and verify the hosted deployment for that commit reaches a successful terminal state.
+
+## Interim live-read mode (2026-10-14)
+
+The user asked to prioritize live ClickUp reads while keeping the durable Supabase schema and worker setup available for future use. The app's task-list GET routes now use the shared ClickUp request gate and complete list pagination. Live reads bypass the five-minute ClickUp HTTP cache. The Sync control verifies the current token and waits for mounted feature views to refresh through their own authenticated GET routes; it does not enqueue a durable run.
+
+ClickUp documents 100 tasks per Get Tasks page and base-plan limits of 100 requests/minute/token. The shared gate spaces starts by at least 667 ms (at most 90/minute), caps in-flight requests per token at three, coalesces duplicate list fetches in-process, and retries 429 responses according to `Retry-After` or `X-RateLimit-Reset`.
+
+### Live-read acceptance criteria
+
+- [x] Notebook, My Day, Tasks, project subproject tasks, Demands, Market Insights, Projects Sites, meeting task lists, and form task-list reads use live ClickUp data rather than the retained task snapshot.
+- [x] Live list reads bypass the app's five-minute HTTP cache and load all ClickUp pages; the Daily Log reader no longer assumes a 3,000-task limit.
+- [x] Live list requests use the shared per-token gate, bounded concurrency, in-flight coalescing, and ClickUp 429 reset headers.
+- [x] The Sync control dispatches a live refresh to mounted feature views and waits for their refresh handlers; its request path does not enqueue a Supabase sync run.
+- [x] No Supabase migration, schema, scheduler, or stored secret was changed for interim live-read mode.
+- [x] TypeScript check passed for interim live-read changes.
+- [ ] Run the production build, then perform an authenticated Notebook date-browse and Sync click-through against ClickUp; record the observed refresh duration and confirm dates with activity render.
+- [ ] Observe ClickUp rate-limit headers and request telemetry during the authenticated click-through to confirm the current workspace's actual plan and traffic stay within its token budget.
