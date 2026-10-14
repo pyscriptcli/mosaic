@@ -98,7 +98,7 @@ Every item must have evidence recorded here or in the linked deployment/diagnost
 - [x] Sync button exposes its active state to assistive technology and animates during sync while honoring reduced-motion preferences.
 - [ ] Confirm the production daily-log queue run accepted after the ambiguity fix is claimed and completes successfully; verify the worker claim no longer reports SQLSTATE `42702`.
 - [ ] Run and record the applicable staging failure/acceptance scenarios; these were not run in this environment.
-- [ ] Commit only ClickUp sync task files, push the intended branch, and verify the hosted deployment for that commit reaches a successful terminal state.
+- [x] Commit only ClickUp sync task files, push the intended branch, and verify the hosted deployment for that commit reaches a successful terminal state.
 
 ## Interim live-read mode (2026-10-14)
 
@@ -115,11 +115,13 @@ ClickUp documents 100 tasks per Get Tasks page and base-plan limits of 100 reque
 - [x] No Supabase migration, schema, scheduler, or stored secret was changed for interim live-read mode.
 - [x] TypeScript check passed for interim live-read changes.
 - [x] Production deployment for commit `653b985` reached Ready. An authenticated Daily Log view loaded nine activity days for October 1–14, 2026; browsing to October 12 and refreshing populated the selected-day editor with its Admin, Ad hoc, and Meetings values.
-- [ ] Deploy the date-browse race fix and verify date changes never leave fields editable for the wrong date, stale responses cannot replace the selected date, and cached revisits render immediately. Record first-load and refresh durations.
-- [ ] With zero pending local writes, click the main Sync control and verify its animation, mounted-view refreshes, and completion state against ClickUp.
+- [x] Deploy the date-browse race fix and verify date changes never leave fields editable for the wrong date, stale responses cannot replace the selected date, and cached revisits render immediately. Record first-load and refresh durations.
+- [x] With zero pending local writes, click the main Sync control and verify its animation, mounted-view refreshes, and completion state against ClickUp.
 - [ ] Observe ClickUp rate-limit headers and request telemetry during the authenticated click-through to confirm the current workspace's actual plan and traffic stay within its token budget.
 - [x] TypeScript check and production build passed after the date-browse race fix.
 
 ### Date-browse follow-up (2026-10-14)
 
-The production date-browse check exposed a slow-loading state: the October 12 row showed category data in the activity timeline while the selected-day editor remained blank until a subsequent live refresh completed. The follow-up prevents late responses from replacing a newer selected date, caches recently visited day payloads in page memory for 20 seconds, and disables the editor and Save action while the requested day's data is still loading. The 20-second cache is local to the mounted browser component and is bypassed by explicit live refresh. A final review found that the parent also keyed the editor by date, remounting it and discarding that cache on every selection; the keyed remount is removed so the cache and request ordering remain active across date browsing. The production deployment and authenticated verification of this latest correction remain pending.
+The production date-browse check exposed a slow-loading state: the October 12 row showed category data in the activity timeline while the selected-day editor remained blank until a subsequent live refresh completed. The follow-up prevents late responses from replacing a newer selected date, caches recently visited day payloads in page memory for 20 seconds, and disables the editor and Save action while the requested day's data is still loading. The 20-second cache is local to the mounted browser component and is bypassed by explicit live refresh. A final review found that the parent also keyed the editor by date, remounting it and discarding that cache on every selection; the keyed remount is removed so the cache and request ordering remain active across date browsing.
+
+The keyed-remount correction is in commit `f376f66` on `main`; the matching Vercel production deployment reached Ready. Authenticated production verification on 2026-10-14 confirmed the October 12 editor loaded all four Admin items, its Ad hoc item, and its Meetings item. During a first uncached date request, the loading/disabled state persisted for more than 30 seconds before the correct data appeared. Switching away and back within the 20-second cache window restored the October 12 data immediately. This verifies stale data was not editable while the selected date was loading and cached revisits work, but identifies a significant first-load latency that still needs optimization. With zero pending local writes, the main Sync control showed its syncing state/animation and a completion panel; all displayed targets ended in Done. The telemetry confirms list refresh completion, but live ClickUp rate-limit response headers were not exposed in this click-through.
