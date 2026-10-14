@@ -7,6 +7,7 @@ import { getClickUpSyncContext } from "@/lib/clickupSyncContext";
 const RATE_INTERVAL_MS = Math.max(667, Number(process.env.CLICKUP_MIN_REQUEST_INTERVAL_MS) || 667);
 const MAX_ACTIVE_PER_TOKEN = 3;
 const localNextAt = new Map<string, number>();
+const observedRateInterval = new Map<string, number>();
 const localStartQueues = new Map<string, Promise<void>>();
 const activeByToken = new Map<string, number>();
 const waiters = new Map<string, Array<() => void>>();
@@ -54,12 +55,14 @@ function release(scope: string) {
 
 async function reserveStart(scope: string) {
   let waitMs = 0;
-  try { waitMs = await reserveClickUpRequest(scope, RATE_INTERVAL_MS); } catch { /* shared DB may be offline; keep a process-local limit */ }
+  const intervalMs = observedRateInterval.get(scope) || RATE_INTERVAL_MS;
+  try { waitMs = await reserveClickUpRequest(scope, intervalMs); } catch { /* shared DB may be offline; keep a process-local limit */ }
   await sleep(waitMs);
   const previous = localStartQueues.get(scope) || Promise.resolve();
   const reservation = previous.catch(() => undefined).then(async () => {
+    const interval = observedRateInterval.get(scope) || RATE_INTERVAL_MS;
     await sleep(Math.max(0, (localNextAt.get(scope) || 0) - Date.now()));
-    localNextAt.set(scope, Date.now() + RATE_INTERVAL_MS);
+    localNextAt.set(scope, Date.now() + interval);
   });
   localStartQueues.set(scope, reservation.catch(() => undefined));
   await reservation;
@@ -103,16 +106,25 @@ async function clickUpRequest(token: string, input: string | URL, init?: Request
     const upstreamStartedAt = Date.now();
     response = await send();
     upstreamMs += Date.now() - upstreamStartedAt;
+    const observeRateLimit = (result: Response) => {
+      const limit = Number(result.headers.get("X-RateLimit-Limit"));
+      if (Number.isFinite(limit) && limit > 0) {
+        // Keep 10% headroom for other clients using this ClickUp token.
+        observedRateInterval.set(scope, Math.max(RATE_INTERVAL_MS, Math.ceil(60_000 * 1.1 / limit)));
+      }
+    };
+    observeRateLimit(response);
     for (let attempt = 0; response.status === 429 && attempt < (options.maxRateLimitRetries ?? 3); attempt += 1) {
       retries += 1;
       await sleep(retryDelay(response, attempt));
       await reserveStart(scope);
       const retryStartedAt = Date.now();
       response = await send();
+      observeRateLimit(response);
       upstreamMs += Date.now() - retryStartedAt;
     }
     if (process.env.CLICKUP_PERF_LOGS === "true") {
-      console.info("[clickup-perf]", JSON.stringify({ path: endpoint, method: (init?.method || "GET").toUpperCase(), queueWaitMs, rateWaitMs, upstreamMs, retries, status: response.status, limitRemaining: response.headers.get("X-RateLimit-Remaining") }));
+      console.info("[clickup-perf]", JSON.stringify({ path: endpoint, method: (init?.method || "GET").toUpperCase(), queueWaitMs, rateWaitMs, upstreamMs, retries, status: response.status, rateLimit: response.headers.get("X-RateLimit-Limit"), limitRemaining: response.headers.get("X-RateLimit-Remaining"), resetAt: response.headers.get("X-RateLimit-Reset") }));
     }
     scheduleClickUpTelemetry({
       source: "clickup",
@@ -122,7 +134,7 @@ async function clickUpRequest(token: string, input: string | URL, init?: Request
       retryCount: retries,
       success: response.ok,
       errorCategory: response.ok ? undefined : `http_${response.status}`,
-      metadata: { endpoint, method: (init?.method || "GET").toUpperCase(), rateWaitMs, upstreamMs, status: response.status },
+      metadata: { endpoint, method: (init?.method || "GET").toUpperCase(), rateWaitMs, upstreamMs, status: response.status, rateLimit: response.headers.get("X-RateLimit-Limit"), rateLimitRemaining: response.headers.get("X-RateLimit-Remaining"), rateLimitReset: response.headers.get("X-RateLimit-Reset") },
     });
   } catch (error) {
     scheduleClickUpTelemetry({
@@ -187,10 +199,11 @@ export async function clickUpFetch(input: RequestInfo | URL, init?: RequestInit)
 export async function fetchAllClickUpListTasks<T = Record<string, unknown>>(
   token: string,
   listId: string,
-  options: { includeClosed?: boolean; includeMarkdownDescription?: boolean; timeoutMs?: number } = {},
+  options: { includeClosed?: boolean; includeMarkdownDescription?: boolean; includeSubtasks?: boolean; timeoutMs?: number } = {},
 ): Promise<T[]> {
   const scope = clickUpScope(token);
-  const key = `${scope}:live-list:${listId}:${options.includeClosed === false ? "open" : "closed"}:${options.includeMarkdownDescription ? "markdown" : "plain"}`;
+  const includeSubtasks = options.includeSubtasks !== false;
+  const key = `${scope}:live-list:${listId}:${options.includeClosed === false ? "open" : "closed"}:${includeSubtasks ? "with-subtasks" : "parents-only"}:${options.includeMarkdownDescription ? "markdown" : "plain"}`;
   const existing = liveTaskListReads.get(key);
   if (existing) return existing as Promise<T[]>;
 
@@ -198,7 +211,7 @@ export async function fetchAllClickUpListTasks<T = Record<string, unknown>>(
     const fetchPage = async (page: number) => {
       const url = new URL(`https://api.clickup.com/api/v2/list/${encodeURIComponent(listId)}/task`);
       url.searchParams.set("include_closed", String(options.includeClosed !== false));
-      url.searchParams.set("subtasks", "true");
+      url.searchParams.set("subtasks", String(includeSubtasks));
       url.searchParams.set("include_timl", "true");
       if (options.includeMarkdownDescription) url.searchParams.set("include_markdown_description", "true");
       url.searchParams.set("page", String(page));

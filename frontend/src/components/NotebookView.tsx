@@ -171,25 +171,37 @@ export function NotebookView({ currentUserName, userId, initialDate, initialTab 
   const [generatingMonth, setGeneratingMonth] = useState(false);
   const [generatingProgress, setGeneratingProgress] = useState("");
   const [generateFeedback, setGenerateFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const notebookRequestVersion = useRef(0);
 
   useEffect(() => {
     setTargetGenMonth(selectedDate.slice(0, 7));
   }, [selectedDate]);
 
+  const requestedMemberId = activeTab === "insights"
+    ? insightMemberId === "all" ? "" : insightMemberId
+    : selectedMemberId;
+  const requestCurrentUser = activeTab !== "insights" && !requestedMemberId;
   const loadNotebook = async (background = Boolean(payload)) => {
+    const requestVersion = ++notebookRequestVersion.current;
+    const cacheKey = `notebook:${rangeStart}:${rangeEnd}:${requestedMemberId || (requestCurrentUser ? "current" : "all")}`;
     if (!background) setLoading(true);
     setError("");
     try {
-      const response = await fetch("/api/notebook", { cache: "no-store" });
+      const query = new URLSearchParams({ start: rangeStart, end: rangeEnd });
+      if (requestedMemberId) query.set("memberId", requestedMemberId);
+      else if (requestCurrentUser) query.set("currentUser", "1");
+      const response = await fetch(`/api/notebook?${query}`, { cache: "no-store" });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw Object.assign(new Error(body.error || "Unable to load the daily log."), { status: response.status });
+      if (requestVersion !== notebookRequestVersion.current) return;
       setPayload(body);
-      if (userId) void writeBrowserPageCache(userId, "notebook:current", body as NotebookPayload);
+      if (userId) void writeBrowserPageCache(userId, cacheKey, body as NotebookPayload);
     } catch (loadError) {
+      if (requestVersion !== notebookRequestVersion.current) return;
       if (userId && loadError && typeof loadError === "object" && "status" in loadError && [401, 403].includes(Number(loadError.status))) await clearBrowserPageCache(userId);
       setError(loadError instanceof Error ? loadError.message : "Unable to load the daily log.");
     } finally {
-      setLoading(false);
+      if (requestVersion === notebookRequestVersion.current) setLoading(false);
     }
   };
   const loadNotebookRef = useRef(loadNotebook);
@@ -207,12 +219,13 @@ export function NotebookView({ currentUserName, userId, initialDate, initialTab 
   useEffect(() => {
     let active = true;
     void (async () => {
-      const cached = userId ? await readBrowserPageCache<NotebookPayload>(userId, "notebook:current") : undefined;
+      const cacheKey = `notebook:${rangeStart}:${rangeEnd}:${requestedMemberId || (requestCurrentUser ? "current" : "all")}`;
+      const cached = userId ? await readBrowserPageCache<NotebookPayload>(userId, cacheKey) : undefined;
       if (cached && active) { setPayload(cached); setLoading(false); }
       if (active) await loadNotebook(Boolean(cached));
     })();
     return () => { active = false; };
-  }, [userId]);
+  }, [userId, rangeStart, rangeEnd, requestedMemberId, requestCurrentUser]);
 
   useEffect(() => {
     const refreshAfterSync = (event: Event) => { trackClickUpLiveRefresh(event, () => loadNotebookRef.current(true)); };

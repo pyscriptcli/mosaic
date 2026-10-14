@@ -233,7 +233,7 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
     if (background) setRefreshing(true); else setLoading(true);
     setError("");
     try {
-      const response = await fetch(`/api/my-day?date=${encodeURIComponent(requestedDate)}&personalListId=${encodeURIComponent(personalList?.id || "")}&personalListName=${encodeURIComponent(personalList?.name || "Personal List")}`, { headers: requestHeaders(personalList), cache: "no-store" });
+      const response = await fetch(`/api/my-day?date=${encodeURIComponent(requestedDate)}&personalListId=${encodeURIComponent(personalList?.id || "")}&personalListName=${encodeURIComponent(personalList?.name || "Personal List")}${activityOnly ? "&includeNotes=0" : ""}`, { headers: requestHeaders(personalList), cache: "no-store" });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || "My Day could not be loaded.");
       if (requestVersion !== dayRequestVersion.current) return;

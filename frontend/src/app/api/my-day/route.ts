@@ -6,6 +6,7 @@ import { isAskEchoEnabled } from "@/lib/admin-config/store";
 import { summarizeMyDayTasks } from "@/lib/ask-echo/service";
 import {
   DAILY_LOG_LIST_ID, createTask, dateFromTask, ensureDailyTask, fetchAllTasks,
+  fetchDailyLogParents, fetchDailyLogParentTree, flattenClickUpTaskTree,
   fetchClickUp, formatDailyName, isValidDate, monthFromTaskName, taskOwner,
   categoryPayload, categoriesFromTask, writeCategories, completeDailyTaskOnTimeIfPopulated,
   type RawClickUpTask,
@@ -96,19 +97,26 @@ function serializeDayTask(task: ClickUpTask) {
 }
 
 async function getKpiContext(token: string, date: string, req: NextRequest) {
-  const remoteTasks = await fetchAllTasks(token) as ClickUpTask[];
+  const remoteTasks = await fetchDailyLogParents(token) as ClickUpTask[];
   const stagedRows = await readStagedMosaicRecords(clickUpScope(token), "notebook", DAILY_LOG_LIST_ID);
   const stagedIds = new Map(stagedRows.map((row) => [String(row.record_id), String(row.clickup_id || row.record_id)]));
-  const taskMap = new Map(remoteTasks.map((task) => [String(task.id), task]));
-  for (const row of stagedRows) {
-    const id = String(row.clickup_id || row.record_id);
-    if (row.is_deleted) { taskMap.delete(id); taskMap.delete(String(row.record_id)); continue; }
-    const data = row.record_data && typeof row.record_data === "object" ? row.record_data as Record<string, unknown> : {};
-    taskMap.set(id, { ...(taskMap.get(id) || {}), ...data, ...(typeof data.parent === "string" && data.parent ? { parent: stagedIds.get(data.parent) || data.parent } : {}), id } as ClickUpTask);
-  }
-  const tasks = [...taskMap.values()];
-  const byId = new Map(tasks.map((task) => [String(task.id), task]));
+  const applyStaged = (source: ClickUpTask[]) => {
+    const taskMap = new Map(source.map((task) => [String(task.id), task]));
+    for (const row of stagedRows) {
+      const id = String(row.clickup_id || row.record_id);
+      if (row.is_deleted) { taskMap.delete(id); taskMap.delete(String(row.record_id)); continue; }
+      const data = row.record_data && typeof row.record_data === "object" ? row.record_data as Record<string, unknown> : {};
+      taskMap.set(id, { ...(taskMap.get(id) || {}), ...data, ...(typeof data.parent === "string" && data.parent ? { parent: stagedIds.get(data.parent) || data.parent } : {}), id } as ClickUpTask);
+    }
+    return [...taskMap.values()];
+  };
+  const rootTasks = applyStaged(remoteTasks);
   const user = getUserFromRequest(req);
+  const monthParent = rootTasks.find((task) => !task.parent && monthFromTaskName(task.name) === date.slice(0, 7) && userMatches(task, new Map(rootTasks.map((item) => [String(item.id), item])), user));
+  const tasks = monthParent
+    ? applyStaged([...rootTasks, ...flattenClickUpTaskTree(await fetchDailyLogParentTree(token, String(monthParent.id))) as ClickUpTask[]])
+    : rootTasks;
+  const byId = new Map(tasks.map((task) => [String(task.id), task]));
   const day = tasks.find((task) => {
     const parent = task.parent ? byId.get(String(task.parent)) : undefined;
     return Boolean(parent && monthFromTaskName(parent.name) === date.slice(0, 7) && dateFromTask(task) === date && userMatches(task, byId, user));
@@ -150,9 +158,10 @@ export async function GET(req: NextRequest) {
   if (!token) return NextResponse.json({ error: "ClickUp authentication required." }, { status: 401 });
   if (!isValidDate(date)) return NextResponse.json({ error: "A valid day is required." }, { status: 400 });
   try {
+    const includeNotes = req.nextUrl.searchParams.get("includeNotes") !== "0";
     const [{ tasks, day, syncState, syncedAt, isFresh }, personalList, listInfo] = await Promise.all([
       getKpiContext(token, date, req),
-      getPersonalList(req),
+      includeNotes ? getPersonalList(req) : Promise.resolve(null),
       clickUpJson(token, `https://api.clickup.com/api/v2/list/${DAILY_LOG_LIST_ID}`),
     ]);
     const statuses = (listInfo.statuses || []) as Array<{ status?: string; type?: string }>;
@@ -160,7 +169,7 @@ export async function GET(req: NextRequest) {
     const openStatus = statuses.find((item) => item.type === "open" && /to do|open|not started/i.test(item.status || ""))?.status || statuses.find((item) => item.type === "open")?.status || "to do";
     let note = null;
     let notesError = "";
-    if (personalList) {
+    if (personalList && includeNotes) {
       try { note = (await readPersonalNotes(token, personalList.id, date)).note; }
       catch (error) { notesError = error instanceof Error ? error.message : "Personal notes could not be loaded."; }
     }

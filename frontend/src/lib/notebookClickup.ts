@@ -35,6 +35,9 @@ export interface RawClickUpTask {
   custom_fields?: Array<{ id?: string; name?: string; type?: string; value?: unknown }>;
 }
 
+type ClickUpTaskTree = RawClickUpTask & { subtasks?: ClickUpTaskTree[] };
+const liveDailyLogParentTrees = new Map<string, Promise<ClickUpTaskTree>>();
+
 export interface NotebookMemberInput {
   id: string;
   name: string;
@@ -180,6 +183,36 @@ export async function fetchClickUp(
 
 export async function fetchAllTasks(token: string) {
   return fetchAllClickUpListTasks<RawClickUpTask>(token, DAILY_LOG_LIST_ID);
+}
+
+export async function fetchDailyLogParents(token: string) {
+  return fetchAllClickUpListTasks<RawClickUpTask>(token, DAILY_LOG_LIST_ID, { includeSubtasks: false });
+}
+
+export async function fetchDailyLogParentTree(token: string, parentId: string) {
+  const key = `${clickUpScope(token)}:daily-log-parent:${parentId}`;
+  const pending = liveDailyLogParentTrees.get(key);
+  if (pending) return pending;
+  const request = (async () => {
+    const url = `https://api.clickup.com/api/v2/task/${encodeURIComponent(parentId)}?include_subtasks=true`;
+    const response = await clickUpCalendarFetch(token, url, undefined, undefined, { skipCache: true, timeoutMs: 12_000 });
+    const body = await response.json().catch(() => null) as (ClickUpTaskTree & { err?: string; error?: string }) | null;
+    if (!response.ok || !body || !body.id) throw new Error(body?.err || body?.error || `ClickUp could not load Daily Log parent ${parentId}.`);
+    return body;
+  })();
+  liveDailyLogParentTrees.set(key, request);
+  try { return await request; } finally { liveDailyLogParentTrees.delete(key); }
+}
+
+export function flattenClickUpTaskTree(root: ClickUpTaskTree) {
+  const tasks: RawClickUpTask[] = [];
+  const visit = (task: ClickUpTaskTree, parentId?: string) => {
+    const normalized = { ...task, ...(parentId && !task.parent ? { parent: parentId } : {}) };
+    tasks.push(normalized);
+    for (const child of task.subtasks || []) visit(child, String(task.id));
+  };
+  visit(root);
+  return tasks;
 }
 
 export function clickUpHeaders(token: string) {
