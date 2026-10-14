@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { clearBrowserPageCache, getBrowserPageCache, readBrowserPageCache, writeBrowserPageCache } from "@/lib/browserPageCache";
 import { requestCentralClickUpSync, trackClickUpLiveRefresh } from "@/lib/clickupSyncClient";
+import { AutoResizeTextarea } from "@/components/forms/AutoResizeTextarea";
 import {
   AlertCircle,
   BarChart3,
@@ -684,14 +685,15 @@ export function NotebookView({ currentUserName, userId, initialDate, initialTab 
                   return (
                     <div key={category.key} className="grid grid-cols-1 sm:grid-cols-[140px_1fr] gap-3 p-4 sm:p-5">
                       <div className="text-xs font-bold uppercase tracking-wider text-[#003366] pt-0.5">{category.label}</div>
-                      <textarea
+                      <AutoResizeTextarea
                         value={draftCategories[category.key]}
                         onChange={(event) => updateCategory(category.key, event.target.value)}
                         onKeyDown={(event) => handleTaskListKeyDown(category.key, event)}
                         onBlur={() => normalizeCategory(category.key)}
                         placeholder={`• Log ${category.label.toLowerCase()} work`}
                         rows={3}
-                        className="w-full border border-gray-200 bg-[#FFFCFB]/70 px-3 py-2 text-sm text-gray-700 leading-relaxed resize-y focus:outline-none focus:border-[#C9AB4C] focus:bg-[#FFFCFB]"
+                        minHeight={106}
+                        className="border border-gray-200 bg-[#FFFCFB]/70 px-3 py-2 text-sm text-gray-700 leading-relaxed focus:outline-none focus:border-[#C9AB4C] focus:bg-[#FFFCFB]"
                       />
                     </div>
                   );

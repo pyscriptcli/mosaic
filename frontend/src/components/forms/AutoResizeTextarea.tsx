@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef } from "react";
+import React, { useLayoutEffect, useRef } from "react";
 
 interface AutoResizeTextareaProps
   extends React.TextareaHTMLAttributes<HTMLTextAreaElement> {
@@ -22,7 +22,7 @@ export const AutoResizeTextarea = React.forwardRef<
     textarea.style.height = `${nextHeight}px`;
   };
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     adjustHeight();
   }, [value]);
 

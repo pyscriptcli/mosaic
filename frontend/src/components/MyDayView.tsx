@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, Bold, Bell, BellOff, CalendarDays, Check, CheckCircle2, ChevronLeft, ChevronRight, ExternalLink, Highlighter, Italic, Link2, List, ListOrdered, LoaderCircle, Plus, Quote, Redo2, RefreshCw, Save, Sparkles, Trash2, Underline, Undo2, X } from "lucide-react";
 import { getStoredClickUpListId, getStoredClickUpToken } from "@/lib/api";
 import { requestCentralClickUpSync, trackClickUpLiveRefresh } from "@/lib/clickupSyncClient";
+import { AutoResizeTextarea } from "@/components/forms/AutoResizeTextarea";
 import type { NotebookActivityHistory } from "@/components/NotebookView";
 
 type DayTask = {
@@ -662,13 +663,14 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
               {ACTIVITY_FIELDS.map((field) => (
                 <label key={field.key} className="block min-w-0">
                   <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-[#003366]">{field.label}</span>
-                  <textarea
+                  <AutoResizeTextarea
                     value={activityDraft[field.key]}
                     onChange={(event) => setActivityDraft((current) => ({ ...current, [field.key]: event.target.value }))}
                     disabled={loading || payload?.date !== date || payload?.isFresh === false}
                     placeholder={"Log " + field.label.toLowerCase() + " work"}
                     rows={3}
-                    className="w-full resize-y border border-slate-200 bg-[#FFFCFB] px-3 py-2 text-sm leading-relaxed text-slate-700 outline-none focus:border-[#C9A84C]"
+                    minHeight={106}
+                    className="border border-slate-200 bg-[#FFFCFB] px-3 py-2 text-sm leading-relaxed text-slate-700 outline-none focus:border-[#C9A84C]"
                     aria-label={field.label + " activity"}
                   />
                 </label>
