@@ -137,7 +137,12 @@ export function Sidebar({
     },
   ];
 
-  const orderIndex = new Map((sidebarOrder || []).map((id, index) => [id, index]));
+  const normalizedSidebarOrder = [...(sidebarOrder || [])];
+  if (!normalizedSidebarOrder.includes("project")) {
+    const notebookIndex = normalizedSidebarOrder.indexOf("notebook");
+    if (notebookIndex >= 0) normalizedSidebarOrder.splice(notebookIndex, 0, "project");
+  }
+  const orderIndex = new Map(normalizedSidebarOrder.map((id, index) => [id, index]));
   const navItems = allNavItems.slice().sort((a, b) => {
     const fallback = allNavItems.length;
     return (orderIndex.get(a.id) ?? fallback) - (orderIndex.get(b.id) ?? fallback);
