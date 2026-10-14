@@ -1,4 +1,4 @@
-import { after, NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import {
   CATEGORY_MATCHERS,
   CategoryKey,
@@ -8,17 +8,16 @@ import {
   dateFromTask,
   ensureDailyTask,
   extractText,
-  fetchAllTasks,
   isValidDate,
   monthFromTaskName,
   normalizeFieldName,
   requestToken,
+  RawClickUpTask,
   taskOwner,
   writeCategories,
 } from "@/lib/notebookClickup";
 import { getUserFromRequest } from "@/lib/auth";
 import { clickUpScope, queueClickUpSync, readClickUpTaskSnapshot } from "@/lib/clickupReadStore";
-import { processClickUpSyncQueue } from "@/lib/clickupSync";
 import { readStagedMosaicRecords, scheduleMosaicWriteSync, stageMosaicWrite } from "@/lib/mosaicWriteStore";
 
 export const maxDuration = 60;
@@ -31,19 +30,14 @@ export async function GET(req: NextRequest) {
 
   try {
     const scope = clickUpScope(token);
-    const forceRefresh = req.nextUrl.searchParams.get("refresh") === "1";
-    const snapshot = forceRefresh ? null : await readClickUpTaskSnapshot(scope, DAILY_LOG_LIST_ID, 30 * 24 * 60 * 60_000);
-    const remoteTasks = snapshot ? snapshot.tasks as unknown as Awaited<ReturnType<typeof fetchAllTasks>> : await fetchAllTasks(token);
+    const snapshot = await readClickUpTaskSnapshot(scope, DAILY_LOG_LIST_ID, 30 * 24 * 60 * 60_000);
     const userId = String(getUserFromRequest(req)?.id || "");
-    if (userId && (!snapshot || snapshot.syncState !== "ready" || Date.now() - Date.parse(snapshot.syncedAt) > 5 * 60_000)) {
-      after(async () => {
-        try {
-          if (await queueClickUpSync(token, userId, DAILY_LOG_LIST_ID)) await processClickUpSyncQueue(1);
-        } catch (error) {
-          console.warn("[notebook-sync] refresh could not be queued", error instanceof Error ? error.message : "unknown");
-        }
-      });
-    }
+    const snapshotIsFresh = Boolean(snapshot && snapshot.syncState === "ready" && Date.now() - Date.parse(snapshot.syncedAt) < 5 * 60_000);
+    let refreshWarning = "";
+    if (!snapshotIsFresh && userId) await queueClickUpSync(token, userId, DAILY_LOG_LIST_ID);
+    if (!snapshot) refreshWarning = "Daily logs are being loaded from ClickUp for the first time. This page will update when that sync completes.";
+    else if (!snapshotIsFresh) refreshWarning = "Showing the last complete daily log snapshot while ClickUp updates in the background.";
+    const remoteTasks = (snapshot?.tasks || []) as unknown as RawClickUpTask[];
     const stagedRows = await readStagedMosaicRecords(clickUpScope(token), "notebook", DAILY_LOG_LIST_ID);
     const stagedIdMap = new Map(stagedRows.map((row) => [String(row.record_id), String(row.clickup_id || row.record_id)]));
     const taskMap = new Map(remoteTasks.map((task) => [String(task.id), task]));
@@ -57,6 +51,15 @@ export async function GET(req: NextRequest) {
     const byId = new Map(rawTasks.map((task) => [String(task.id), task]));
     const members = new Map<string, ReturnType<typeof taskOwner>>();
     const memberMonths = new Map<string, Set<string>>();
+
+    const childrenByParent = new Map<string, typeof rawTasks>();
+    for (const child of rawTasks) {
+      if (!child.parent) continue;
+      const key = String(child.parent);
+      const children = childrenByParent.get(key) || [];
+      children.push(child);
+      childrenByParent.set(key, children);
+    }
 
     const entries = rawTasks.flatMap((task) => {
       const date = dateFromTask(task);
@@ -89,7 +92,7 @@ export async function GET(req: NextRequest) {
       const parent = task.parent ? byId.get(String(task.parent)) : undefined;
       const isDatedDailyTask = Boolean(parent && monthFromTaskName(parent.name) === date?.slice(0, 7));
       if (!date || (!isDatedDailyTask && (Boolean(task.parent) || !hasRecognizedFields))) return [];
-      const dailyTasks = rawTasks.filter((child) => String(child.parent) === String(task.id)).map((child) => ({
+      const dailyTasks = (childrenByParent.get(String(task.id)) || []).map((child) => ({
         id: String(child.id), name: child.name || "Untitled task", status: child.status?.status || "to do",
         completed: child.status?.type === "closed" || /^(complete|completed|closed|done)$/i.test(child.status?.status || ""),
         dueDate: child.due_date ? new Date(Number(child.due_date)).toISOString().slice(0, 10) : "",
@@ -115,6 +118,7 @@ export async function GET(req: NextRequest) {
         .map((member) => ({ ...member, months: Array.from(memberMonths.get(member.id) || []) }))
         .sort((a, b) => a.name.localeCompare(b.name)),
       fetchedAt: new Date().toISOString(),
+      ...(refreshWarning ? { warning: refreshWarning } : {}),
     });
   } catch (error) {
     console.error("Notebook ClickUp read failed:", error);

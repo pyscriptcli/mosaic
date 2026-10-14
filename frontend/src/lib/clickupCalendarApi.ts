@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { after } from "next/server";
 import { clickUpScope, clearClickUpReadCache, invalidateClickUpSync, readCachedClickUp, reserveClickUpRequest, writeCachedClickUp } from "@/lib/clickupReadStore";
 import { recordTelemetry } from "@/lib/telemetry";
+import { getClickUpSyncContext } from "@/lib/clickupSyncContext";
 
 const RATE_INTERVAL_MS = Math.max(667, Number(process.env.CLICKUP_MIN_REQUEST_INTERVAL_MS) || 667);
 const MAX_ACTIVE_PER_TOKEN = 3;
@@ -25,7 +26,13 @@ function safeEndpoint(input: string | URL) {
 }
 
 function scheduleClickUpTelemetry(event: Parameters<typeof recordTelemetry>[0]) {
-  try { after(() => recordTelemetry(event)); } catch { /* Some non-request callers have no Next after context. */ }
+  const context = getClickUpSyncContext();
+  const correlatedEvent = context ? {
+    ...event,
+    userId: event.userId || context.userId,
+    metadata: { ...event.metadata, syncRunId: context.runId || undefined, syncListId: context.listId },
+  } : event;
+  try { after(() => recordTelemetry(correlatedEvent)); } catch { /* Some non-request callers have no Next after context. */ }
 }
 
 async function acquire(scope: string) {
@@ -64,7 +71,7 @@ function retryDelay(response: Response, attempt: number) {
   return Math.min(30_000, Math.max(serverDelay, 500 * (2 ** attempt)) + Math.random() * 250);
 }
 
-async function clickUpRequest(token: string, input: string | URL, init?: RequestInit) {
+async function clickUpRequest(token: string, input: string | URL, init?: RequestInit, options: { maxRateLimitRetries?: number; timeoutMs?: number } = {}) {
   const scope = clickUpScope(token);
   const requestQueuedAt = Date.now();
   const endpoint = safeEndpoint(input);
@@ -82,14 +89,14 @@ async function clickUpRequest(token: string, input: string | URL, init?: Request
     const headers = new Headers(init?.headers);
     headers.set("Authorization", token);
     const upstreamStartedAt = Date.now();
-    response = await fetch(input, { ...init, headers, cache: "no-store" });
+    response = await fetch(input, { ...init, headers, cache: "no-store", signal: init?.signal || (options.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined) });
     upstreamMs += Date.now() - upstreamStartedAt;
-    for (let attempt = 0; response.status === 429 && attempt < 3; attempt += 1) {
+    for (let attempt = 0; response.status === 429 && attempt < (options.maxRateLimitRetries ?? 3); attempt += 1) {
       retries += 1;
       await sleep(retryDelay(response, attempt));
       await reserveStart(scope);
       const retryStartedAt = Date.now();
-      response = await fetch(input, { ...init, headers, cache: "no-store" });
+      response = await fetch(input, { ...init, headers, cache: "no-store", signal: init?.signal || (options.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined) });
       upstreamMs += Date.now() - retryStartedAt;
     }
     if (process.env.CLICKUP_PERF_LOGS === "true") {
@@ -120,12 +127,12 @@ async function clickUpRequest(token: string, input: string | URL, init?: Request
   return response;
 }
 
-export async function clickUpCalendarFetch(token: string, input: string | URL, init?: RequestInit, invalidatePaths?: string[], options: { skipCache?: boolean } = {}) {
+export async function clickUpCalendarFetch(token: string, input: string | URL, init?: RequestInit, invalidatePaths?: string[], options: { skipCache?: boolean; maxRateLimitRetries?: number; timeoutMs?: number } = {}) {
   const url = String(input);
   const method = (init?.method || "GET").toUpperCase();
   const scope = clickUpScope(token);
   if (method !== "GET") {
-    const response = await clickUpRequest(token, input, init);
+    const response = await clickUpRequest(token, input, init, options);
     const listIds = Array.from(new Set((invalidatePaths || []).map((path) => path.match(/^\/list\/(\d+)\/task/)?.[1]).filter((id): id is string => Boolean(id))));
     if (listIds.length) await Promise.all(listIds.map((listId) => invalidateClickUpSync(scope, listId)));
     else await invalidateClickUpSync(scope);
@@ -144,7 +151,7 @@ export async function clickUpCalendarFetch(token: string, input: string | URL, i
       if (process.env.CLICKUP_PERF_LOGS === "true") console.info("[clickup-perf]", JSON.stringify({ path: new URL(url).pathname, method: "GET", cache: "hit" }));
       return cached;
     }
-    const response = await clickUpRequest(token, input, init);
+    const response = await clickUpRequest(token, input, init, options);
     if (!response.ok) return response;
     const body = await response.clone().text();
     await writeCachedClickUp(scope, url, response, body);

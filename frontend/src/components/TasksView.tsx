@@ -46,6 +46,7 @@ import { WORKSPACE_STATUS_CATEGORIES, ALL_WORKSPACE_STATUSES } from "@/lib/click
 import { SearchableMemberSelect } from "./SearchableMemberSelect";
 import { formatEchoDate } from "@/lib/dateUtils";
 import { clearBrowserPageCache, readBrowserPageCache, writeBrowserPageCache } from "@/lib/browserPageCache";
+import { requestCentralClickUpSync } from "@/lib/clickupSyncClient";
 import { flushClickUpMutationQueue, getPendingClickUpMutationCount, mergePendingClickUpMutations, queueClickUpDelete, queueClickUpUpdate } from "@/lib/clickUpMutationQueue";
 
 export interface ClickUpTask {
@@ -298,6 +299,17 @@ export default function TasksView({
     window.addEventListener("mosaic-clickup-sync-complete", refreshAfterSync);
     return () => window.removeEventListener("mosaic-clickup-sync-complete", refreshAfterSync);
   }, []);
+
+  const requestTasksRefresh = async () => {
+    setRefreshing(true);
+    setError(null);
+    try {
+      await requestCentralClickUpSync();
+    } catch (refreshError) {
+      setError(refreshError instanceof Error ? refreshError.message : "Unable to start ClickUp refresh.");
+      setRefreshing(false);
+    }
+  };
 
   const loadDiscoveredLists = async (showNotification = false, force = false) => {
     if (!force && !showNotification && userId) {
@@ -908,7 +920,7 @@ export default function TasksView({
 
           {/* Refresh Button */}
           <button
-            onClick={() => loadTasks(true)}
+            onClick={() => void requestTasksRefresh()}
             disabled={refreshing || loading}
             title="Refresh from ClickUp"
             className="p-1.5 text-gray-600 hover:text-[#003366] bg-[#FFFCFB] border border-gray-200 hover:border-gray-300 transition-colors disabled:opacity-50 cursor-pointer"

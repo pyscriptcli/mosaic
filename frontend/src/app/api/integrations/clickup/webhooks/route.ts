@@ -1,9 +1,8 @@
-import { after, NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { getTokenFromRequest, getUserFromRequest } from "@/lib/auth";
 import { clickUpCalendarFetch } from "@/lib/clickupCalendarApi";
-import { clickUpScope, decryptClickUpToken, forgetClickUpWebhookEvent, invalidateClickUpSync, isClickUpSyncStorageReady, loadClickUpWebhook, persistClickUpConnection, removeClickUpTaskSnapshotRecord, queueClickUpWebhookJob, registerClickUpWebhook, recordClickUpWebhookEvent } from "@/lib/clickupReadStore";
-import { processClickUpSyncQueue } from "@/lib/clickupSync";
+import { clickUpScope, decryptClickUpToken, forgetClickUpWebhookEvent, isClickUpSyncStorageReady, loadClickUpWebhook, persistClickUpConnection, queueClickUpWebhookJob, registerClickUpWebhook, recordClickUpWebhookEvent } from "@/lib/clickupReadStore";
 
 export async function POST(request: NextRequest) {
   const bodyText = await request.text();
@@ -27,15 +26,13 @@ export async function POST(request: NextRequest) {
   if (!firstDelivery) return NextResponse.json({ received: true, duplicate: true }, { status: 200 });
   const eventName = String(event.event || "");
   const taskId = String(event.task_id || "");
-  if (taskId && (eventName === "taskDeleted" || eventName === "taskMoved") && !await removeClickUpTaskSnapshotRecord(stored.scope_key, stored.list_id, taskId)) {
+  const deleted = eventName === "taskDeleted" || eventName === "taskMoved";
+  try {
+    await queueClickUpWebhookJob(stored.scope_key, stored.list_id, taskId || undefined, deleted);
+  } catch {
     await forgetClickUpWebhookEvent(webhookId, eventKey);
-    return NextResponse.json({ error: "The ClickUp task change could not be applied." }, { status: 503 });
+    return NextResponse.json({ error: "The ClickUp webhook event could not be queued." }, { status: 503 });
   }
-  await invalidateClickUpSync(stored.scope_key, stored.list_id);
-  after(async () => {
-    try { await queueClickUpWebhookJob(stored.scope_key, stored.list_id); await processClickUpSyncQueue(1); }
-    catch { console.warn("[clickup-sync] webhook refresh could not be scheduled"); }
-  });
   return NextResponse.json({ received: true }, { status: 202 });
 }
 

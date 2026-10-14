@@ -637,43 +637,47 @@ export function AdminConfiguration({ userEmail, username }: { userEmail: string;
 
         <div className="panel space-y-3">
           <div>
-            <h3 className="text-base font-serif italic font-bold text-[#003366]">Tasks loading performance</h3>
-            <p className="mt-1 text-xs text-[#181D1E]/65">Server time for selected task list requests in the chosen date range.</p>
+            <h3 className="text-base font-serif italic font-bold text-[#003366]">ClickUp sync and data loading</h3>
+            <p className="mt-1 text-xs text-[#181D1E]/65">One report for centralized sync runs, list outcomes, and ClickUp API activity across app routes.</p>
           </div>
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             {[
-              ["Requests", telemetry?.summary?.clickupPerformance?.requests || 0],
-              ["Average", `${telemetry?.summary?.clickupPerformance?.averageMs || 0} ms`],
+              ["Sync operations", telemetry?.summary?.clickupPerformance?.syncRuns || 0],
+              ["Lists synced / requested", `${telemetry?.summary?.clickupPerformance?.listsSynced || 0} / ${telemetry?.summary?.clickupPerformance?.listsRequested || 0}`],
+              ["Sync failures", telemetry?.summary?.clickupPerformance?.syncFailures || 0],
+              ["Lists still pending", telemetry?.summary?.clickupPerformance?.listsPending || 0],
+              ["Avg operation duration", `${telemetry?.summary?.clickupPerformance?.averageMs || 0} ms`],
+              ["API requests", telemetry?.summary?.clickupPerformance?.requests || 0],
+              ["API failures", telemetry?.summary?.clickupPerformance?.failures || 0],
               ["95th percentile", `${telemetry?.summary?.clickupPerformance?.p95Ms || 0} ms`],
-              ["Failures", telemetry?.summary?.clickupPerformance?.failures || 0],
-              ["Avg records", telemetry?.summary?.clickupPerformance?.averageRecords || 0],
+              ["Cache hit rate", `${telemetry?.summary?.clickupPerformance?.cacheHitRate || 0}%`],
             ].map(([label, value]) => <div key={String(label)} className="border border-[#003366]/10 px-3 py-2"><div className="text-[10px] uppercase tracking-widest text-[#003366]/60">{label}</div><div className="mt-1 text-lg text-[#003366]">{value}</div></div>)}
           </div>
           <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-[#181D1E]/70">
-            {Object.entries((telemetry?.summary?.clickupPerformance?.dataSources || {}) as Record<string, number>).map(([source, count]) => <span key={source}>{source}: <strong className="text-[#003366]">{count}</strong></span>)}
+            <span>Avg queue wait: <strong className="text-[#003366]">{telemetry?.summary?.clickupPerformance?.averageQueueMs || 0} ms</strong></span>
+            <span>Avg rate wait: <strong className="text-[#003366]">{telemetry?.summary?.clickupPerformance?.averageRateWaitMs || 0} ms</strong></span>
+            <span>Avg upstream response: <strong className="text-[#003366]">{telemetry?.summary?.clickupPerformance?.averageUpstreamMs || 0} ms</strong></span>
+            <span>Task page reads: <strong className="text-[#003366]">{telemetry?.summary?.clickupPerformance?.pageReads || 0}</strong></span>
             {telemetry?.summary?.clickupPerformance?.averageSnapshotAgeMs != null && <span>Average snapshot age: <strong className="text-[#003366]">{Math.round(telemetry.summary.clickupPerformance.averageSnapshotAgeMs / 1000)} sec</strong></span>}
-            {!telemetry?.summary?.clickupPerformance?.requests && <span>No task loading events in this range yet.</span>}
           </div>
-        </div>
-
-        <div className="panel space-y-3">
-          <div>
-            <h3 className="text-base font-serif italic font-bold text-[#003366]">ClickUp request timings</h3>
-            <p className="mt-1 text-xs text-[#181D1E]/65">Breaks down shared ClickUp request wait, cache reuse, and upstream response time across pages.</p>
+          <div className="grid gap-4 border-t border-[#003366]/10 pt-3 md:grid-cols-2">
+            <div><h4 className="text-xs font-semibold text-[#003366]">Lists</h4><div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[#181D1E]/70">{Object.entries((telemetry?.summary?.clickupPerformance?.byList || {}) as Record<string, { requested: number; synced: number; failed: number; pending: number; records: number; reason?: string }>).map(([label, result]) => <span key={label}>{label}: <strong className="text-[#003366]">{result.synced}/{result.requested} synced</strong>, {result.pending} pending, {result.failed} failed, {result.records} records{result.reason && <span className="text-rose-700"> — {result.reason}</span>}</span>)}{!Object.keys(telemetry?.summary?.clickupPerformance?.byList || {}).length && <span>No sync runs in this range.</span>}</div></div>
+            <div><h4 className="text-xs font-semibold text-[#003366]">API paths</h4><div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[#181D1E]/70">{Object.entries((telemetry?.summary?.clickupPerformance?.byEndpoint || {}) as Record<string, number>).map(([endpoint, count]) => <span key={endpoint}>{endpoint}: <strong className="text-[#003366]">{count}</strong></span>)}{!Object.keys(telemetry?.summary?.clickupPerformance?.byEndpoint || {}).length && <span>No ClickUp API requests in this range.</span>}</div></div>
           </div>
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-            {[
-              ["Upstream requests", telemetry?.summary?.clickupApiPerformance?.requests || 0],
-              ["95th percentile", `${telemetry?.summary?.clickupApiPerformance?.p95Ms || 0} ms`],
-              ["Avg queue wait", `${telemetry?.summary?.clickupApiPerformance?.averageQueueMs || 0} ms`],
-              ["Avg rate wait", `${telemetry?.summary?.clickupApiPerformance?.averageRateWaitMs || 0} ms`],
-              ["Cache hit rate", `${telemetry?.summary?.clickupApiPerformance?.cacheHitRate || 0}%`],
-            ].map(([label, value]) => <div key={String(label)} className="border border-[#003366]/10 px-3 py-2"><div className="text-[10px] uppercase tracking-widest text-[#003366]/60">{label}</div><div className="mt-1 text-lg text-[#003366]">{value}</div></div>)}
-          </div>
-          <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-[#181D1E]/70">
-            <span>Failures: <strong className="text-[#003366]">{telemetry?.summary?.clickupApiPerformance?.failures || 0}</strong></span>
-            <span>Avg upstream response: <strong className="text-[#003366]">{telemetry?.summary?.clickupApiPerformance?.averageUpstreamMs || 0} ms</strong></span>
-            {Object.entries((telemetry?.summary?.clickupApiPerformance?.byEndpoint || {}) as Record<string, number>).map(([endpoint, count]) => <span key={endpoint}>{endpoint}: <strong className="text-[#003366]">{count}</strong></span>)}
+          <div className="border-t border-[#003366]/10 pt-3">
+            <h4 className="text-xs font-semibold text-[#003366]">Durable sync runs</h4>
+            <div className="mt-2 space-y-2">
+              {((telemetry?.summary?.clickupPerformance?.runHistory || []) as Array<{ runId: string; trigger: string; state: string; requestedTargets: number; completedTargets: number; failedTargets: number; createdAt: string; finishedAt: string | null; targets: Array<{ list_label?: string; state?: string; records?: number; last_error?: string }> }>).slice(0, 20).map((run) => (
+                <div key={run.runId} className="grid gap-2 border border-[#003366]/10 px-3 py-2 text-xs text-[#181D1E]/70 md:grid-cols-[minmax(0,1.4fr)_repeat(3,minmax(0,1fr))]">
+                  <div className="min-w-0"><div className="truncate font-medium text-[#003366]" title={run.runId}>{run.runId}</div><div>{run.trigger} · {new Date(run.createdAt).toLocaleString()}</div></div>
+                  <div>State: <strong className="text-[#003366]">{run.state}</strong></div>
+                  <div>Lists: {run.completedTargets}/{run.requestedTargets} complete, {run.failedTargets} failed</div>
+                  <div>{run.finishedAt ? `Finished ${new Date(run.finishedAt).toLocaleTimeString()}` : "Still in progress"}</div>
+                  <div className="md:col-span-4">{run.targets.map((target) => `${target.list_label || "ClickUp list"}: ${target.state || "queued"}, ${target.records || 0} records${target.last_error ? `, ${target.last_error}` : ""}`).join(" · ")}</div>
+                </div>
+              ))}
+              {!telemetry?.summary?.clickupPerformance?.runHistory?.length && <p className="text-xs text-[#181D1E]/65">No durable sync runs in this date range.</p>}
+            </div>
           </div>
         </div>
 

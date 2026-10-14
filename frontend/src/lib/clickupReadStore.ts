@@ -100,7 +100,7 @@ export async function writeCachedClickUp(scope: string, url: string, response: R
   const key = cacheId(scope, url);
   const expiresAt = new Date(Date.now() + TTL_MS).toISOString();
   const headers = Array.from(response.headers.entries()).filter(([name]) => !["set-cookie", "authorization"].includes(name.toLowerCase()));
-  const resourcePath = new URL(url).pathname;
+  const resourcePath = new URL(url).pathname.replace(/^\/api\/v2(?=\/)/, "");
   const entry: Entry = { status: response.status, statusText: response.statusText, headers, body, resourcePath, expiresAt: Date.parse(expiresAt) };
   putHot(key, entry);
   const client = db();
@@ -116,8 +116,9 @@ export async function clearClickUpReadCache(scope: string, resourcePaths?: strin
   const client = db();
   if (!client) return;
   const query = client.from("echo_clickup_http_cache").delete().eq("scope_key", scope);
-  if (paths.length) query.or(paths.map((path) => `resource_path.like.${path}%`).join(","));
-  await query;
+  if (paths.length) query.or(paths.flatMap((path) => [`resource_path.like.${path}%`, `resource_path.like./api/v2${path}%`]).join(","));
+  const { error } = await query;
+  if (error) console.warn("[clickup-perf] shared cache invalidation failed", error.code || "unknown");
 }
 
 export async function persistClickUpConnection(token: string, userId: string) {
@@ -145,15 +146,50 @@ export async function isClickUpSyncStorageReady() {
 export async function queueClickUpSync(token: string, userId: string, listId: string, force = false) {
   const client = db();
   if (!client || !process.env.CLICKUP_SYNC_ENCRYPTION_KEY || !listId) return false;
-  if (!await persistClickUpConnection(token, userId)) return false;
+  // Treat the browser profile as display data only. Use ClickUp's authenticated
+  // identity before assigning ownership to a durable job.
+  const { clickUpCalendarFetch } = await import("@/lib/clickupCalendarApi");
+  const identityResponse = await clickUpCalendarFetch(token, "https://api.clickup.com/api/v2/user", undefined, undefined, { timeoutMs: 8_000 });
+  if (!identityResponse.ok) return false;
+  const identityPayload = await identityResponse.json().catch(() => null) as { user?: { id?: string | number } } | null;
+  const verifiedUserId = String(identityPayload?.user?.id || "");
+  if (!/^\d{1,24}$/.test(verifiedUserId) || !await persistClickUpConnection(token, verifiedUserId)) return false;
   const scope = clickUpScope(token);
   const { data: current } = await client.from("echo_clickup_sync_jobs").select("state,last_synced_at,next_attempt_at").eq("scope_key", scope).eq("list_id", listId).maybeSingle();
   if (current?.state === "running" || current?.state === "queued") return true;
+  if (!force && current?.state === "failed") return false;
   if (!force && current?.state === "ready" && current.last_synced_at && Date.now() - Date.parse(current.last_synced_at) < 5 * 60_000) return true;
   if (!force && current?.state === "retry" && current.next_attempt_at && Date.parse(current.next_attempt_at) > Date.now()) return true;
-  const { error } = await client.from("echo_clickup_sync_jobs").upsert({ scope_key: scope, user_id: userId, list_id: listId, state: "queued", next_attempt_at: new Date().toISOString(), updated_at: new Date().toISOString() }, { onConflict: "scope_key,list_id" });
-  if (error) console.warn("[clickup-sync] job enqueue unavailable", error.code);
-  return !error;
+  return Boolean(await enqueueClickUpSyncRun(scope, verifiedUserId, "scheduled", [{ id: listId, label: listId }]));
+}
+
+export async function enqueueClickUpSyncRun(scope: string, userId: string, trigger: "manual" | "webhook" | "scheduled" | "write", targets: Array<{ id: string; label: string; deletedTaskIds?: string[]; changedTaskIds?: string[] }>) {
+  const client = db();
+  if (!client || !targets.length) return null;
+  const { data, error } = await client.rpc("echo_enqueue_clickup_sync_run", {
+    p_scope_key: scope,
+    p_user_id: userId,
+    p_trigger: trigger,
+    p_targets: targets.map(({ id, label, deletedTaskIds, changedTaskIds }) => ({
+      id, label: label.slice(0, 120),
+      ...(deletedTaskIds?.length ? { deletedTaskIds } : {}),
+      ...(changedTaskIds?.length ? { changedTaskIds } : {}),
+    })),
+  });
+  if (error || typeof data !== "string") {
+    if (error) console.warn("[clickup-sync] run enqueue unavailable", error.code);
+    return null;
+  }
+  return data;
+}
+
+export async function readClickUpSyncRun(scope: string, userId: string, runId: string) {
+  const client = db();
+  if (!client || !/^[0-9a-f-]{36}$/i.test(runId)) return null;
+  const { data, error } = await client.from("echo_clickup_sync_runs")
+    .select("id,trigger,state,requested_targets,completed_targets,failed_targets,created_at,finished_at,echo_clickup_sync_run_targets(list_id,list_label,generation,state,records,last_error,updated_at)")
+    .eq("id", runId).eq("scope_key", scope).eq("user_id", userId).maybeSingle();
+  return error ? null : data;
 }
 
 export async function readClickUpSyncStatus(scope: string, userId: string) {
@@ -162,24 +198,34 @@ export async function readClickUpSyncStatus(scope: string, userId: string) {
   try { if (configured) encryptionKey(); else configured = false; } catch { configured = false; }
   if (!client || !configured) return { state: "error" as const, pendingCount: 0, failedCount: 0, lastSyncedAt: null, configured: false };
 
-  const [jobsResult, pendingResult, failedResult] = await Promise.all([
-    client.from("echo_clickup_sync_jobs").select("state,last_synced_at").eq("scope_key", scope).eq("user_id", userId),
-    client.from("mosaic_sync_outbox").select("id", { count: "exact", head: true }).eq("owner_user_id", userId).in("state", ["queued", "running", "retry"]),
+  const retryCutoff = new Date().toISOString();
+  const [jobsResult, pendingResult, dueRetryResult, scheduledRetryResult, failedResult] = await Promise.all([
+    client.from("echo_clickup_sync_jobs").select("state,last_synced_at,next_attempt_at,last_error").eq("scope_key", scope).eq("user_id", userId),
+    client.from("mosaic_sync_outbox").select("id", { count: "exact", head: true }).eq("owner_user_id", userId).in("state", ["queued", "running"]),
+    client.from("mosaic_sync_outbox").select("id", { count: "exact", head: true }).eq("owner_user_id", userId).eq("state", "retry").lte("next_attempt_at", retryCutoff),
+    client.from("mosaic_sync_outbox").select("id", { count: "exact", head: true }).eq("owner_user_id", userId).eq("state", "retry").gt("next_attempt_at", retryCutoff),
     client.from("mosaic_sync_outbox").select("id", { count: "exact", head: true }).eq("owner_user_id", userId).eq("state", "failed"),
   ]);
-  if (jobsResult.error || pendingResult.error || failedResult.error) {
+  if (jobsResult.error || pendingResult.error || dueRetryResult.error || scheduledRetryResult.error || failedResult.error) {
     return { state: "error" as const, pendingCount: 0, failedCount: 0, lastSyncedAt: null, configured: false };
   }
   const jobs = jobsResult.data || [];
-  const pendingJobs = jobs.filter((job) => ["queued", "running", "retry"].includes(job.state)).length;
+  const now = Date.now();
+  const retryJobs = jobs.filter((job) => job.state === "retry");
+  const dueRetryJobs = retryJobs.filter((job) => !job.next_attempt_at || Date.parse(job.next_attempt_at) <= now).length;
+  const pendingJobs = jobs.filter((job) => ["queued", "running"].includes(job.state)).length + dueRetryJobs;
   const failedJobs = jobs.filter((job) => job.state === "failed").length;
+  const outboxRetryDue = dueRetryResult.count || 0;
+  const outboxRetryScheduled = scheduledRetryResult.count || 0;
   const failedCount = failedJobs + (failedResult.count || 0);
-  const pendingCount = pendingJobs + (pendingResult.count || 0);
+  const pendingCount = pendingJobs + (pendingResult.count || 0) + outboxRetryDue + outboxRetryScheduled + retryJobs.length - dueRetryJobs;
   const lastSyncedAt = jobs.map((job) => job.last_synced_at).filter(Boolean).sort().at(-1) || null;
   return {
-    state: failedCount ? "error" as const : pendingCount ? "syncing" as const : "synced" as const,
+    state: pendingCount ? "syncing" as const : failedCount ? "error" as const : "synced" as const,
     pendingCount,
     failedCount,
+    retryCount: retryJobs.length + outboxRetryDue + outboxRetryScheduled,
+    lastError: jobs.find((job) => job.last_error)?.last_error || null,
     lastSyncedAt,
     configured: true,
   };
@@ -188,22 +234,37 @@ export async function readClickUpSyncStatus(scope: string, userId: string) {
 export async function claimClickUpSyncJobs(limit = 2) {
   const client = db();
   if (!client) return [];
-  const { data, error } = await client.rpc("echo_claim_clickup_sync_jobs", { p_limit: Math.min(5, Math.max(1, limit)) });
+  const { data, error } = await client.rpc("echo_claim_clickup_sync_jobs_v2", { p_limit: Math.min(5, Math.max(1, limit)) });
   if (error) throw new Error("ClickUp sync jobs are unavailable.");
-  return (data || []) as Array<{ id: number; scope_key: string; user_id: string; list_id: string; encrypted_token: string }>;
+  return (data || []) as Array<{ id: number; scope_key: string; user_id: string; list_id: string; encrypted_token: string; claim_token: string; generation: number; progress_page: number; last_synced_at: string | null; last_full_sync_at: string | null; run_id: string | null }>;
 }
 
-export async function completeClickUpSyncJob(jobId: number, scope: string, listId: string, tasks: unknown[], syncedAt = new Date().toISOString()) {
+export async function stageClickUpSyncPage(input: { jobId: number; claimToken: string; generation: number; tasks: unknown[]; nextPage: number; done: boolean; full: boolean; syncedAt: string }) {
   const client = db();
-  if (!client) return;
-  const { error } = await client.rpc("echo_publish_clickup_task_snapshot", { p_job_id: jobId, p_scope_key: scope, p_list_id: listId, p_tasks: tasks, p_synced_at: syncedAt });
-  if (error) throw new Error("ClickUp snapshot could not be published.");
+  if (!client) throw new Error("ClickUp sync storage is unavailable.");
+  const { data, error } = await client.rpc("echo_stage_clickup_sync_page_v2", {
+    p_job_id: input.jobId, p_claim_token: input.claimToken, p_generation: input.generation,
+    p_tasks: input.tasks, p_next_page: input.nextPage, p_done: input.done,
+    p_synced_at: input.syncedAt, p_full: input.full,
+  });
+  if (error || data !== true) throw new Error("ClickUp sync claim expired before the page could be committed.");
 }
 
-export async function failClickUpSyncJob(jobId: number, message: string) {
+export async function releaseClickUpSyncClaim(jobId: number, claimToken: string, message?: string, retryAt?: string, terminal = false) {
   const client = db();
-  if (!client) return;
-  await client.rpc("echo_fail_clickup_sync_job", { p_job_id: jobId, p_error: message.slice(0, 300) });
+  if (!client) throw new Error("ClickUp sync storage is unavailable.");
+  const { data, error } = await client.rpc("echo_release_clickup_sync_claim_v2", {
+    p_job_id: jobId, p_claim_token: claimToken, p_error: message?.slice(0, 300) || null, p_retry_at: retryAt || null, p_terminal: terminal,
+  });
+  if (error || data !== true) throw new Error("ClickUp sync claim is no longer active.");
+}
+
+export async function isClickUpWorkerRequest(secret: string) {
+  if (!secret) return false;
+  const client = db();
+  if (!client) return false;
+  const { data, error } = await client.rpc("echo_verify_clickup_worker_secret", { p_secret: secret });
+  return !error && data === true;
 }
 
 export async function revokeClickUpSyncConnection(scope: string) {
@@ -238,14 +299,18 @@ export async function registerClickUpWebhook(input: { webhookId: string; scope: 
   if (error) throw new Error("Webhook registration could not be stored.");
 }
 
-export async function queueClickUpWebhookJob(scope: string, listId: string) {
+export async function queueClickUpWebhookJob(scope: string, listId: string, taskId?: string, deleted = false) {
   const client = db();
   if (!client) return;
   const { data: connection } = await client.from("echo_clickup_connections").select("user_id").eq("scope_key", scope).maybeSingle();
   if (!connection?.user_id) return;
   await clearClickUpReadCache(scope, [`/list/${listId}/task`]);
   await client.from("echo_clickup_connections").update({ updated_at: new Date().toISOString() }).eq("scope_key", scope);
-  await client.from("echo_clickup_sync_jobs").upsert({ scope_key: scope, user_id: connection.user_id, list_id: listId, state: "queued", next_attempt_at: new Date().toISOString(), updated_at: new Date().toISOString() }, { onConflict: "scope_key,list_id" });
+  const runId = await enqueueClickUpSyncRun(scope, connection.user_id, "webhook", [{
+    id: listId, label: listId,
+    ...(taskId ? deleted ? { deletedTaskIds: [taskId] } : { changedTaskIds: [taskId] } : {}),
+  }]);
+  if (!runId) throw new Error("ClickUp webhook refresh could not be queued.");
 }
 
 const USABLE_SNAPSHOT_STATES = new Set(["ready", "queued", "running", "retry", "failed"]);
@@ -256,9 +321,29 @@ export async function readClickUpTaskSnapshot(scope: string, listId: string, max
   const cutoff = Date.now() - maxAgeMs;
   const { data: job } = await client.from("echo_clickup_sync_jobs").select("last_synced_at,state").eq("scope_key", scope).eq("list_id", listId).maybeSingle();
   if (!job?.last_synced_at || !USABLE_SNAPSHOT_STATES.has(job.state) || Date.parse(job.last_synced_at) < cutoff) return null;
-  const { data, error } = await client.from("echo_clickup_task_records").select("payload").eq("scope_key", scope).eq("list_id", listId).order("record_id").limit(3001);
-  if (error || !data || data.length > 3000) return null;
-  return { tasks: data.map((record) => record.payload as Record<string, unknown>), syncedAt: job.last_synced_at, syncState: job.state };
+  const records: Array<{ payload: Record<string, unknown> }> = [];
+  const pageSize = 500;
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await client.from("echo_clickup_task_records").select("payload").eq("scope_key", scope).eq("list_id", listId).order("record_id").range(from, from + pageSize - 1);
+    if (error || !data) return null;
+    records.push(...data as Array<{ payload: Record<string, unknown> }>);
+    if (data.length < pageSize) break;
+  }
+  return { tasks: records.map((record) => record.payload), syncedAt: job.last_synced_at, syncState: job.state };
+}
+
+export async function loadClickUpTaskSnapshot(input: { token: string; userId?: string; listId: string; freshForMs?: number; retainForMs?: number }) {
+  const freshForMs = input.freshForMs ?? 5 * 60_000;
+  const scope = clickUpScope(input.token);
+  const snapshot = await readClickUpTaskSnapshot(scope, input.listId, input.retainForMs ?? 30 * 24 * 60 * 60_000);
+  const isFresh = Boolean(snapshot && snapshot.syncState === "ready" && Date.now() - Date.parse(snapshot.syncedAt) < freshForMs);
+  if (!isFresh) await queueClickUpSync(input.token, input.userId || "", input.listId);
+  const client = snapshot ? null : db();
+  const { data: job } = client
+    ? await client.from("echo_clickup_sync_jobs").select("state").eq("scope_key", scope).eq("list_id", input.listId).maybeSingle()
+    : { data: null };
+  const syncState = snapshot?.syncState || (job?.state === "ready" ? "stale" : job?.state || "queued");
+  return { snapshot, isFresh, syncState };
 }
 
 export async function hasUsableClickUpTaskSnapshot(scope: string, listId: string, maxAgeMs = 24 * 60 * 60_000) {
@@ -277,21 +362,6 @@ export async function readClickUpTaskSyncCursor(scope: string, listId: string) {
   return error ? null : data?.last_synced_at || null;
 }
 
-export async function completeClickUpTaskDelta(jobId: number, scope: string, listId: string, tasks: unknown[], syncedAt: string) {
-  const client = db();
-  if (!client) throw new Error("ClickUp sync storage is unavailable.");
-  const records = tasks.flatMap((task) => {
-    if (!task || typeof task !== "object" || !("id" in task) || !String((task as { id?: unknown }).id || "")) return [];
-    return [{ scope_key: scope, list_id: listId, record_id: String((task as { id: unknown }).id), payload: task, synced_at: syncedAt }];
-  });
-  for (let offset = 0; offset < records.length; offset += 500) {
-    const { error } = await client.from("echo_clickup_task_records").upsert(records.slice(offset, offset + 500), { onConflict: "scope_key,list_id,record_id" });
-    if (error) throw new Error("ClickUp task changes could not be saved.");
-  }
-  const { data, error } = await client.from("echo_clickup_sync_jobs").update({ state: "ready", last_synced_at: syncedAt, last_error: null, lease_until: null, updated_at: syncedAt }).eq("id", jobId).eq("scope_key", scope).eq("list_id", listId).eq("state", "running").select("id").maybeSingle();
-  if (error || !data) throw new Error("ClickUp sync lease is no longer valid.");
-}
-
 export async function removeClickUpTaskSnapshotRecord(scope: string, listId: string, taskId: string) {
   const client = db();
   if (!client) return false;
@@ -303,7 +373,16 @@ export async function invalidateClickUpSync(scope: string, listId?: string) {
   const client = db();
   if (!client) return;
   await clearClickUpReadCache(scope, listId ? [`/list/${listId}/task`] : undefined);
-  await client.rpc("echo_invalidate_clickup_sync", { p_scope_key: scope, p_list_id: listId || null });
+  const [{ data: connection, error: connectionError }, jobsResult] = await Promise.all([
+    client.from("echo_clickup_connections").select("user_id").eq("scope_key", scope).maybeSingle(),
+    listId ? Promise.resolve({ data: [{ list_id: listId }], error: null }) : client.from("echo_clickup_sync_jobs").select("list_id").eq("scope_key", scope),
+  ]);
+  if (connectionError || jobsResult.error || !connection?.user_id) throw new Error("ClickUp changes could not be queued for refresh.");
+  const targets = (jobsResult.data || []).map((job) => ({ id: String(job.list_id), label: String(job.list_id) }));
+  if (targets.length) {
+    const runId = await enqueueClickUpSyncRun(scope, connection.user_id, "write", targets);
+    if (!runId) throw new Error("ClickUp changes could not be queued for refresh.");
+  }
 }
 
 export async function loadClickUpWebhook(webhookId: string) {

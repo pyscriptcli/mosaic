@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { processClickUpSyncQueue } from "@/lib/clickupSync";
-import { purgeExpiredClickUpData } from "@/lib/clickupReadStore";
+import { isClickUpWorkerRequest, purgeExpiredClickUpData } from "@/lib/clickupReadStore";
 import { processMosaicWriteOutbox } from "@/lib/mosaicWriteStore";
 
 export const maxDuration = 60;
 
 export async function GET(request: NextRequest) {
   const secret = process.env.CRON_SECRET;
-  if (!secret || request.headers.get("authorization") !== `Bearer ${secret}`) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  const configuredSecret = Boolean(secret && request.headers.get("authorization") === `Bearer ${secret}`);
+  const scheduledSecret = await isClickUpWorkerRequest(request.headers.get("x-clickup-worker-key") || "");
+  if (!configuredSecret && !scheduledSecret) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   try {
     const [results, writes] = await Promise.all([
       processClickUpSyncQueue(2),

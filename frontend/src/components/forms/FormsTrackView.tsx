@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { TrackedRfp } from "@/types/forms/tracked";
 import { DEPARTMENT_NAMES } from "@/types/forms/rfp";
+import { requestCentralClickUpSync } from "@/lib/clickupSyncClient";
 
 const DEPARTMENTS = ["All Departments", ...DEPARTMENT_NAMES];
 
@@ -47,6 +48,7 @@ function TrackContent() {
   const [requests, setRequests] = useState<TrackedRfp[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState("");
+  const [isSyncing, setIsSyncing] = useState(false);
 
   // Submission links include an id so the new request is highlighted once.
   // Remove it from browser history after capturing it, otherwise the stale
@@ -93,6 +95,24 @@ function TrackContent() {
     fetchRequests();
   }, [fetchRequests]);
 
+  useEffect(() => {
+    const refreshAfterSync = () => { void fetchRequests(); };
+    window.addEventListener("mosaic-clickup-sync-complete", refreshAfterSync);
+    return () => window.removeEventListener("mosaic-clickup-sync-complete", refreshAfterSync);
+  }, [fetchRequests]);
+
+  const handleRefresh = async () => {
+    setIsSyncing(true);
+    setErrorMsg("");
+    try {
+      await requestCentralClickUpSync();
+    } catch (error) {
+      setErrorMsg(error instanceof Error ? error.message : "Unable to start ClickUp sync.");
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     fetchRequests();
@@ -114,11 +134,11 @@ function TrackContent() {
           </div>
           <button
             type="button"
-            onClick={fetchRequests}
-            disabled={isLoading}
+            onClick={() => void handleRefresh()}
+            disabled={isLoading || isSyncing}
             className="self-start md:self-auto h-8 px-3 text-xs font-semibold text-[#003366] bg-[#FFFCFB] hover:bg-[#FFFCFB] border border-slate-300 flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? "animate-spin" : ""}`} />
+            <RefreshCw className={`w-3.5 h-3.5 ${isLoading || isSyncing ? "animate-spin" : ""}`} />
             <span>Refresh</span>
           </button>
         </div>

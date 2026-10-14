@@ -4,7 +4,7 @@ export type TelemetryEvent = {
   userId?: string;
   userEmail?: string;
   source: "echo_recording" | "uploaded_audio" | "meetstream_bot" | "ask_echo" | "notetaker_finalize" | "clickup";
-  operation: "audio_chunk" | "audio_upload" | "ask_echo" | "notetaker_finalize" | "tasks_route" | "clickup_request" | "clickup_cache_hit";
+  operation: "audio_chunk" | "audio_upload" | "ask_echo" | "notetaker_finalize" | "tasks_route" | "clickup_request" | "clickup_cache_hit" | "clickup_sync";
   captureMode?: "botless" | "bot" | "unknown";
   provider?: string;
   model?: string;

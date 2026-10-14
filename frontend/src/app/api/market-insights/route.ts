@@ -1,10 +1,9 @@
-import { after, NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { clickUpFetch as fetch } from "@/lib/clickupCalendarApi";
 import { getTokenFromRequest } from "@/lib/auth";
 import { randomUUID } from "node:crypto";
 import { getUserFromRequest } from "@/lib/auth";
-import { clickUpScope, queueClickUpSync, readClickUpTaskSnapshot } from "@/lib/clickupReadStore";
-import { processClickUpSyncQueue } from "@/lib/clickupSync";
+import { clickUpScope, loadClickUpTaskSnapshot, readClickUpTaskSnapshot } from "@/lib/clickupReadStore";
 import { MARKET_INSIGHTS_LIST_ID } from "@/lib/marketInsights";
 import { readStagedMosaicRecords, stageMosaicWrite, scheduleMosaicWriteSync } from "@/lib/mosaicWriteStore";
 
@@ -59,10 +58,10 @@ async function listTasks(token: string) {
   return (body.tasks || []).map(parseTask).filter((article): article is ArticleRecord => article !== null);
 }
 
-async function listArticles(token: string, snapshot: Awaited<ReturnType<typeof readClickUpTaskSnapshot>> = null) {
+async function listArticles(token: string, snapshot: Awaited<ReturnType<typeof readClickUpTaskSnapshot>> = null, allowLiveRead = true) {
   const remote = snapshot
     ? snapshot.tasks.map((task) => parseTask(task as InsightTask)).filter((article): article is ArticleRecord => article !== null)
-    : await listTasks(token);
+    : allowLiveRead ? await listTasks(token) : [];
   const staged = await readStagedMosaicRecords(clickUpScope(token), "market_insights", MARKET_INSIGHTS_LIST_ID);
   const articles = new Map<string, ArticleRecord>();
   for (const article of remote) articles.set(article.id, article);
@@ -83,16 +82,10 @@ export async function GET(req: NextRequest) {
   if (!token) return NextResponse.json({ error: "ClickUp authentication required." }, { status: 401 });
   try {
     const scope = clickUpScope(token);
-    const snapshot = await readClickUpTaskSnapshot(scope, MARKET_INSIGHTS_LIST_ID, 30 * 24 * 60 * 60_000);
-    const articles = await listArticles(token, snapshot);
-    const userId = ownerId(req);
-    if (userId && (!snapshot || snapshot.syncState !== "ready" || Date.now() - Date.parse(snapshot.syncedAt) > 5 * 60_000)) {
-      after(async () => {
-        try { if (await queueClickUpSync(token, userId, MARKET_INSIGHTS_LIST_ID)) await processClickUpSyncQueue(1); }
-        catch (error) { console.warn("[market-insights-sync] refresh could not be queued", error instanceof Error ? error.message : "unknown"); }
-      });
-    }
-    return NextResponse.json({ listId: MARKET_INSIGHTS_LIST_ID, articles });
+    const userId = String(getUserFromRequest(req)?.id || "");
+    const { snapshot, isFresh, syncState } = await loadClickUpTaskSnapshot({ token, userId, listId: MARKET_INSIGHTS_LIST_ID });
+    const articles = await listArticles(token, snapshot, false);
+    return NextResponse.json({ listId: MARKET_INSIGHTS_LIST_ID, articles, syncState, syncedAt: snapshot?.syncedAt || null, isFresh });
   }
   catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to load Market Insights." }, { status: 502 }); }
 }

@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useState, useMemo, useCallback } from "react";
+import React, { useState, useMemo, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useBrowserPageQuery } from "@/lib/browserPageCache";
+import { requestCentralClickUpSync } from "@/lib/clickupSyncClient";
 import { 
   DemandRecord, 
   DemandAssetClass, 
@@ -74,8 +75,8 @@ export function DemandsView({ sector = "all", userId }: DemandsViewProps) {
   const [sortCol, setSortCol] = useState<string>("date");
   const [sortAsc, setSortAsc] = useState<boolean>(false);
 
-  const requestDemands = useCallback(async (force = false) => {
-    const response = await fetch(`/api/demands${force ? "?refresh=1" : ""}`, { cache: "no-store" });
+  const requestDemands = useCallback(async () => {
+    const response = await fetch("/api/demands", { cache: "no-store" });
     const data: { demands?: DemandRecord[]; error?: string } = await response.json();
     if (!response.ok) throw Object.assign(new Error(data.error || "Unable to load demands."), { status: response.status });
     return Array.isArray(data.demands) ? data.demands : [];
@@ -86,12 +87,11 @@ export function DemandsView({ sector = "all", userId }: DemandsViewProps) {
   const isLoadingDemands = demandQuery.loading;
   const loadError = demandQuery.data ? null : demandQuery.error || null;
 
-  const loadDemands = useCallback(async (force = false) => {
-    if (!force) return (await demandQuery.refresh()) !== undefined;
-    const records = await requestDemands(true);
-    demandQuery.update(() => ({ demands: records }));
-    return true;
-  }, [demandQuery.refresh, demandQuery.update, requestDemands]);
+  useEffect(() => {
+    const refreshAfterSync = () => { void demandQuery.refresh(); };
+    window.addEventListener("mosaic-clickup-sync-complete", refreshAfterSync);
+    return () => window.removeEventListener("mosaic-clickup-sync-complete", refreshAfterSync);
+  }, [demandQuery.refresh]);
 
   const handleSetPreset = (preset: DatePreset) => {
     let start = "";
@@ -199,12 +199,12 @@ export function DemandsView({ sector = "all", userId }: DemandsViewProps) {
 
   const handleRefreshDemands = async () => {
     setIsSyncing(true);
-    setSyncStatusMsg("Refreshing demands…");
+    setSyncStatusMsg("Starting centralized ClickUp sync…");
     try {
-      const refreshed = await loadDemands(true);
-      setSyncStatusMsg(refreshed ? "Demand records refreshed." : "Unable to refresh demand records.");
-    } catch {
-      setSyncStatusMsg("Unable to refresh demand records.");
+      await requestCentralClickUpSync();
+      setSyncStatusMsg("ClickUp sync started. Demands will refresh when it completes.");
+    } catch (error) {
+      setSyncStatusMsg(error instanceof Error ? error.message : "Unable to start ClickUp sync.");
     } finally {
       setIsSyncing(false);
       setTimeout(() => setSyncStatusMsg(null), 5000);
@@ -465,7 +465,7 @@ export function DemandsView({ sector = "all", userId }: DemandsViewProps) {
       {loadError && (
         <div role="alert" className="border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800 flex items-center justify-between gap-3">
           <span>{loadError}</span>
-          <button type="button" onClick={() => void loadDemands(true)} className="font-semibold underline">Retry</button>
+          <button type="button" onClick={() => void handleRefreshDemands()} className="font-semibold underline">Retry</button>
         </div>
       )}
 

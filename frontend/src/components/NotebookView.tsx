@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { clearBrowserPageCache, readBrowserPageCache, writeBrowserPageCache } from "@/lib/browserPageCache";
+import { requestCentralClickUpSync } from "@/lib/clickupSyncClient";
 import {
   AlertCircle,
   BarChart3,
@@ -47,6 +48,7 @@ interface NotebookPayload {
   entries: NotebookEntry[];
   members: NotebookMember[];
   fetchedAt: string;
+  warning?: string;
 }
 
 const CATEGORY_META: Array<{ key: CategoryKey; label: string }> = [
@@ -192,6 +194,15 @@ export function NotebookView({ currentUserName, userId, initialDate, initialTab 
   };
   const loadNotebookRef = useRef(loadNotebook);
   useEffect(() => { loadNotebookRef.current = loadNotebook; });
+
+  const requestNotebookRefresh = async () => {
+    setError("");
+    try {
+      await requestCentralClickUpSync();
+    } catch (refreshError) {
+      setError(refreshError instanceof Error ? refreshError.message : "Unable to start ClickUp refresh.");
+    }
+  };
 
   useEffect(() => {
     let active = true;
@@ -479,7 +490,7 @@ export function NotebookView({ currentUserName, userId, initialDate, initialTab 
         <AlertCircle className="mx-auto text-red-500 mb-3" size={26} />
         <h1 className="text-xl">Notebook unavailable</h1>
         <p className="text-sm text-gray-600 mt-2">{error}</p>
-        <button type="button" onClick={() => loadNotebook()} className="btn-outline mt-5 inline-flex items-center gap-2"><RefreshCw size={14} /> Try again</button>
+        <button type="button" onClick={() => void requestNotebookRefresh()} className="btn-outline mt-5 inline-flex items-center gap-2"><RefreshCw size={14} /> Try again</button>
       </div>
     );
   }
@@ -506,7 +517,7 @@ export function NotebookView({ currentUserName, userId, initialDate, initialTab 
           )}
           <button
             type="button"
-            onClick={() => loadNotebook()}
+            onClick={() => void requestNotebookRefresh()}
             disabled={loading}
             className="h-10 px-3 bg-[#FFFCFB] border border-gray-300 text-[#003366] text-sm font-semibold flex items-center gap-2 hover:border-[#C9AB4C] disabled:opacity-50"
           >
@@ -573,6 +584,7 @@ export function NotebookView({ currentUserName, userId, initialDate, initialTab 
       </div>
 
       {error && <div className="border border-amber-200 bg-amber-50 text-amber-800 px-4 py-3 text-sm">Showing the last loaded data. Refresh failed: {error}</div>}
+      {payload?.warning && <div role="status" className="border border-amber-200 bg-amber-50 text-amber-800 px-4 py-3 text-sm">{payload.warning}</div>}
 
       {activeTab === "today" && (
         <div className="space-y-5">

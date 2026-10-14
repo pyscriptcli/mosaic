@@ -7,6 +7,7 @@ import { DeltaReview, DeltaReviewList } from "@/components/DeltaReview";
 import type { SavedDeltaReview } from "@/lib/delta/localStore";
 import { calculateSiteAmount, sitesForSubproject } from "@/lib/projectSites";
 import { getBrowserPageCache, readBrowserPageCache, refreshBrowserPageQuery, writeBrowserPageCache } from "@/lib/browserPageCache";
+import { requestCentralClickUpSync } from "@/lib/clickupSyncClient";
 import { ClickUpLoadingPanel } from "@/components/ClickUpLoadingProvider";
 import {
   ArrowLeft,
@@ -32,6 +33,16 @@ interface ProjectList {
   taskCount: number | null;
   url?: string | null;
   statuses?: string[];
+}
+
+function rememberProjectSyncListIds(lists: ProjectList[]) {
+  if (typeof window === "undefined") return;
+  try {
+    const current: unknown = JSON.parse(localStorage.getItem("project_echo_project_list_ids") || "[]");
+    const existing = Array.isArray(current) ? current.map(String) : [];
+    const ids = lists.map((list) => String(list.id)).filter((id) => /^\d{4,24}$/.test(id));
+    localStorage.setItem("project_echo_project_list_ids", JSON.stringify([...new Set([...existing, ...ids])].slice(-50)));
+  } catch { /* The sync route can continue with the currently selected lists. */ }
 }
 
 interface ProjectTask {
@@ -1139,6 +1150,7 @@ export function ProjectWorkspace({ userId }: { userId?: string }) {
   const [savingAssigneeListId, setSavingAssigneeListId] = useState<string | null>(null);
   const [assigneeSyncMessage, setAssigneeSyncMessage] = useState("");
   const selectionRequestId = useRef(0);
+  const syncRefreshRef = useRef<() => void>(() => undefined);
 
   const loadProjectSelection = useCallback(async () => {
     const requestId = ++selectionRequestId.current;
@@ -1177,7 +1189,7 @@ export function ProjectWorkspace({ userId }: { userId?: string }) {
     const key = "projects:gallery";
     const cacheId = galleryCacheId(ownerId);
     const load = async () => {
-      const response = await fetch(`/api/tasks?action=project-gallery${force ? "&refresh=1" : ""}`, { cache: "no-store" });
+      const response = await fetch("/api/tasks?action=project-gallery", { cache: "no-store" });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw Object.assign(new Error(payload.error || "Unable to load projects."), { status: response.status });
       return { projects: (Array.isArray(payload.projects) ? payload.projects : []) as ProjectCardData[] };
@@ -1215,7 +1227,7 @@ export function ProjectWorkspace({ userId }: { userId?: string }) {
     const queryKey = `project:${folderId}`;
     const cacheId = projectCacheId(ownerId, folderId);
     const load = async () => {
-      const response = await fetch(`/api/tasks?action=project-workspace&folderId=${encodeURIComponent(folderId)}${force ? "&refresh=1" : ""}`, { cache: "no-store" });
+      const response = await fetch(`/api/tasks?action=project-workspace&folderId=${encodeURIComponent(folderId)}`, { cache: "no-store" });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw Object.assign(new Error(payload.error || "Unable to load this project."), { status: response.status });
       return payload as ProjectData;
@@ -1223,6 +1235,7 @@ export function ProjectWorkspace({ userId }: { userId?: string }) {
     let cached = projectClientCache.get(cacheId)?.data || getBrowserPageCache<ProjectData>(ownerId, queryKey);
     if (!cached && userId) cached = await readBrowserPageCache<ProjectData>(ownerId, queryKey);
     if (!force && cached) {
+      rememberProjectSyncListIds(cached.lists || []);
       projectClientCache.set(cacheId, { data: cached, updatedAt: Date.now() });
       void refreshBrowserPageQuery(ownerId, queryKey, load).then((fresh) => {
         if (!fresh) return;
@@ -1234,6 +1247,7 @@ export function ProjectWorkspace({ userId }: { userId?: string }) {
     }
     const projectData = await refreshBrowserPageQuery(ownerId, queryKey, load);
     if (!projectData) throw new Error("Unable to load this project.");
+    rememberProjectSyncListIds(projectData.lists || []);
     projectClientCache.set(cacheId, { data: projectData, updatedAt: Date.now() });
     void writeBrowserPageCache(ownerId, queryKey, projectData);
     return projectData;
@@ -1293,7 +1307,7 @@ export function ProjectWorkspace({ userId }: { userId?: string }) {
           setActiveListId(subproject.id);
           setScreen("subproject");
           if (!projectData.loadedTaskListIds?.includes(subproject.id)) {
-            const response = await fetch(`/api/tasks?action=project-list-tasks&folderId=${encodeURIComponent(folderId)}&listId=${encodeURIComponent(subproject.id)}${cachedIsFresh ? "" : "&refresh=1"}`, { cache: "no-store" });
+            const response = await fetch(`/api/tasks?action=project-list-tasks&folderId=${encodeURIComponent(folderId)}&listId=${encodeURIComponent(subproject.id)}`, { cache: "no-store" });
             const payload = await response.json().catch(() => ({}));
             if (!response.ok) throw new Error(payload.error || "Unable to load subproject tasks.");
             projectData = { ...projectData, tasks: [...projectData.tasks.filter((task) => task.listId !== subproject.id), ...(payload.tasks as ProjectTask[])], loadedTaskListIds: [...(projectData.loadedTaskListIds || []), subproject.id] };
@@ -1351,13 +1365,22 @@ export function ProjectWorkspace({ userId }: { userId?: string }) {
       return { ...current, tasks: exists ? current.tasks.map((task) => task.id === changedTask.id ? changedTask : task) : [...current.tasks, changedTask] };
     });
   };
-  const refreshGallery = () => {
+  const reloadGalleryData = () => {
     setLoading(true);
     setError(null);
     void loadProjectSelection();
     fetchGallery(true)
       .catch((loadError: unknown) => setError(loadError instanceof Error ? loadError.message : "Unable to load projects."))
       .finally(() => setLoading(false));
+  };
+
+  const refreshGallery = () => {
+    setLoading(true);
+    setError(null);
+    void requestCentralClickUpSync().catch((syncError) => {
+      setError(syncError instanceof Error ? syncError.message : "Unable to start ClickUp sync.");
+      setLoading(false);
+    });
   };
 
   const saveProjectSelection = async (folderIds: string[]) => {
@@ -1385,8 +1408,8 @@ export function ProjectWorkspace({ userId }: { userId?: string }) {
     router.push(`/projects/${routeSegment(project.name, project.id)}`);
   };
 
-  const refreshProject = () => {
-    if (!activeFolderId) return refreshGallery();
+  const reloadProjectData = () => {
+    if (!activeFolderId) return reloadGalleryData();
     setLoading(true);
     setError(null);
     const loadedListIds = data?.loadedTaskListIds || [];
@@ -1395,13 +1418,13 @@ export function ProjectWorkspace({ userId }: { userId?: string }) {
         if (!loadedListIds.length) return freshData;
         let freshTasks: ProjectTask[] = [];
         if (loadedListIds.length >= freshData.lists.length) {
-          const response = await fetch(`/api/tasks?action=project-tasks&folderId=${encodeURIComponent(activeFolderId)}&refresh=1`, { cache: "no-store" });
+          const response = await fetch(`/api/tasks?action=project-tasks&folderId=${encodeURIComponent(activeFolderId)}`, { cache: "no-store" });
           const payload = await response.json().catch(() => ({}));
           if (!response.ok) throw new Error(payload.error || "Unable to refresh project tasks.");
           freshTasks = payload.tasks as ProjectTask[];
         } else {
           const responses = await Promise.all(loadedListIds.map(async (listId) => {
-            const response = await fetch(`/api/tasks?action=project-list-tasks&folderId=${encodeURIComponent(activeFolderId)}&listId=${encodeURIComponent(listId)}&refresh=1`, { cache: "no-store" });
+            const response = await fetch(`/api/tasks?action=project-list-tasks&folderId=${encodeURIComponent(activeFolderId)}&listId=${encodeURIComponent(listId)}`, { cache: "no-store" });
             const payload = await response.json().catch(() => ({}));
             if (!response.ok) throw new Error(payload.error || "Unable to refresh subproject tasks.");
             return payload.tasks as ProjectTask[];
@@ -1414,6 +1437,26 @@ export function ProjectWorkspace({ userId }: { userId?: string }) {
       .catch((loadError: unknown) => setError(loadError instanceof Error ? loadError.message : "Unable to load this project."))
       .finally(() => setLoading(false));
   };
+
+  const refreshProject = () => {
+    if (!activeFolderId) return refreshGallery();
+    setLoading(true);
+    setError(null);
+    void requestCentralClickUpSync().catch((syncError) => {
+      setError(syncError instanceof Error ? syncError.message : "Unable to start ClickUp sync.");
+      setLoading(false);
+    });
+  };
+
+  syncRefreshRef.current = () => {
+    if (pathname === "/projects") reloadGalleryData();
+    else if (activeFolderId) reloadProjectData();
+  };
+  useEffect(() => {
+    const refreshAfterSync = () => syncRefreshRef.current();
+    window.addEventListener("mosaic-clickup-sync-complete", refreshAfterSync);
+    return () => window.removeEventListener("mosaic-clickup-sync-complete", refreshAfterSync);
+  }, []);
 
   const saveDefaultAssignees = async (listId: string, assigneeIds: string[]) => {
     if (!data) return;

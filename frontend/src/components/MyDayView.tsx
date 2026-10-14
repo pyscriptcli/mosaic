@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, Bold, Bell, BellOff, CalendarDays, Check, CheckCircle2, ChevronLeft, ChevronRight, ExternalLink, Highlighter, Italic, Link2, List, ListOrdered, LoaderCircle, Plus, Quote, Redo2, RefreshCw, Save, Sparkles, Trash2, Underline, Undo2, X } from "lucide-react";
 import { getStoredClickUpListId, getStoredClickUpToken } from "@/lib/api";
+import { requestCentralClickUpSync } from "@/lib/clickupSyncClient";
 
 type DayTask = {
   id: string; name: string; description: string; status: string; completed: boolean;
@@ -240,6 +241,17 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
     window.addEventListener("mosaic-clickup-sync-complete", refreshAfterSync);
     return () => window.removeEventListener("mosaic-clickup-sync-complete", refreshAfterSync);
   }, [loadDay]);
+
+  const requestDayRefresh = async () => {
+    setRefreshing(true);
+    setError("");
+    try {
+      await requestCentralClickUpSync();
+    } catch (refreshError) {
+      setError(refreshError instanceof Error ? refreshError.message : "Unable to start ClickUp sync.");
+      setRefreshing(false);
+    }
+  };
 
   const send = useCallback(async (body: Record<string, unknown>) => {
     const response = await fetch("/api/my-day", {
@@ -496,7 +508,7 @@ export default function MyDayView({ userId, currentUserName, showDailyActivity =
               </button>
             </div>}
           </div>
-          <button type="button" onClick={() => void loadDay(true)} disabled={refreshing} aria-label={activityOnly ? "Refresh daily activity" : "Refresh My Day"} title="Refresh" className="grid h-9 w-9 place-items-center border border-slate-300 bg-[#FFFCFB] text-[#003366] hover:border-[#C9A84C] disabled:opacity-50">
+          <button type="button" onClick={() => void requestDayRefresh()} disabled={refreshing} aria-label={activityOnly ? "Refresh daily activity" : "Refresh My Day"} title="Refresh" className="grid h-9 w-9 place-items-center border border-slate-300 bg-[#FFFCFB] text-[#003366] hover:border-[#C9A84C] disabled:opacity-50">
             <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
           </button>
         </div>

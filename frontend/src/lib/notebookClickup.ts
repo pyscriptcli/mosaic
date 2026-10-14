@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { getTokenFromRequest } from "@/lib/auth";
-import { clickUpFetch as fetch } from "@/lib/clickupCalendarApi";
+import { clickUpCalendarFetch, clickUpFetch as fetch } from "@/lib/clickupCalendarApi";
 import { clickUpScope } from "@/lib/clickupReadStore";
 import { randomUUID } from "node:crypto";
 import { readStagedMosaicRecords, scheduleMosaicWriteSync, stageMosaicWrite } from "@/lib/mosaicWriteStore";
@@ -178,13 +178,14 @@ export async function fetchClickUp(
   return fetch(url, options);
 }
 
-export async function fetchAllTasks(token: string) {
+export async function fetchAllTasks(token: string, options: { skipCache?: boolean } = {}) {
   const all: RawClickUpTask[] = [];
-  for (let page = 0; page < 20; page += 1) {
-    const response = await fetchClickUp(
-      `https://api.clickup.com/api/v2/list/${DAILY_LOG_LIST_ID}/task?include_closed=true&subtasks=true&page=${page}`,
-      { headers: { Authorization: token }, cache: "no-store" },
-    );
+  for (let page = 0; page < 30; page += 1) {
+    const url = new URL(`https://api.clickup.com/api/v2/list/${DAILY_LOG_LIST_ID}/task`);
+    url.searchParams.set("include_closed", "true");
+    url.searchParams.set("subtasks", "true");
+    url.searchParams.set("page", String(page));
+    const response = await clickUpCalendarFetch(token, url, undefined, undefined, options);
     if (!response.ok) {
       const message = await response.text().catch(() => "");
       throw new Error(message || `ClickUp returned ${response.status}`);
@@ -192,9 +193,9 @@ export async function fetchAllTasks(token: string) {
     const body = await response.json();
     const tasks = (body.tasks || []) as RawClickUpTask[];
     all.push(...tasks);
-    if (tasks.length < 100 || body.last_page === true) break;
+    if (tasks.length < 100 || body.last_page === true) return all;
   }
-  return all;
+  throw new Error("The Daily Log list exceeds the 3,000-task page limit. No partial log data was loaded.");
 }
 
 export function clickUpHeaders(token: string) {
