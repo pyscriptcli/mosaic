@@ -801,12 +801,12 @@ function SubprojectWorkspace({ folderId, folderUrl, list, tasks, members, defaul
       <ProjectActionButton onClick={onRefresh} disabled={savingAssignees} label="Refresh subproject"><RefreshCw aria-hidden="true" className="h-4 w-4" /></ProjectActionButton>
       <ClickUpLink href={list.url || folderUrl} label="Open subproject in ClickUp" />    </>} />
     {assigneeSyncMessage && <p role="status" className="border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">{assigneeSyncMessage}</p>}
-    {!canEdit && <p role="note" className="border-l-2 border-[#C9A84C] bg-[#F7FAFC] px-3 py-2 text-xs text-slate-700">View only. The assigned subproject lead or Mosaic admin can make changes.</p>}
+    {!canEdit && view !== "sites" && <p role="note" className="border-l-2 border-[#C9A84C] bg-[#F7FAFC] px-3 py-2 text-xs text-slate-700">View only. The assigned subproject lead or Mosaic admin can make changes.</p>}
     <div role="tablist" aria-label={`${list.name} workspace views`} className="flex border-b border-slate-200">{tabs.map((tab) => <button key={tab.id} type="button" role="tab" aria-selected={view === tab.id} onClick={() => selectTab(tab.id)} className={`min-h-11 border-b-2 px-4 text-xs font-semibold ${view === tab.id ? "border-[#C9A84C] text-[#003366]" : "border-transparent text-slate-500 hover:text-[#003366]"}`}>{tab.label}</button>)}</div>
     {view === "dashboard" ? <div className="space-y-5"><SubprojectStatusCards folderId={folderId} listId={list.id} tasks={tasks} tasksLoading={tasksLoading} onTaskChange={onTaskChange} canEdit={canEdit} /><ProjectActivityFeed folderId={folderId} lists={[list]} fixedListId={list.id} userId={userId} /></div>
       : view === "tasks" ? tasksLoading ? <section className="space-y-2 border border-slate-200 bg-white p-4" role="status"><span className="flex items-center gap-2 text-xs text-slate-500"><LoaderCircle aria-hidden="true" className="h-4 w-4 animate-spin text-[#003366]" />Loading timeline tasks</span>{[0, 1, 2].map((row) => <div key={row} className="h-11 animate-pulse border border-slate-100 bg-slate-50" />)}</section> : tasks.length ? <section className="border border-slate-200 bg-white"><header className="flex items-center justify-between border-b border-slate-100 px-4 py-3"><div><h2 className="text-sm font-semibold text-[#003366]">Timeline</h2><p className="mt-0.5 text-[10px] text-slate-500">Phases, workstreams, and activities</p></div><span className="text-[10px] text-slate-500">{tasks.length} items</span></header><div className="p-3 sm:p-4"><TaskHierarchy folderId={folderId} listName={list.name} tasks={tasks} statuses={list.statuses || Array.from(new Set(tasks.map((task) => task.status)))} members={members} teamLeadIds={defaultAssignees} onTaskChange={onTaskChange} canEdit={canEdit} /></div></section> : <div className="border border-dashed border-slate-300 bg-white px-5 py-10 text-center"><h2 className="text-sm font-semibold text-[#003366]">No tasks in this subproject</h2><p className="mt-1 text-xs text-slate-600">Create tasks in ClickUp, then refresh this workspace.</p><button type="button" onClick={onRefresh} className="mt-3 min-h-10 border border-slate-300 px-3 text-xs font-semibold text-[#003366]">Refresh</button></div>
       : view === "calendar" ? <CalendarView folderId={folderId} tasks={tasks} lists={[list]} members={members} defaultAssignees={{ [list.id]: defaultAssignees }} onTaskChange={onTaskChange} canEdit={canEdit} />
-      : view === "sites" ? <SubprojectSites folderId={folderId} listId={list.id} listName={list.name} userId={userId} canEdit={canEdit} canManageAllSites={canManageLead} />
+      : view === "sites" ? <SubprojectSites folderId={folderId} listId={list.id} listName={list.name} userId={userId} />
         : view === "contract-review" ? contractReviewContent : null}
   </section>;
 }
@@ -859,7 +859,7 @@ function sanitizeSiteNumber(value: string) {
   return decimalIndex < 0 ? numericValue : `${numericValue.slice(0, decimalIndex + 1)}${numericValue.slice(decimalIndex + 1).replace(/\./g, "")}`;
 }
 
-function SubprojectSites({ folderId, listId, listName, userId, canEdit, canManageAllSites }: { folderId: string; listId: string; listName: string; userId?: string; canEdit: boolean; canManageAllSites: boolean }) {
+function SubprojectSites({ folderId, listId, listName, userId }: { folderId: string; listId: string; listName: string; userId?: string }) {
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState("");
   const [syncError, setSyncError] = useState("");
@@ -931,7 +931,6 @@ function SubprojectSites({ folderId, listId, listName, userId, canEdit, canManag
     };
   }, []);
   const updateSiteField = (site: SiteRow, field: EditableSiteField, value: string) => {
-    if (!canEdit) return;
     updateCachedSiteRows((rows) => (rows || sites).map((row) => {
       if (row.taskId !== site.taskId) return row;
       const updated = { ...row, [field]: value };
@@ -1035,10 +1034,10 @@ function SubprojectSites({ folderId, listId, listName, userId, canEdit, canManag
       </div>
       <div className="flex flex-wrap gap-2">
         {sites.length > 0 && <button type="button" onClick={exportSites} className="inline-flex min-h-9 items-center gap-2 border border-slate-300 bg-white px-3 text-[11px] font-semibold text-[#003366] hover:border-[#003366]"><Download aria-hidden="true" className="h-3.5 w-3.5" />Export CSV</button>}
-        {sites.length > 0 && !sites.every((site) => Boolean(site.taskId)) && canEdit && (
+        {sites.length > 0 && !sites.every((site) => Boolean(site.taskId)) && (
           <button type="button" onClick={() => void createClosedTasks("list")} disabled={syncing || hasPendingSiteRows} className="min-h-9 border border-[#003366] bg-[#003366] px-3 text-[11px] font-semibold text-white hover:bg-[#174778] disabled:cursor-wait disabled:opacity-60">{syncing ? "Setting up this subproject…" : hasPendingSiteRows ? "Site rows syncing…" : "Set up site rows for this subproject"}</button>
         )}
-        {sites.length > 0 && !sites.every((site) => Boolean(site.taskId)) && canManageAllSites && <button type="button" onClick={() => void createClosedTasks("all")} disabled={syncing || hasPendingSiteRows} className="min-h-9 border border-slate-300 bg-white px-3 text-[11px] font-semibold text-[#003366] hover:border-[#003366] disabled:cursor-wait disabled:opacity-60">Set up all subprojects</button>}
+        {sites.length > 0 && !sites.every((site) => Boolean(site.taskId)) && <button type="button" onClick={() => void createClosedTasks("all")} disabled={syncing || hasPendingSiteRows} className="min-h-9 border border-slate-300 bg-white px-3 text-[11px] font-semibold text-[#003366] hover:border-[#003366] disabled:cursor-wait disabled:opacity-60">Set up all subprojects</button>}
       </div>
     </header>
     {syncMessage && <p role="status" className="border-b border-emerald-200 bg-emerald-50 px-4 py-2 text-xs text-emerald-900">{syncMessage}</p>}
@@ -1068,7 +1067,6 @@ function SubprojectSites({ folderId, listId, listName, userId, canEdit, canManag
           aria-label={`${editableSiteFieldLabels[field]} for site ${site.siteNo}`}
           value={site[field] || ""}
           maxLength={2_000}
-          readOnly={!canEdit}
           disabled={!site.taskId}
           onChange={(event) => updateSiteField(site, field, event.currentTarget.value)}
           onBlur={() => flushSiteField(site, field)}
@@ -1085,7 +1083,7 @@ function SubprojectSites({ folderId, listId, listName, userId, canEdit, canManag
             : field === "amount" || focusedCurrencyField !== `${site.taskId}:${field}`
               ? formatSitePhp(site[field])
               : numericSiteValue(site[field], "php")}
-          readOnly={!canEdit || field === "amount"}
+          readOnly={field === "amount"}
           title={field === "amount" ? "Calculated from Monthly Rate (Php) × PF months" : undefined}
           disabled={!site.taskId}
           onFocus={field === "monthlyRate" ? (event) => { setFocusedCurrencyField(`${site.taskId}:${field}`); event.currentTarget.select(); } : undefined}

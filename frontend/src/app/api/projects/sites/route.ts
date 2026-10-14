@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import { getTokenFromRequest } from "@/lib/auth";
-import { requireProjectAdmin, requireSubprojectEditor } from "@/lib/project-permissions";
+import { requireProjectMember, requireSubprojectMember } from "@/lib/project-permissions";
 import { clickUpCalendarFetch, fetchAllClickUpListTasks } from "@/lib/clickupCalendarApi";
 import { getUserFromRequest } from "@/lib/auth";
 import { readStagedMosaicRecords, scheduleMosaicWriteSync, stageMosaicWrite } from "@/lib/mosaicWriteStore";
@@ -199,7 +199,7 @@ export async function PATCH(request: NextRequest) {
     if (folderId !== SOURCE_FOLDER_ID || !/^\d+$/.test(listId) || !/^[A-Za-z0-9_-]+$/.test(taskId) || !fieldName) {
       return NextResponse.json({ error: "A valid site and editable field are required." }, { status: 400 });
     }
-    const access = await requireSubprojectEditor(request, folderId, listId);
+    const access = await requireSubprojectMember(request, folderId, listId);
     if (!access.ok) return access.response;
     if (value.length > 2_000) return NextResponse.json({ error: "Keep site details under 2,000 characters." }, { status: 400 });
     if ((key === "monthlyRate" || key === "pfStructure") && value !== "" && !/^(?:\d+(?:\.\d*)?|\.\d+)$/.test(value)) {
@@ -276,8 +276,8 @@ export async function POST(request: NextRequest) {
     if (mode !== "all" && mode !== "list") return NextResponse.json({ error: "Choose a subproject for site task setup." }, { status: 400 });
     if (mode === "list" && !/^\d+$/.test(requestedListId)) return NextResponse.json({ error: "A valid subproject is required for site task setup." }, { status: 400 });
     const access = mode === "all"
-      ? await requireProjectAdmin(request)
-      : await requireSubprojectEditor(request, folderId, requestedListId);
+      ? await requireProjectMember(request, folderId)
+      : await requireSubprojectMember(request, folderId, requestedListId);
     if (!access.ok) return access.response;
     const { token } = access;
     const userId = String(getUserFromRequest(request)?.id || "");

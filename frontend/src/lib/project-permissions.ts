@@ -50,7 +50,7 @@ type AccessResult =
   | { ok: true; token: string; user: VerifiedClickUpUser; isAdmin: boolean; leadId: string }
   | { ok: false; response: NextResponse };
 
-async function getAccess(request: NextRequest, folderId: string, listId: string): Promise<AccessResult> {
+async function getSubprojectMemberAccess(request: NextRequest, folderId: string, listId: string): Promise<AccessResult> {
   const token = getTokenFromRequest(request);
   if (!token) return { ok: false, response: NextResponse.json({ error: "Sign in with ClickUp to edit this subproject." }, { status: 401 }) };
   if (!/^\d+$/.test(folderId) || !/^\d+$/.test(listId)) {
@@ -75,13 +75,34 @@ async function getAccess(request: NextRequest, folderId: string, listId: string)
     return { ok: false, response: NextResponse.json({ error: "This subproject does not belong to the selected project." }, { status: 403 }) };
   }
 
+  return { ok: true, token, user, isAdmin: isSubprojectAdmin(user), leadId: "" };
+}
+
+async function getAccess(request: NextRequest, folderId: string, listId: string): Promise<AccessResult> {
+  const memberAccess = await getSubprojectMemberAccess(request, folderId, listId);
+  if (!memberAccess.ok) return memberAccess;
   try {
     const config = await loadAdminConfig();
-    const access = getSubprojectAccess(user, listId, config);
-    return { ok: true, token, user, isAdmin: access.isAdmin, leadId: access.leadId };
+    const access = getSubprojectAccess(memberAccess.user, listId, config);
+    return { ...memberAccess, isAdmin: access.isAdmin, leadId: access.leadId };
   } catch {
     return { ok: false, response: NextResponse.json({ error: "Project permissions could not be loaded." }, { status: 503 }) };
   }
+}
+
+export async function requireSubprojectMember(request: NextRequest, folderId: string, listId: string): Promise<AccessResult> {
+  return getSubprojectMemberAccess(request, folderId, listId);
+}
+
+export async function requireProjectMember(request: NextRequest, folderId: string): Promise<{ ok: true; token: string; user: VerifiedClickUpUser } | { ok: false; response: NextResponse }> {
+  const token = getTokenFromRequest(request);
+  if (!token) return { ok: false, response: NextResponse.json({ error: "Sign in with ClickUp to access this project." }, { status: 401 }) };
+  if (!/^\d+$/.test(folderId)) return { ok: false, response: NextResponse.json({ error: "A valid project folder is required." }, { status: 400 }) };
+  const user = await getVerifiedClickUpUser(token);
+  if (!user) return { ok: false, response: NextResponse.json({ error: "Your ClickUp identity could not be verified. Sign in again and retry." }, { status: 401 }) };
+  const folderResponse = await clickUpCalendarFetch(token, `https://api.clickup.com/api/v2/folder/${encodeURIComponent(folderId)}/list`, undefined, undefined, { skipCache: true });
+  if (!folderResponse.ok) return { ok: false, response: NextResponse.json({ error: "This ClickUp account cannot access the selected project." }, { status: folderResponse.status }) };
+  return { ok: true, token, user };
 }
 
 export async function requireSubprojectEditor(request: NextRequest, folderId: string, listId: string): Promise<AccessResult> {
