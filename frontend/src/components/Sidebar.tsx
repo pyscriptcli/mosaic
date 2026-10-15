@@ -312,7 +312,7 @@ export function Sidebar({
       >
         {/* Mosaic identity stays visible when the navigation is collapsed. */}
         <div className="flex min-h-0 flex-1 flex-col">
-          <div className={`h-14 shrink-0 flex items-center border-b border-[#31577D] ${effectiveCollapsed ? "justify-between gap-1 px-2" : "justify-between px-3.5"}`}>
+          <div className={`h-14 shrink-0 flex items-center border-b border-[#31577D] ${effectiveCollapsed ? "justify-center px-2" : "justify-between px-3.5"}`}>
             <MosaicBrand compact={effectiveCollapsed} size={effectiveCollapsed ? "small" : "medium"} className="text-[#FFFCFB]" />
 
             {!effectiveCollapsed && (
