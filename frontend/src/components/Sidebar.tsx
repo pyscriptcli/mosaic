@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { createPortal } from "react-dom";
 import { MosaicBrand } from "@/components/MosaicBrand";
 import {
   LayoutGrid,
@@ -17,6 +18,9 @@ import {
   ClipboardCheck,
   ChartNoAxesColumnIncreasing,
   BriefcaseBusiness,
+  Gauge,
+  Globe,
+  Wrench,
   Map as MapIcon,
   FileSpreadsheet,
   BookOpenText,
@@ -59,7 +63,6 @@ export function Sidebar({
   isAdmin
 }: SidebarProps) {
   const [isHovered, setIsHovered] = React.useState(false);
-  const [isPinned, setIsPinned] = React.useState(false);
   const [expandedSections, setExpandedSections] = React.useState({
     personal: true,
     workspaces: true,
@@ -67,8 +70,36 @@ export function Sidebar({
     tools: true,
     meetings: true,
     knowledgeCenter: true,
+    performanceMarketing: true,
   });
+  const [isProfileMenuOpen, setIsProfileMenuOpen] = React.useState(false);
+  const profileButtonRef = React.useRef<HTMLButtonElement | null>(null);
+  const profileMenuRef = React.useRef<HTMLDivElement | null>(null);
   const hoverTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
+
+  React.useEffect(() => {
+    if (!isProfileMenuOpen) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (!profileMenuRef.current?.contains(target) && !profileButtonRef.current?.contains(target)) {
+        setIsProfileMenuOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsProfileMenuOpen(false);
+        profileButtonRef.current?.focus();
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isProfileMenuOpen]);
 
   const handleMouseEnter = () => {
     if (hoverTimeoutRef.current) {
@@ -87,8 +118,9 @@ export function Sidebar({
     }, 150);
   };
 
-  // Auto-collapsed when pointer is not hovering; auto-expanded when hovering
-  const effectiveCollapsed = isPinned ? false : !isHovered;
+  // The parent owns the persistent state. Hover is only a temporary preview
+  // when collapsed, so touch and keyboard users can still pin the drawer open.
+  const effectiveCollapsed = externalCollapsed && !isHovered;
 
   const isOwner = user?.email?.toLowerCase() === "admin@primephilippines.com";
   const isProjectAdmin = isOwner || Boolean(isAdmin);
@@ -118,7 +150,7 @@ export function Sidebar({
     {
       id: "market-insights" as NavView,
       label: "Market Insights",
-      icon: ChartNoAxesColumnIncreasing,
+      icon: Globe,
       badge: null
     },
     {
@@ -164,10 +196,10 @@ export function Sidebar({
 
   const navById = new Map(navItems.map((item) => [item.id, item]));
   const sidebarGroups = [
-    { id: "personal" as const, label: "Personal Workspace", itemIds: ["business-analysis"] as NavView[] },
-    { id: "workspaces" as const, label: "Workspaces", itemIds: ["dashboard", "project", "delta", "notebook"] as NavView[] },
-    { id: "monitoring" as const, label: "Monitoring", itemIds: ["demands", "market-insights", "reports"] as NavView[] },
-    { id: "knowledgeCenter" as const, label: "Knowledge Center", itemIds: ["performance-marketing"] as NavView[] },
+    { id: "personal" as const, label: "Personal Workspace", icon: BriefcaseBusiness, itemIds: ["business-analysis"] as NavView[] },
+    { id: "workspaces" as const, label: "Workspaces", icon: LayoutGrid, itemIds: ["dashboard", "project", "delta", "notebook"] as NavView[] },
+    { id: "monitoring" as const, label: "Monitoring", icon: Gauge, itemIds: ["demands", "reports"] as NavView[] },
+    { id: "knowledgeCenter" as const, label: "Knowledge Center", icon: BookOpenText, itemIds: ["market-insights", "performance-marketing", "google-ads"] as NavView[] },
   ].map((group) => ({
     ...group,
     items: group.itemIds
@@ -180,8 +212,15 @@ export function Sidebar({
   const mapsItem = navById.get("maps");
   const bscItem = navById.get("bsc");
   const hasToolsItems = Boolean(meetingsItem || notetakerItem || mapsItem || bscItem);
+  const toolsItems = [meetingsItem, notetakerItem, mapsItem, bscItem]
+    .filter((item): item is (typeof navItems)[number] => Boolean(item))
+    .sort((a, b) => (orderIndex.get(a.id) ?? allNavItems.length) - (orderIndex.get(b.id) ?? allNavItems.length));
+  const collapsedGroups = [
+    ...sidebarGroups,
+    ...(toolsItems.length > 0 ? [{ id: "tools" as const, label: "Tools", icon: Wrench, items: toolsItems }] : []),
+  ];
 
-  const renderNavItem = (item: (typeof navItems)[number], nested = false) => {
+  const renderNavItem = (item: (typeof navItems)[number], nested = false, besideDisclosure = false) => {
     const Icon = item.icon;
     const isActive = currentView === item.id
       || (item.id === "notebook" && currentView === "tasks")
@@ -194,11 +233,13 @@ export function Sidebar({
         onPointerEnter={() => onPreloadView?.(item.id)}
         onFocus={() => onPreloadView?.(item.id)}
         title={effectiveCollapsed ? item.label : undefined}
-        className={`w-full min-h-11 flex items-center gap-2.5 ${nested ? "pl-4" : "px-2.5"} py-2 text-[13px] font-normal transition-colors cursor-pointer ${
+        aria-current={isActive ? "page" : undefined}
+        aria-label={effectiveCollapsed ? item.label : undefined}
+        className={`${besideDisclosure ? "min-w-0 flex-1" : "w-full"} min-h-10 flex items-center gap-2 ${nested ? "pl-3" : "px-2.5"} py-1.5 text-xs font-normal transition-colors cursor-pointer ${
           isActive
             ? "bg-[#FFFCFB] text-[#003366] border-l-4 border-[#C9A84C]"
             : "text-[#FFFCFB] hover:bg-[#174778] border-l-4 border-transparent"
-        } ${effectiveCollapsed ? "justify-center !ml-0 !w-full !px-0 !border-l-0" : ""}`}
+        } focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#FFBF00] ${effectiveCollapsed ? "justify-center !ml-0 !w-full !px-0 !border-l-0" : ""}`}
       >
         <Icon size={18} className={`shrink-0 ${isActive ? "text-[#C9A84C]" : "text-[#D7E3EF]"}`} />
         {!effectiveCollapsed && <span className="truncate">{item.label}</span>}
@@ -206,141 +247,195 @@ export function Sidebar({
     );
   };
 
+  const renderDisclosureItem = (
+    item: (typeof navItems)[number],
+    section: "meetings" | "performanceMarketing",
+    children: (typeof navItems)[number][],
+  ) => (
+    <div key={item.id}>
+      <div className="flex items-center gap-1">
+        {renderNavItem(item, false, true)}
+        <button
+          type="button"
+          aria-expanded={expandedSections[section]}
+          aria-label={`${expandedSections[section] ? "Collapse" : "Expand"} ${item.label}`}
+          onClick={() => setExpandedSections((sections) => ({ ...sections, [section]: !sections[section] }))}
+          className="shrink-0 p-2 text-[#9FB8CE] hover:text-[#FFFCFB] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#FFBF00]"
+        >
+          {expandedSections[section] ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+        </button>
+      </div>
+      {expandedSections[section] && children.length > 0 && (
+        <div className="ml-3 border-l border-[#31577D]">
+          {children.map((child) => renderNavItem(child, true))}
+        </div>
+      )}
+    </div>
+  );
+
+  const renderDisclosureGroup = (
+    label: string,
+    section: "meetings" | "performanceMarketing",
+    children: (typeof navItems)[number][],
+  ) => (
+    <div key={`group-${section}`}>
+      <button
+        type="button"
+        aria-expanded={expandedSections[section]}
+        onClick={() => setExpandedSections((sections) => ({ ...sections, [section]: !sections[section] }))}
+        className="flex min-h-9 w-full items-center justify-between px-2.5 py-1.5 text-xs text-[#E5EDF4] hover:bg-[#174778] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#FFBF00]"
+      >
+        <span>{label}</span>
+        {expandedSections[section] ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+      </button>
+      {expandedSections[section] && (
+        <div className="ml-3 border-l border-[#31577D]">
+          {children.map((child) => renderNavItem(child, true))}
+        </div>
+      )}
+    </div>
+  );
+
+  const isGroupActive = (group: (typeof collapsedGroups)[number]) => (
+    (group.id === "tools" && currentView === "forms-admin")
+    || group.items.some((item) => (
+      currentView === item.id
+      || (item.id === "notebook" && currentView === "tasks")
+      || (item.id === "meetings" && currentView === "minutes")
+    ))
+  );
+
   return (
     <div
       className={`relative h-full z-40 shrink-0 transition-all duration-300 ease-in-out ${
-        isPinned ? "w-56 min-w-[224px]" : "w-16 min-w-[64px]"
+        externalCollapsed ? "w-16 min-w-[64px]" : "w-[min(220px,calc(100vw-64px))] min-w-[64px]"
       }`}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
       <aside 
         className={`absolute top-0 left-0 h-full flex flex-col justify-between bg-[#003366] text-[#FFFCFB] border-r border-[#31577D] shadow-[4px_0_24px_rgba(0,51,102,0.18)] transition-all duration-300 ease-in-out z-40 select-none overflow-hidden ${
-          effectiveCollapsed ? "w-16 min-w-[64px]" : "w-56 min-w-[224px]"
+          effectiveCollapsed ? "w-16 min-w-[64px]" : "w-[min(220px,calc(100vw-64px))] min-w-[64px]"
         }`}
       >
         {/* Mosaic identity stays visible when the navigation is collapsed. */}
         <div className="flex min-h-0 flex-1 flex-col">
-          <div className={`h-14 shrink-0 flex items-center border-b border-[#31577D] ${effectiveCollapsed ? "justify-center px-2" : "justify-between px-3.5"}`}>
+          <div className={`h-14 shrink-0 flex items-center border-b border-[#31577D] ${effectiveCollapsed ? "justify-between gap-1 px-2" : "justify-between px-3.5"}`}>
             <MosaicBrand compact={effectiveCollapsed} size={effectiveCollapsed ? "small" : "medium"} className="text-[#FFFCFB]" />
 
-            {!effectiveCollapsed && (
+            {effectiveCollapsed ? (
               <button
                 type="button"
-                onClick={() => {
-                  setIsPinned(!isPinned);
-                  if (onToggleCollapse) onToggleCollapse();
-                }}
-                aria-label={isPinned ? "Unpin sidebar (auto-collapse)" : "Pin sidebar expanded"}
-                title={isPinned ? "Unpin sidebar (auto-collapse on leave)" : "Pin sidebar expanded"}
-                className="p-1.5 rounded-none hover:bg-[#174778] text-[#D7E3EF] hover:text-[#FFBF00] transition-colors cursor-pointer"
+                onClick={onToggleCollapse}
+                aria-label="Pin sidebar expanded"
+                aria-expanded={false}
+                title="Pin sidebar expanded"
+                className="shrink-0 p-1.5 text-[#D7E3EF] hover:bg-[#174778] hover:text-[#FFBF00] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#FFBF00]"
+              >
+                <ChevronRight size={14} />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={onToggleCollapse}
+                aria-label={externalCollapsed ? "Pin sidebar expanded" : "Collapse sidebar"}
+                aria-expanded={!externalCollapsed}
+                title={externalCollapsed ? "Pin sidebar expanded" : "Collapse sidebar"}
+                className="p-1.5 rounded-none hover:bg-[#174778] text-[#D7E3EF] hover:text-[#FFBF00] transition-colors cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#FFBF00]"
               >
                 <ChevronLeft size={16} />
               </button>
             )}
           </div>
 
-          <nav className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">
-            {sidebarGroups.map((group) => (
-              <section key={group.id}>
-                {!effectiveCollapsed && (
-                  <button
-                    type="button"
-                    aria-expanded={expandedSections[group.id]}
-                    onClick={() => setExpandedSections((sections) => ({ ...sections, [group.id]: !sections[group.id] }))}
-                    className="flex min-h-11 w-full items-center justify-between px-2.5 pt-3 pb-1.5 text-[9px] font-bold uppercase tracking-[0.18em] text-[#9FB8CE] hover:text-[#FFFCFB]"
-                  >
-                    <span>{group.label}</span>
-                    {expandedSections[group.id] ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-                  </button>
-                )}
-                {(effectiveCollapsed || expandedSections[group.id]) && (
-                  <div className="space-y-1">
-                    {group.items.map((item) => renderNavItem(item))}
-                    {group.id === "knowledgeCenter" && navById.has("google-ads") && (
-                      <div className={effectiveCollapsed ? "" : "ml-3 border-l border-[#31577D]"}>
-                        {renderNavItem(navById.get("google-ads")!, !effectiveCollapsed)}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </section>
-            ))}
-
-            {hasToolsItems && (
-              <section>
-                {!effectiveCollapsed && (
-                  <button
-                    type="button"
-                    aria-expanded={expandedSections.tools}
-                    onClick={() => setExpandedSections((sections) => ({ ...sections, tools: !sections.tools }))}
-                    className="flex w-full items-center justify-between px-2.5 pt-3 pb-1.5 text-[9px] font-bold uppercase tracking-[0.18em] text-[#9FB8CE] hover:text-[#FFFCFB]"
-                  >
-                    <span>Tools</span>
-                    {expandedSections.tools ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-                  </button>
-                )}
-                {(effectiveCollapsed || expandedSections.tools) && (
-                  <div className="space-y-1">
-                    {meetingsItem && (
-                      <div className="flex items-center">
-                        <button
-                          type="button"
-                          onClick={() => onSelectView("meetings")}
-                          title={effectiveCollapsed ? "Meetings" : undefined}
-                          className={`flex min-w-0 flex-1 items-center gap-2.5 px-2.5 py-2 text-xs font-normal uppercase tracking-[0.15em] transition-colors ${
-                            currentView === "meetings" ? "text-[#FFFCFB]" : "text-[#9FB8CE] hover:text-[#FFFCFB]"
-                          } ${effectiveCollapsed ? "justify-center px-0" : ""}`}
-                        >
-                          <CalendarDays size={18} className="shrink-0" />
-                          {!effectiveCollapsed && <span className="truncate">Meetings</span>}
-                        </button>
-                        {!effectiveCollapsed && notetakerItem && (
-                          <button
-                            type="button"
-                            aria-expanded={expandedSections.meetings}
-                            aria-label={expandedSections.meetings ? "Collapse meeting tools" : "Expand meeting tools"}
-                            onClick={() => setExpandedSections((sections) => ({ ...sections, meetings: !sections.meetings }))}
-                            className="p-1.5 text-[#9FB8CE] hover:text-[#FFFCFB]"
-                          >
-                            {expandedSections.meetings ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-                          </button>
-                        )}
-                      </div>
-                    )}
-                    {!effectiveCollapsed && expandedSections.meetings && notetakerItem && (
-                      <div className="ml-3 border-l border-[#31577D]">
-                        {renderNavItem(notetakerItem, true)}
-                      </div>
-                    )}
-                    {!meetingsItem && notetakerItem && renderNavItem(notetakerItem)}
-                    {mapsItem && (
+          <nav aria-label="Primary navigation" className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-1.5 pb-2">
+            {effectiveCollapsed ? (
+              <div className="flex flex-col gap-1 py-1">
+                {collapsedGroups.map((group) => {
+                  const Icon = group.icon;
+                  const groupActive = isGroupActive(group);
+                  return (
+                    <button
+                      key={group.id}
+                      type="button"
+                      aria-label={`${group.label} navigation`}
+                      title={group.label}
+                      onClick={() => {
+                        if (externalCollapsed) onToggleCollapse();
+                        requestAnimationFrame(() => document.getElementById(`sidebar-group-${group.id}`)?.scrollIntoView({ block: "nearest" }));
+                      }}
+                      className={`flex min-h-10 w-full items-center justify-center rounded-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#FFBF00] ${groupActive ? "bg-[#174778] text-[#FFBF00]" : "text-[#D7E3EF] hover:bg-[#174778] hover:text-[#FFFCFB]"}`}
+                    >
+                      <Icon size={19} aria-hidden="true" />
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <>
+                {sidebarGroups.map((group) => {
+                  const googleAds = group.id === "knowledgeCenter" ? navById.get("google-ads") : undefined;
+                  return (
+                    <section id={`sidebar-group-${group.id}`} key={group.id}>
                       <button
                         type="button"
-                        onClick={() => onSelectView("maps")}
-                        onPointerEnter={() => onPreloadView?.("maps")}
-                        onFocus={() => onPreloadView?.("maps")}
-                        title={effectiveCollapsed ? "Maps" : undefined}
-                        aria-current={currentView === "maps" ? "page" : undefined}
-                        className={`w-full flex items-center gap-2.5 px-2.5 py-2 text-xs font-normal uppercase tracking-[0.15em] transition-colors ${
-                          currentView === "maps" ? "text-[#FFFCFB]" : "text-[#9FB8CE] hover:text-[#FFFCFB]"
-                        } ${effectiveCollapsed ? "justify-center px-0" : ""}`}
+                        aria-expanded={expandedSections[group.id]}
+                        onClick={() => setExpandedSections((sections) => ({ ...sections, [group.id]: !sections[group.id] }))}
+                        className="flex min-h-9 w-full items-center justify-between px-2.5 pt-2.5 pb-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[#9FB8CE] hover:text-[#FFFCFB] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#FFBF00]"
                       >
-                        <MapIcon size={18} className="shrink-0" />
-                        {!effectiveCollapsed && <span className="truncate">Maps</span>}
+                        <span>{group.label}</span>
+                        {expandedSections[group.id] ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
                       </button>
+                      {expandedSections[group.id] && (
+                        <div className="space-y-0.5">
+                          {group.items.map((item) => {
+                            if (item.id === "google-ads") {
+                              return navById.has("performance-marketing")
+                                ? null
+                                : renderDisclosureGroup("Performance Marketing", "performanceMarketing", [item]);
+                            }
+                            if (item.id === "performance-marketing" && googleAds) {
+                              return renderDisclosureItem(item, "performanceMarketing", [googleAds]);
+                            }
+                            return renderNavItem(item);
+                          })}
+                        </div>
+                      )}
+                    </section>
+                  );
+                })}
+
+                {hasToolsItems && (
+                  <section id="sidebar-group-tools">
+                    <button
+                      type="button"
+                      aria-expanded={expandedSections.tools}
+                      onClick={() => setExpandedSections((sections) => ({ ...sections, tools: !sections.tools }))}
+                      className="flex min-h-9 w-full items-center justify-between px-2.5 pt-2.5 pb-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[#9FB8CE] hover:text-[#FFFCFB] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#FFBF00]"
+                    >
+                      <span>Tools</span>
+                      {expandedSections.tools ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                    </button>
+                    {expandedSections.tools && (
+                      <div className="space-y-0.5">
+                        {meetingsItem && notetakerItem
+                          ? renderDisclosureItem(meetingsItem, "meetings", [notetakerItem])
+                          : meetingsItem && renderNavItem(meetingsItem)}
+                        {notetakerItem && !meetingsItem && renderDisclosureGroup("Meetings", "meetings", [notetakerItem])}
+                        {mapsItem && renderNavItem(mapsItem)}
+                        {bscItem && renderNavItem(bscItem)}
+                      </div>
                     )}
-                    {bscItem && renderNavItem(bscItem)}
-                  </div>
+                  </section>
                 )}
-              </section>
+              </>
             )}
           </nav>
         </div>
 
-        {/* Bottom Workspace & User Profile Section (#1b1d1e) */}
+        {/* Workspace and account actions */}
         <div className="border-t border-[#31577D] bg-[#002A55]">
-          {isProjectAdmin && <button type="button" onClick={() => onSelectView("forms-admin")} title="Settings" className={`w-full flex items-center gap-3 px-4 py-2.5 border-b border-[#31577D] text-xs font-normal transition-colors ${currentView === "forms-admin" ? "text-[#FFBF00] bg-[#174778]" : "text-[#D7E3EF] hover:text-[#FFFCFB] hover:bg-[#174778]"} ${effectiveCollapsed ? "justify-center px-0" : ""}`}><Settings size={17} />{!effectiveCollapsed && <span>Settings</span>}</button>}
+          {isProjectAdmin && !effectiveCollapsed && <button type="button" onClick={() => onSelectView("forms-admin")} title="Settings" aria-current={currentView === "forms-admin" ? "page" : undefined} className={`w-full flex items-center gap-3 px-4 py-2.5 border-b border-[#31577D] text-xs font-normal transition-colors ${currentView === "forms-admin" ? "text-[#FFBF00] bg-[#174778]" : "text-[#D7E3EF] hover:text-[#FFFCFB] hover:bg-[#174778]"}`}><Settings size={17} /><span>Settings</span></button>}
           {/* Workspace Name Header */}
           {!effectiveCollapsed ? (
             <div className="px-3.5 pt-2.5 pb-2 border-b border-[#31577D]/80 flex items-center justify-between overflow-hidden">
@@ -358,72 +453,67 @@ export function Sidebar({
 
           {/* User Account Details */}
           <div className="p-3">
-            {!effectiveCollapsed ? (
-              <div className="flex items-center justify-between whitespace-nowrap overflow-hidden">
-                <div className="flex items-center gap-2.5 overflow-hidden">
-                  {user?.profilePicture ? (
-                    <img
-                      src={user.profilePicture}
-                      alt={user.username || "User"}
-                      className="w-8 h-8 rounded-none border border-[#C9A84C]/60 object-cover shrink-0"
-                    />
-                  ) : (
-                    <div
-                      style={user?.color ? { borderColor: user.color } : undefined}
-                      className="w-8 h-8 rounded-none bg-[#174778] border border-[#C9A84C]/60 flex items-center justify-center text-xs font-bold text-[#FFBF00] shrink-0"
-                    >
-                      {user?.initials || "CU"}
-                    </div>
-                  )}
-                  <div className="truncate">
-                    <div className="text-xs font-semibold text-white truncate">
-                      {user?.username || "ClickUp User"}
-                    </div>
-                    <div className="text-[10px] text-[#9FB8CE] truncate">
-                      {user?.email || "ClickUp Portal"}
-                    </div>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  title="Sign out from ClickUp"
-                  onClick={onSignOut}
-                  className="p-1.5 text-[#9FB8CE] hover:text-[#FFBF00] hover:bg-[#174778] rounded-none transition-colors cursor-pointer shrink-0"
-                >
-                  <LogOut size={15} />
-                </button>
-              </div>
-            ) : (
-              <div className="flex flex-col items-center gap-2 py-1">
+            <div className={`flex min-w-0 items-center ${effectiveCollapsed ? "justify-center" : "gap-2.5"}`}>
+              <button
+                ref={profileButtonRef}
+                type="button"
+                aria-label="Open profile menu"
+                aria-expanded={isProfileMenuOpen}
+                aria-controls="profile-menu"
+                title={user?.username || "Profile and account options"}
+                onClick={() => setIsProfileMenuOpen((isOpen) => !isOpen)}
+                className="flex h-8 w-8 shrink-0 items-center justify-center border border-[#C9A84C]/60 bg-[#174778] text-xs font-bold text-[#FFBF00] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#FFBF00]"
+              >
                 {user?.profilePicture ? (
-                  <img
-                    src={user.profilePicture}
-                    alt={user.username || "User"}
-                    title={user.username || "User"}
-                    className="w-8 h-8 rounded-none border border-[#C9A84C]/60 object-cover shrink-0"
-                  />
+                  <img src={user.profilePicture} alt="" className="h-full w-full object-cover" />
                 ) : (
-                  <div 
-                    title={user?.username || "ClickUp User"}
-                    style={user?.color ? { borderColor: user.color } : undefined}
-                    className="w-8 h-8 rounded-none bg-[#174778] border border-[#C9A84C]/60 flex items-center justify-center text-xs font-bold text-[#FFBF00]"
-                  >
-                    {user?.initials || "CU"}
-                  </div>
+                  user?.initials || "CU"
                 )}
-                <button
-                  type="button"
-                  title="Sign out from ClickUp"
-                  onClick={onSignOut}
-                  className="p-1 text-[#9FB8CE] hover:text-[#FFBF00] transition-colors rounded-none cursor-pointer"
-                >
-                  <LogOut size={14} />
-                </button>
-              </div>
-            )}
+              </button>
+              {!effectiveCollapsed && (
+                <>
+                  <div className="min-w-0 flex-1 truncate">
+                    <div className="truncate text-xs font-semibold text-white">{user?.username || "ClickUp User"}</div>
+                    <div className="truncate text-[10px] text-[#9FB8CE]">{user?.email || "ClickUp Portal"}</div>
+                  </div>
+                  <button
+                    type="button"
+                    aria-label="Sign out from ClickUp"
+                    title="Sign out from ClickUp"
+                    onClick={onSignOut}
+                    className="shrink-0 rounded-none p-1.5 text-[#9FB8CE] transition-colors hover:bg-[#174778] hover:text-[#FFBF00] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#FFBF00]"
+                  >
+                    <LogOut size={15} />
+                  </button>
+                </>
+              )}
+            </div>
           </div>
         </div>
       </aside>
+      {isProfileMenuOpen && createPortal(
+        <div
+          ref={profileMenuRef}
+          id="profile-menu"
+          className="fixed bottom-3 z-[60] w-[min(15rem,calc(100vw-1rem))] rounded-sm border border-[#31577D] bg-[#002A55] p-3 text-[#FFFCFB] shadow-xl"
+          style={{ left: typeof window === "undefined" ? 72 : Math.max(8, Math.min(effectiveCollapsed ? 72 : 228, window.innerWidth - 256)) }}
+        >
+          <div className="truncate text-xs font-semibold">{user?.username || "ClickUp User"}</div>
+          <div className="mt-1 truncate text-[10px] text-[#9FB8CE]">{user?.email || "ClickUp Portal"}</div>
+          <button
+            type="button"
+            onClick={() => {
+              setIsProfileMenuOpen(false);
+              onSignOut?.();
+            }}
+            className="mt-3 flex w-full items-center gap-2 border-t border-[#31577D] px-1 pt-2 text-left text-xs text-[#D7E3EF] hover:text-[#FFBF00] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#FFBF00]"
+          >
+            <LogOut size={15} />
+            Sign out from ClickUp
+          </button>
+        </div>,
+        document.body,
+      )}
     </div>
   );
 }
