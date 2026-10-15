@@ -1300,6 +1300,7 @@ export default function Home() {
               setStage("Input");
             }
           }}
+          showNewMeeting={currentView === "meetings"}
           onNavigateToPage={(page) => handleSelectView(page as NavView)}
           allowedPages={allowedPages as any}
           isAdmin={isAdminUser}
@@ -1498,10 +1499,6 @@ export default function Home() {
                     }
                     return nextList;
                   });
-                }}
-                onNewMinutes={() => {
-                  setCurrentView("minutes");
-                  setStage("Input");
                 }}
                 onProcessInterrupted={(file, notes) => {
                   setSelectedFile(file);

@@ -6,6 +6,7 @@ import {
   Sparkles, 
   X, 
   Calendar, 
+  CalendarPlus,
   FileText, 
   ArrowRight, 
   Mic, 
@@ -35,6 +36,7 @@ interface TopbarProps {
   onSelectTask?: (taskId: string) => void;
   onOpenStudio: () => void;
   onGoToNotetaker: () => void;
+  showNewMeeting?: boolean;
   onNavigateToPage?: (page: "dashboard" | "project" | "meetings" | "tasks" | "notebook" | "market-insights" | "demands" | "minutes" | "forms" | "forms-admin") => void;
   allowedPages?: Array<"dashboard" | "project" | "meetings" | "tasks" | "notebook" | "market-insights" | "demands" | "minutes" | "forms">;
   isAdmin?: boolean;
@@ -59,6 +61,7 @@ export function Topbar({
   onSelectTask,
   onOpenStudio,
   onGoToNotetaker,
+  showNewMeeting = false,
   onNavigateToPage,
   allowedPages,
   isAdmin,
@@ -544,6 +547,17 @@ export function Topbar({
         )}
 
         {/* Ask Echo trigger */}
+        {showNewMeeting && (!allowedPages || allowedPages.includes("minutes")) && (
+          <button
+            type="button"
+            onClick={onGoToNotetaker}
+            className="inline-flex items-center gap-1.5 border border-[#003366] bg-[#FFFCFB] px-3.5 py-1.5 text-xs font-semibold tracking-wide text-[#003366] transition-colors hover:bg-[#EDF3F8] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#C9A84C]"
+            aria-label="New meeting — open Notetaker"
+          >
+            <CalendarPlus size={14} aria-hidden="true" />
+            <span>New meeting</span>
+          </button>
+        )}
         {askEchoEnabled && (!allowedFeatures || allowedFeatures.includes("ask-echo")) && (!allowedPages || allowedPages.includes("minutes")) && (
           <button
             type="button"

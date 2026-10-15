@@ -200,7 +200,6 @@ interface MeetingsViewProps {
   onUpdateMeeting: (meeting: ArchivedMeeting, previousMeeting?: ArchivedMeeting) => Promise<void>;
   onDeleteMeeting?: (meetingId: string) => Promise<void>;
   onMoveMeeting?: (updatedMeeting: ArchivedMeeting) => Promise<void> | void;
-  onNewMinutes: () => void;
   onProcessInterrupted?: (file: File, notes?: string) => void;
   onNavigateToTasks?: (taskId: string) => void;
   onSelectMeetingSpace?: (spaceId: string) => void;
@@ -215,7 +214,6 @@ export function MeetingsView({
   onUpdateMeeting,
   onDeleteMeeting,
   onMoveMeeting,
-  onNewMinutes,
   onProcessInterrupted,
   onNavigateToTasks,
   onSelectMeetingSpace,

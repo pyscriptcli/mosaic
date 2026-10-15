@@ -8,7 +8,6 @@ import {
   Folder,
   FileText,
   CalendarDays,
-  Mic,
   ChevronDown,
   ChevronRight,
   ChevronLeft,
@@ -68,7 +67,6 @@ export function Sidebar({
     workspaces: true,
     monitoring: true,
     tools: true,
-    meetings: true,
     knowledgeCenter: true,
     performanceMarketing: true,
   });
@@ -159,11 +157,6 @@ export function Sidebar({
       icon: CalendarDays,
       badge: null
     },
-    {
-      id: "minutes" as NavView,
-      label: "Notetaker",
-      icon: Mic,
-    },
     { id: "maps" as NavView, label: "Maps", icon: MapIcon, badge: null },
     { id: "bsc" as NavView, label: "BSC", icon: FileSpreadsheet, badge: null },
     {
@@ -208,11 +201,10 @@ export function Sidebar({
       .sort((a, b) => (orderIndex.get(a.id) ?? allNavItems.length) - (orderIndex.get(b.id) ?? allNavItems.length)),
   })).filter((group) => group.items.length > 0);
   const meetingsItem = navById.get("meetings");
-  const notetakerItem = navById.get("minutes");
   const mapsItem = navById.get("maps");
   const bscItem = navById.get("bsc");
-  const hasToolsItems = Boolean(meetingsItem || notetakerItem || mapsItem || bscItem);
-  const toolsItems = [meetingsItem, notetakerItem, mapsItem, bscItem]
+  const hasToolsItems = Boolean(meetingsItem || mapsItem || bscItem);
+  const toolsItems = [meetingsItem, mapsItem, bscItem]
     .filter((item): item is (typeof navItems)[number] => Boolean(item))
     .sort((a, b) => (orderIndex.get(a.id) ?? allNavItems.length) - (orderIndex.get(b.id) ?? allNavItems.length));
   const collapsedGroups = [
@@ -249,7 +241,7 @@ export function Sidebar({
 
   const renderDisclosureItem = (
     item: (typeof navItems)[number],
-    section: "meetings" | "performanceMarketing",
+    section: "performanceMarketing",
     children: (typeof navItems)[number][],
   ) => (
     <div key={item.id}>
@@ -275,7 +267,7 @@ export function Sidebar({
 
   const renderDisclosureGroup = (
     label: string,
-    section: "meetings" | "performanceMarketing",
+    section: "performanceMarketing",
     children: (typeof navItems)[number][],
   ) => (
     <div key={`group-${section}`}>
@@ -323,18 +315,7 @@ export function Sidebar({
           <div className={`h-14 shrink-0 flex items-center border-b border-[#31577D] ${effectiveCollapsed ? "justify-between gap-1 px-2" : "justify-between px-3.5"}`}>
             <MosaicBrand compact={effectiveCollapsed} size={effectiveCollapsed ? "small" : "medium"} className="text-[#FFFCFB]" />
 
-            {effectiveCollapsed ? (
-              <button
-                type="button"
-                onClick={onToggleCollapse}
-                aria-label="Pin sidebar expanded"
-                aria-expanded={false}
-                title="Pin sidebar expanded"
-                className="shrink-0 p-1.5 text-[#D7E3EF] hover:bg-[#174778] hover:text-[#FFBF00] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#FFBF00]"
-              >
-                <ChevronRight size={14} />
-              </button>
-            ) : (
+            {!effectiveCollapsed && (
               <button
                 type="button"
                 onClick={onToggleCollapse}
@@ -418,10 +399,7 @@ export function Sidebar({
                     </button>
                     {expandedSections.tools && (
                       <div className="space-y-0.5">
-                        {meetingsItem && notetakerItem
-                          ? renderDisclosureItem(meetingsItem, "meetings", [notetakerItem])
-                          : meetingsItem && renderNavItem(meetingsItem)}
-                        {notetakerItem && !meetingsItem && renderDisclosureGroup("Meetings", "meetings", [notetakerItem])}
+                        {meetingsItem && renderNavItem(meetingsItem)}
                         {mapsItem && renderNavItem(mapsItem)}
                         {bscItem && renderNavItem(bscItem)}
                       </div>
