@@ -101,6 +101,7 @@ const BusinessAnalysisView = dynamic(() => import("@/components/business-analysi
 const FormsPortal = dynamic(() => import("@/components/forms/FormsPortal"), { loading: PanelLoading });
 const ProjectAtlasMapsPage = dynamic(() => import("@/components/ProjectAtlasMapsPage"), { loading: PanelLoading });
 const BscPortal = dynamic(() => import("@/components/BscPortal").then((module) => module.BscPortal), { loading: PanelLoading });
+const GoogleAdsKnowledgeCenter = dynamic(() => import("@/components/GoogleAdsKnowledgeCenter").then((module) => module.GoogleAdsKnowledgeCenter), { loading: PanelLoading });
 
 const VENUE_OPTIONS = [
   "GreatWork Mega Tower 32F - Secret Room",
@@ -1395,6 +1396,7 @@ export default function Home() {
             {currentView === "maps" && <ProjectAtlasMapsPage />}
             {currentView === "bsc" && <BscPortal />}
             {currentView === "delta" && <ContractsWorkspace />}
+            {(currentView === "performance-marketing" || currentView === "google-ads") && <GoogleAdsKnowledgeCenter pathname={pathname || ""} userId={authUser?.id ? String(authUser.id) : undefined} />}
 
             {/* VIEW: TASKS (CLICKUP PORTAL) */}
             {(currentView === "tasks" || currentView === "notebook") && (

@@ -19,9 +19,11 @@ import {
   BriefcaseBusiness,
   Map as MapIcon,
   FileSpreadsheet,
+  BookOpenText,
+  Megaphone,
 } from "lucide-react";
 
-export type NavView = "dashboard" | "project" | "tasks" | "notebook" | "reports" | "market-insights" | "demands" | "meetings" | "minutes" | "maps" | "bsc" | "forms" | "delta" | "business-analysis" | "forms-admin";
+export type NavView = "dashboard" | "project" | "tasks" | "notebook" | "reports" | "market-insights" | "demands" | "meetings" | "minutes" | "maps" | "bsc" | "forms" | "delta" | "business-analysis" | "forms-admin" | "performance-marketing" | "google-ads";
 
 interface SidebarProps {
   currentView: NavView;
@@ -64,6 +66,7 @@ export function Sidebar({
     monitoring: true,
     tools: true,
     meetings: true,
+    knowledgeCenter: true,
   });
   const hoverTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
 
@@ -137,6 +140,8 @@ export function Sidebar({
       icon: NotebookTabs,
       badge: null
     },
+    { id: "performance-marketing" as NavView, label: "Performance Marketing", icon: Megaphone, badge: null },
+    { id: "google-ads" as NavView, label: "Google Ads", icon: BookOpenText, badge: null },
   ];
 
   const normalizedSidebarOrder = [...(sidebarOrder || [])];
@@ -162,6 +167,7 @@ export function Sidebar({
     { id: "personal" as const, label: "Personal Workspace", itemIds: ["business-analysis"] as NavView[] },
     { id: "workspaces" as const, label: "Workspaces", itemIds: ["dashboard", "project", "delta", "notebook"] as NavView[] },
     { id: "monitoring" as const, label: "Monitoring", itemIds: ["demands", "market-insights", "reports"] as NavView[] },
+    { id: "knowledgeCenter" as const, label: "Knowledge Center", itemIds: ["performance-marketing"] as NavView[] },
   ].map((group) => ({
     ...group,
     items: group.itemIds
@@ -188,7 +194,7 @@ export function Sidebar({
         onPointerEnter={() => onPreloadView?.(item.id)}
         onFocus={() => onPreloadView?.(item.id)}
         title={effectiveCollapsed ? item.label : undefined}
-        className={`w-full flex items-center gap-2.5 ${nested ? "pl-4" : "px-2.5"} py-2 text-[13px] font-normal transition-colors cursor-pointer ${
+        className={`w-full min-h-11 flex items-center gap-2.5 ${nested ? "pl-4" : "px-2.5"} py-2 text-[13px] font-normal transition-colors cursor-pointer ${
           isActive
             ? "bg-[#FFFCFB] text-[#003366] border-l-4 border-[#C9A84C]"
             : "text-[#FFFCFB] hover:bg-[#174778] border-l-4 border-transparent"
@@ -242,7 +248,7 @@ export function Sidebar({
                     type="button"
                     aria-expanded={expandedSections[group.id]}
                     onClick={() => setExpandedSections((sections) => ({ ...sections, [group.id]: !sections[group.id] }))}
-                    className="flex w-full items-center justify-between px-2.5 pt-3 pb-1.5 text-[9px] font-bold uppercase tracking-[0.18em] text-[#9FB8CE] hover:text-[#FFFCFB]"
+                    className="flex min-h-11 w-full items-center justify-between px-2.5 pt-3 pb-1.5 text-[9px] font-bold uppercase tracking-[0.18em] text-[#9FB8CE] hover:text-[#FFFCFB]"
                   >
                     <span>{group.label}</span>
                     {expandedSections[group.id] ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
@@ -251,6 +257,11 @@ export function Sidebar({
                 {(effectiveCollapsed || expandedSections[group.id]) && (
                   <div className="space-y-1">
                     {group.items.map((item) => renderNavItem(item))}
+                    {group.id === "knowledgeCenter" && navById.has("google-ads") && (
+                      <div className={effectiveCollapsed ? "" : "ml-3 border-l border-[#31577D]"}>
+                        {renderNavItem(navById.get("google-ads")!, !effectiveCollapsed)}
+                      </div>
+                    )}
                   </div>
                 )}
               </section>

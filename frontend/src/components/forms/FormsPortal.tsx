@@ -40,7 +40,7 @@ import { ALL_FEATURES, FEATURE_CATALOG, type FeatureId } from "@/lib/access-cont
 export type PortalTab = "create" | "track" | "approvals" | "admin";
 export type Role = "owner" | "admin" | "approver" | "requestor";
 export type FormType = "rfp" | "po" | "pcv";
-export type AppPage = "dashboard" | "project" | "tasks" | "notebook" | "reports" | "market-insights" | "demands" | "meetings" | "minutes" | "forms" | "delta" | "business-analysis" | "bsc";
+export type AppPage = "dashboard" | "project" | "tasks" | "notebook" | "reports" | "market-insights" | "demands" | "meetings" | "minutes" | "forms" | "delta" | "business-analysis" | "bsc" | "performance-marketing" | "google-ads";
 
 export const APP_PAGE_LIST: Array<{ id: AppPage; label: string; desc: string }> = [
   { id: "dashboard", label: "Dashboard", desc: "Executive overview & meeting metrics" },
