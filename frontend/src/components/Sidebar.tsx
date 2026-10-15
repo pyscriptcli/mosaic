@@ -234,7 +234,7 @@ export function Sidebar({
         } focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#FFBF00] ${effectiveCollapsed ? "justify-center !ml-0 !w-full !px-0 !border-l-0" : ""}`}
       >
         <Icon size={18} className={`shrink-0 ${isActive ? "text-[#C9A84C]" : "text-[#D7E3EF]"}`} />
-        {!effectiveCollapsed && <span className="truncate">{item.label}</span>}
+        {!effectiveCollapsed && <span className={item.id === "performance-marketing" ? "min-w-0 flex-1 whitespace-normal leading-tight" : "truncate"}>{item.label}</span>}
       </button>
     );
   };
@@ -362,9 +362,9 @@ export function Sidebar({
                         type="button"
                         aria-expanded={expandedSections[group.id]}
                         onClick={() => setExpandedSections((sections) => ({ ...sections, [group.id]: !sections[group.id] }))}
-                        className="flex min-h-9 w-full items-center justify-between px-2.5 pt-2.5 pb-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[#9FB8CE] hover:text-[#FFFCFB] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#FFBF00]"
+                        className="flex min-h-9 w-full items-center justify-between px-2.5 pt-2.5 pb-1 text-left text-[11px] font-bold uppercase tracking-[0.14em] text-[#9FB8CE] hover:text-[#FFFCFB] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#FFBF00]"
                       >
-                        <span>{group.label}</span>
+                        <span className="flex-1 text-left">{group.label}</span>
                         {expandedSections[group.id] ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
                       </button>
                       {expandedSections[group.id] && (
