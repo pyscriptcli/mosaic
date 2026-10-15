@@ -111,6 +111,24 @@ function trimTrailingEmptyColumns(rows: string[][]) {
   return rows.map((row) => row.slice(0, columnCount));
 }
 
+function inferCsvColumnWidths(rows: string[][]): number[] {
+  const columnCount = Math.max(0, ...rows.map((row) => row.length));
+  return Array.from({ length: columnCount }, (_, columnIndex) => {
+    const lengths = rows
+      .map((row) => row[columnIndex]?.trim())
+      .filter((value): value is string => Boolean(value))
+      .flatMap((value) => value.split(/\r?\n/).map((line) => line.length))
+      .sort((left, right) => left - right);
+
+    if (!lengths.length) return 18;
+
+    // CSV has no saved column widths. Estimate a useful width from typical cell
+    // content, then cap it so a single long note cannot dominate the whole page.
+    const typicalLength = lengths[Math.floor((lengths.length - 1) * 0.75)];
+    return Math.max(24, Math.min(160, typicalLength * 5 + 16));
+  });
+}
+
 function colorToRgb(color?: ExcelColor | null): Rgb | undefined {
   if (!color) return undefined;
   const source = color.argb || color.rgb;
@@ -223,7 +241,7 @@ export async function readBscFile(file: File): Promise<BscSheet[]> {
     return [{
       name: file.name.replace(/\.csv$/i, ""),
       rows: rows.map((row) => row.map((text) => ({ text, styles: {}, borders: {} }))),
-      columnWidths: Array(Math.max(0, ...rows.map((row) => row.length))).fill(columnWidthPoints(12)),
+      columnWidths: inferCsvColumnWidths(rows),
       rowHeights: rows.map(() => 0),
       merges: [],
       printArea: "",

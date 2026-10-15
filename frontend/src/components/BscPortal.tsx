@@ -327,7 +327,7 @@ export function BscPortal() {
                 </div>
               </details>
 
-              <p className="border-l-2 border-[#C9A84C] bg-[#FBF7E9] px-2.5 py-2 text-[11px] leading-4 text-slate-600">Workbook colors, borders, merged cells, and sheet sizing are retained. Smart page breaks keep rows together and repeat the selected header.</p>
+              <p className="border-l-2 border-[#C9A84C] bg-[#FBF7E9] px-2.5 py-2 text-[11px] leading-4 text-slate-600">{fileName.toLowerCase().endsWith(".csv") ? "CSV files contain cell values only, so column widths are estimated for print. Upload the Excel workbook to retain its colors, borders, merged cells, and saved sizing." : "Workbook colors, borders, merged cells, and sheet sizing are retained. Smart page breaks keep rows together and repeat the selected header."}</p>
               <div className="flex items-start gap-2 border-t border-slate-100 pt-3 text-[10px] leading-4 text-slate-500"><ShieldCheck aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#31577D]" /><p>The workbook stays in this browser tab. It is not uploaded or saved.</p></div>
             </div>
           </aside>
