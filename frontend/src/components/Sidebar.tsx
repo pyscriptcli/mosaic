@@ -234,7 +234,7 @@ export function Sidebar({
         } focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#FFBF00] ${effectiveCollapsed ? "justify-center !ml-0 !w-full !px-0 !border-l-0" : ""}`}
       >
         <Icon size={18} className={`shrink-0 ${isActive ? "text-[#C9A84C]" : "text-[#D7E3EF]"}`} />
-        {!effectiveCollapsed && <span className={item.id === "performance-marketing" ? "min-w-0 flex-1 whitespace-normal leading-tight" : "truncate"}>{item.label}</span>}
+        {!effectiveCollapsed && <span className={item.id === "performance-marketing" ? "min-w-0 flex-1 whitespace-normal text-left leading-tight" : "truncate"}>{item.label}</span>}
       </button>
     );
   };
