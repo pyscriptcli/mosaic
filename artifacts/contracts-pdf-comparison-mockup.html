@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#003366">
+  <title>Contracts — PDF comparison mockup</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --navy: #003366;
+      --blue: #31577D;
+      --gold: #C9A84C;
+      --paper: #FFFCFB;
+      --ink: #181D1E;
+      --muted: #65727A;
+      --line: #DCE2E6;
+      --wash: #F3F6F8;
+      --green: #137453;
+      --green-bg: #E6F4ED;
+      --red: #A53A37;
+      --red-bg: #FBECEA;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; border-radius: 0 !important; }
+    body { margin: 0; color: var(--ink); background: #F5F7F8; }
+    button, input { font: inherit; }
+    button { cursor: pointer; }
+    .app { min-height: 100vh; display: grid; grid-template-columns: 220px minmax(0, 1fr); }
+    .sidebar { display: flex; flex-direction: column; min-height: 100vh; background: var(--navy); color: var(--paper); padding: 18px 12px 12px; }
+    .brand { display: flex; align-items: center; gap: 10px; padding: 3px 8px 23px; border-bottom: 1px solid #ffffff30; }
+    .brand-mark { display: grid; place-items: center; width: 29px; height: 29px; border: 1px solid var(--gold); color: var(--gold); font: 600 12px Georgia, serif; }
+    .brand-name { font-size: 13px; font-weight: 650; letter-spacing: .11em; }
+    .nav-label { padding: 21px 9px 7px; color: #B8C9D9; font-size: 9px; font-weight: 700; letter-spacing: .15em; text-transform: uppercase; }
+    .nav-item { display: flex; align-items: center; gap: 11px; min-height: 39px; padding: 0 10px; color: #F3F7FA; font-size: 12px; text-decoration: none; }
+    .nav-item svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; }
+    .nav-item.active { color: var(--navy); background: var(--paper); box-shadow: inset 3px 0 var(--gold); font-weight: 650; }
+    .sidebar-spacer { flex: 1; }
+    .profile { display: flex; align-items: center; gap: 9px; border-top: 1px solid #ffffff30; padding: 13px 5px 3px; }
+    .avatar { display: grid; place-items: center; width: 29px; height: 29px; border: 1px solid #ffffff88; font-size: 10px; }
+    .profile strong, .profile small { display: block; }
+    .profile strong { font-size: 10px; }
+    .profile small { margin-top: 3px; color: #C7D3DF; font-size: 9px; }
+    main { min-width: 0; padding: 22px clamp(16px, 2.4vw, 36px) 34px; }
+    .topline { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding-bottom: 15px; border-bottom: 1px solid #C9D3DA; color: var(--blue); font-size: 10px; }
+    .breadcrumbs { display: flex; align-items: center; gap: 8px; }
+    .crumb-sep { color: #94A2AD; }
+    .top-actions { display: flex; align-items: center; gap: 8px; }
+    .icon-button { display: grid; place-items: center; width: 31px; height: 31px; border: 1px solid #B8C5CE; background: var(--paper); color: var(--navy); }
+    .icon-button svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.7; }
+    .heading { display: flex; justify-content: space-between; align-items: end; gap: 18px; padding: 23px 0 19px; }
+    .eyebrow { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; color: var(--blue); font-size: 9px; font-weight: 700; letter-spacing: .15em; text-transform: uppercase; }
+    .eyebrow::before { width: 16px; height: 2px; background: var(--gold); content: ""; }
+    h1 { margin: 0; color: var(--navy); font: 500 clamp(24px, 2.5vw, 33px)/1.15 Georgia, "Times New Roman", serif; letter-spacing: -.02em; }
+    .subtitle { margin: 6px 0 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+    .heading-actions { display: flex; flex-wrap: wrap; justify-content: end; gap: 7px; }
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 34px; padding: 0 11px; border: 1px solid #B8C5CE; background: white; color: var(--navy); font-size: 10px; font-weight: 650; white-space: nowrap; }
+    .btn svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+    .btn.primary { border-color: var(--navy); background: var(--navy); color: white; }
+    .btn:hover { border-color: var(--navy); background: #F0F4F7; }
+    .btn.primary:hover { background: #174778; }
+    .file-strip { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-bottom: 14px; }
+    .file-item { display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 53px; padding: 8px 10px; border: 1px solid var(--line); background: white; }
+    .pdf-icon { display: grid; place-items: center; width: 30px; height: 34px; flex: 0 0 30px; background: #F9ECEA; color: #A8433B; font-size: 8px; font-weight: 800; }
+    .file-copy { min-width: 0; flex: 1; }
+    .file-copy strong, .file-copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .file-copy strong { color: var(--navy); font-size: 10px; }
+    .file-copy small { margin-top: 4px; color: var(--muted); font-size: 9px; }
+    .file-role { padding: 4px 6px; background: var(--wash); color: var(--blue); font-size: 8px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }
+    .compare-topbar { display: flex; justify-content: space-between; align-items: center; gap: 10px; min-height: 42px; border: 1px solid var(--line); border-bottom: 0; background: white; padding: 6px 9px; }
+    .legend { display: flex; align-items: center; flex-wrap: wrap; gap: 13px; color: var(--muted); font-size: 9px; }
+    .legend-item { display: inline-flex; align-items: center; gap: 5px; }
+    .swatch { width: 9px; height: 9px; display: inline-block; }
+    .swatch.added { background: #7CC5A3; }
+    .swatch.removed { background: #E8A09A; }
+    .page-control { display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 9px; }
+    .page-control button { display: grid; place-items: center; width: 25px; height: 25px; border: 1px solid var(--line); background: white; color: var(--navy); }
+    .page-control button:disabled { opacity: .38; cursor: default; }
+    .page-control svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2; }
+    .compare-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, .82fr); border: 1px solid var(--line); background: #E9EDF0; min-height: 600px; }
+    .column { min-width: 0; display: flex; flex-direction: column; border-right: 1px solid var(--line); }
+    .column:last-child { border-right: 0; }
+    .column-head { position: sticky; top: 0; z-index: 2; display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 42px; padding: 0 10px; border-bottom: 1px solid var(--line); background: #FBFCFC; }
+    .column-title { display: flex; align-items: center; gap: 7px; color: var(--navy); font-size: 10px; font-weight: 750; }
+    .column-title .num { display: grid; place-items: center; width: 18px; height: 18px; border: 1px solid #C7D1D8; color: var(--blue); font-size: 9px; }
+    .column-title.diff-title .num { border-color: var(--gold); background: #FCF8EB; color: #81651E; }
+    .column-meta { color: var(--muted); font-size: 9px; white-space: nowrap; }
+    .viewport { height: min(72vh, 760px); min-height: 550px; overflow: auto; padding: 14px 12px 28px; scrollbar-color: #AAB7C0 transparent; }
+    .paper { position: relative; width: min(100%, 350px); min-height: 475px; margin: 0 auto 14px; padding: 27px 27px 25px; background: #fff; box-shadow: 0 1px 4px #1c30401c, 0 8px 20px #1c304010; color: #303B42; font-family: Georgia, "Times New Roman", serif; }
+    .paper-head { padding-bottom: 13px; border-bottom: 1px solid #D8DDE0; text-align: center; }
+    .paper-brand { color: #66737C; font: 700 7px/1.5 Inter, sans-serif; letter-spacing: .2em; text-transform: uppercase; }
+    .paper h2 { margin: 10px 0 3px; color: #253849; font: 700 13px/1.25 Georgia, serif; letter-spacing: .03em; }
+    .paper-sub { color: #75818A; font: 8px/1.4 Inter, sans-serif; }
+    .paper-section { margin-top: 16px; }
+    .paper-section h3 { margin: 0 0 5px; color: #334857; font: 700 8px/1.4 Inter, sans-serif; }
+    .paper p { margin: 0 0 8px; color: #48545D; font-size: 8px; line-height: 1.75; }
+    .paper p.tight { margin-bottom: 5px; }
+    .paper .tiny { color: #818B92; font: 7px/1.55 Inter, sans-serif; }
+    .paper-footer { position: absolute; right: 27px; bottom: 15px; left: 27px; display: flex; justify-content: space-between; padding-top: 6px; border-top: 1px solid #E1E5E7; color: #8B949A; font: 7px Inter, sans-serif; }
+    mark { padding: 1px 2px; color: inherit; }
+    mark.add { background: #DDF2E7; box-shadow: inset 0 -1px #64AE89; }
+    mark.remove { background: #F9E2DF; box-shadow: inset 0 -1px #D2746C; text-decoration: line-through; text-decoration-color: #A94C45; }
+    .diff-column { background: #FBFCFC; }
+    .diff-intro { padding: 11px 11px 10px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 9px; line-height: 1.55; }
+    .diff-intro strong { color: var(--navy); }
+    .diff-scroll { height: min(72vh, 760px); min-height: 550px; overflow: auto; padding: 10px; }
+    .diff-page { margin-bottom: 12px; border: 1px solid #D8E0E5; background: white; }
+    .diff-page-head { display: flex; justify-content: space-between; align-items: center; padding: 8px; border-bottom: 1px solid #E5E9EC; background: #F7F9FA; }
+    .diff-page-head strong { color: var(--navy); font-size: 9px; }
+    .change-count { color: var(--muted); font-size: 8px; }
+    .diff-excerpt { padding: 9px 8px 8px; border-bottom: 1px solid #EDF0F2; cursor: pointer; transition: background .15s ease; }
+    .diff-excerpt:last-child { border-bottom: 0; }
+    .diff-excerpt:hover, .diff-excerpt.active { background: #FCFAF2; }
+    .diff-excerpt.active { box-shadow: inset 2px 0 var(--gold); }
+    .change-type { display: inline-flex; align-items: center; gap: 5px; margin-bottom: 6px; font-size: 8px; font-weight: 750; letter-spacing: .05em; text-transform: uppercase; }
+    .change-type.added { color: var(--green); }
+    .change-type.removed { color: var(--red); }
+    .change-type .dot { width: 6px; height: 6px; background: currentColor; }
+    .diff-excerpt p { margin: 0; color: #46535C; font: 9px/1.6 Georgia, serif; }
+    .diff-excerpt .context { margin-top: 4px; color: #7B878E; font: 8px/1.5 Inter, sans-serif; }
+    .diff-footer { display: flex; align-items: start; gap: 7px; padding: 9px 10px; border-top: 1px solid var(--line); background: #F7F9FA; color: var(--muted); font-size: 8px; line-height: 1.5; }
+    .diff-footer svg { width: 13px; height: 13px; flex: 0 0 13px; fill: none; stroke: #927526; stroke-width: 1.7; }
+    .page-tabs { display: flex; justify-content: center; gap: 4px; padding: 8px; border-top: 1px solid var(--line); background: #FBFCFC; }
+    .page-tabs button { min-width: 27px; height: 25px; border: 1px solid transparent; background: transparent; color: #687781; font-size: 9px; }
+    .page-tabs button.active { border-color: #B8C7D3; background: white; color: var(--navy); font-weight: 750; }
+    .status-note { display: flex; align-items: start; gap: 8px; margin-top: 12px; padding: 9px 11px; border: 1px solid #D9E7DD; background: #F4FAF6; color: #4D6558; font-size: 9px; line-height: 1.5; }
+    .status-note .check { color: var(--green); font-weight: 900; }
+    .toast { position: fixed; right: 18px; bottom: 18px; z-index: 5; max-width: min(360px, calc(100vw - 36px)); padding: 11px 14px; border: 1px solid #ADCBBB; background: white; box-shadow: 0 6px 24px #142A3B20; color: #225E43; font-size: 11px; opacity: 0; transform: translateY(8px); pointer-events: none; transition: opacity .18s ease, transform .18s ease; }
+    .toast.show { opacity: 1; transform: translateY(0); }
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+    @media (max-width: 1120px) {
+      .app { grid-template-columns: 64px minmax(0, 1fr); }
+      .sidebar { align-items: center; padding-right: 7px; padding-left: 7px; }
+      .brand { justify-content: center; width: 100%; padding-right: 0; padding-left: 0; }
+      .brand-name, .nav-label, .nav-item span, .profile-copy { display: none; }
+      .nav-item { justify-content: center; width: 46px; padding: 0; }
+      .profile { justify-content: center; width: 100%; }
+      .compare-grid { grid-template-columns: minmax(260px, 1fr) minmax(260px, 1fr) minmax(240px, .86fr); overflow-x: auto; }
+    }
+    @media (max-width: 760px) {
+      .app { display: block; }
+      .sidebar { display: none; }
+      main { padding: 14px 12px 24px; }
+      .heading { align-items: start; flex-direction: column; padding-top: 18px; }
+      .heading-actions { justify-content: start; }
+      .file-strip { grid-template-columns: 1fr; }
+      .compare-topbar { align-items: start; flex-direction: column; padding: 8px; }
+      .compare-grid { grid-template-columns: 1fr; overflow: visible; }
+      .column { border-right: 0; border-bottom: 1px solid var(--line); }
+      .column:last-child { border-bottom: 0; }
+      .viewport, .diff-scroll { height: 520px; min-height: 420px; }
+      .paper { width: min(100%, 400px); }
+      .topline { align-items: start; }
+    }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; } }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar" aria-label="Main navigation">
+      <div class="brand"><span class="brand-mark">M</span><span class="brand-name">MOSAIC</span></div>
+      <div class="nav-label">Workspace</div>
+      <a class="nav-item" href="#dashboard" aria-label="Dashboard"><svg viewBox="0 0 20 20"><rect x="3" y="3" width="5" height="5"/><rect x="12" y="3" width="5" height="5"/><rect x="3" y="12" width="5" height="5"/><rect x="12" y="12" width="5" height="5"/></svg><span>Dashboard</span></a>
+      <a class="nav-item" href="#projects" aria-label="Projects"><svg viewBox="0 0 20 20"><path d="M2.5 5.5h6l1.7 2h7.3v8.8H2.5z"/></svg><span>Projects</span></a>
+      <a class="nav-item" href="#notebook" aria-label="Notebook"><svg viewBox="0 0 20 20"><path d="M5 2.5h10v15H5zM3 6h2M3 10h2M3 14h2M8 7h4M8 10h4M8 13h4"/></svg><span>Notebook</span></a>
+      <a class="nav-item active" href="#contracts" aria-current="page" aria-label="Contracts"><svg viewBox="0 0 20 20"><path d="M5 2.5h7l4 4v11H5zM12 2.5v4h4M8 10h5M8 13h5"/></svg><span>Contracts</span></a>
+      <div class="sidebar-spacer"></div>
+      <div class="profile"><span class="avatar">DP</span><span class="profile-copy"><strong>Dave Policarpio</strong><small>Workspace member</small></span></div>
+    </aside>
+
+    <main>
+      <div class="topline">
+        <div class="breadcrumbs"><span>Workspace</span><span class="crumb-sep">/</span><strong>Contracts</strong><span class="crumb-sep">/</span><span>Comparison</span></div>
+        <div class="top-actions"><button class="icon-button" type="button" aria-label="Help" title="Help"><svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="7.5"/><path d="M8.2 7.4a1.9 1.9 0 1 1 3.2 1.4c-.9.8-1.4 1.1-1.4 2.4M10 14.2h.01"/></svg></button><span class="avatar" style="color:var(--navy);border-color:#AABAC5">DP</span></div>
+      </div>
+
+      <header class="heading">
+        <div><div class="eyebrow">Contract review</div><h1>PDF comparison</h1><p class="subtitle">Review both source documents beside the changes detected between them.</p></div>
+        <div class="heading-actions">
+          <button class="btn" type="button" id="replaceFiles"><svg viewBox="0 0 20 20"><path d="M3 10a7 7 0 0 1 12-4.9L17 7M17 3v4h-4M17 10a7 7 0 0 1-12 4.9L3 13m0 4v-4h4"/></svg>Replace PDFs</button>
+          <button class="btn primary" type="button" id="saveReview"><svg viewBox="0 0 20 20"><path d="M4 2.5h10l2.5 2.5v12H4zM7 2.5v5h6v-5M7 17v-5h6v5"/></svg>Save comparison</button>
+        </div>
+      </header>
+
+      <section class="file-strip" aria-label="Compared PDF files">
+        <div class="file-item"><span class="pdf-icon">PDF</span><span class="file-copy"><strong id="fileName1">Service Agreement — Draft 1.pdf</strong><small>12 pages · 1.8 MB · Selectable text</small></span><span class="file-role">Contract 1</span></div>
+        <div class="file-item"><span class="pdf-icon">PDF</span><span class="file-copy"><strong id="fileName2">Service Agreement — Revised.pdf</strong><small>12 pages · 1.9 MB · Selectable text</small></span><span class="file-role">Contract 2</span></div>
+      </section>
+
+      <div class="compare-topbar">
+        <div class="legend" aria-label="Highlight legend"><strong style="color:var(--navy)">Highlights</strong><span class="legend-item"><i class="swatch removed"></i>Removed from Contract 1</span><span class="legend-item"><i class="swatch added"></i>Added to Contract 2</span></div>
+        <div class="page-control"><button id="prevPage" type="button" aria-label="Previous page"><svg viewBox="0 0 16 16"><path d="m10 3-5 5 5 5"/></svg></button><span>Page <strong id="pageLabel" style="color:var(--navy)">4</strong> of 12</span><button id="nextPage" type="button" aria-label="Next page"><svg viewBox="0 0 16 16"><path d="m6 3 5 5-5 5"/></svg></button><button class="icon-button" id="zoomOut" type="button" aria-label="Zoom out" title="Zoom out" style="width:25px;height:25px;font-size:15px">−</button><button class="icon-button" id="zoomIn" type="button" aria-label="Zoom in" title="Zoom in" style="width:25px;height:25px;font-size:15px">+</button></div>
+      </div>
+
+      <section class="compare-grid" aria-label="Three-column contract comparison">
+        <article class="column" aria-labelledby="column1Title">
+          <header class="column-head"><span class="column-title" id="column1Title"><span class="num">1</span>Contract 1</span><span class="column-meta">Draft 1 · page <span class="currentPage">4</span></span></header>
+          <div class="viewport" id="viewport1" tabindex="0" aria-label="Contract 1 PDF pages">
+            <div class="paper" data-page="4">
+              <div class="paper-head"><div class="paper-brand">Northstar Advisory Group</div><h2>PROFESSIONAL SERVICES AGREEMENT</h2><div class="paper-sub">Page 4 · Agreement dated 16 September 2026</div></div>
+              <section class="paper-section"><h3>4. FEES AND PAYMENT</h3><p>4.1 In consideration of the Services, the Client shall pay the fees set out in Schedule A. Fees are exclusive of applicable taxes and reimbursable expenses approved in writing by the Client.</p><p>4.2 The Provider shall issue invoices monthly in arrears. Each undisputed invoice is due within <mark class="remove" data-change="term">thirty (30) days</mark> after the invoice date.</p><p>4.3 If the Client disputes an invoice in good faith, it shall notify the Provider within ten (10) business days and pay all undisputed amounts when due.</p></section>
+              <section class="paper-section"><h3>5. SERVICE LEVELS</h3><p>5.1 The Provider shall use commercially reasonable efforts to respond to support requests in accordance with the priorities set out in Schedule B.</p><p>5.2 The Provider shall maintain service availability of <mark class="remove" data-change="uptime">99.5%</mark> in each calendar month, excluding planned maintenance and events outside its reasonable control.</p><p>5.3 Service credits are the Client's sole and exclusive remedy for a failure to meet the availability commitment.</p></section>
+              <section class="paper-section"><h3>6. TERM AND TERMINATION</h3><p>6.1 This Agreement begins on the Effective Date and continues for an initial term of twelve (12) months, unless terminated earlier under this section.</p><p>6.2 Either party may terminate this Agreement for material breach if the breach remains uncured for thirty (30) days after written notice.</p></section>
+              <div class="paper-footer"><span>CONFIDENTIAL · NORTHSTAR / ACME</span><span>4</span></div>
+            </div>
+            <div class="paper" data-page="5"><div class="paper-head"><div class="paper-brand">Northstar Advisory Group</div><h2>PROFESSIONAL SERVICES AGREEMENT</h2><div class="paper-sub">Page 5 · Agreement dated 16 September 2026</div></div><section class="paper-section"><h3>7. CONFIDENTIALITY</h3><p>Each party shall protect the other party's Confidential Information using at least the same degree of care it uses to protect its own information of similar sensitivity, and no less than reasonable care.</p><p>The receiving party may use Confidential Information only to perform its obligations or exercise its rights under this Agreement.</p></section><section class="paper-section"><h3>8. DATA PROTECTION</h3><p>The parties shall comply with applicable data protection laws. The Provider shall process personal data only on documented instructions from the Client.</p></section><section class="paper-section"><h3>9. GENERAL</h3><p>This Agreement constitutes the entire agreement between the parties concerning its subject matter and supersedes all prior discussions and proposals.</p></section><div class="paper-footer"><span>CONFIDENTIAL · NORTHSTAR / ACME</span><span>5</span></div></div>
+          </div>
+          <nav class="page-tabs" aria-label="Contract 1 page selection"><button type="button" data-page="3">3</button><button type="button" class="active" data-page="4">4</button><button type="button" data-page="5">5</button><button type="button" data-page="6">6</button></nav>
+        </article>
+
+        <article class="column" aria-labelledby="column2Title">
+          <header class="column-head"><span class="column-title" id="column2Title"><span class="num">2</span>Contract 2</span><span class="column-meta">Revised · page <span class="currentPage">4</span></span></header>
+          <div class="viewport" id="viewport2" tabindex="0" aria-label="Contract 2 PDF pages">
+            <div class="paper" data-page="4">
+              <div class="paper-head"><div class="paper-brand">Northstar Advisory Group</div><h2>PROFESSIONAL SERVICES AGREEMENT</h2><div class="paper-sub">Page 4 · Agreement dated 16 September 2026</div></div>
+              <section class="paper-section"><h3>4. FEES AND PAYMENT</h3><p>4.1 In consideration of the Services, the Client shall pay the fees set out in Schedule A. Fees are exclusive of applicable taxes and reimbursable expenses approved in writing by the Client.</p><p>4.2 The Provider shall issue invoices monthly in arrears. Each undisputed invoice is due within <mark class="add" data-change="term">forty-five (45) days</mark> after the invoice date.</p><p>4.3 If the Client disputes an invoice in good faith, it shall notify the Provider within ten (10) business days and pay all undisputed amounts when due.</p></section>
+              <section class="paper-section"><h3>5. SERVICE LEVELS</h3><p>5.1 The Provider shall use commercially reasonable efforts to respond to support requests in accordance with the priorities set out in Schedule B.</p><p>5.2 The Provider shall maintain service availability of <mark class="add" data-change="uptime">99.9%</mark> in each calendar month, excluding planned maintenance and events outside its reasonable control.</p><p>5.3 Service credits are the Client's sole and exclusive remedy for a failure to meet the availability commitment. <mark class="add" data-change="audit">The Provider shall provide a monthly availability report on request.</mark></p></section>
+              <section class="paper-section"><h3>6. TERM AND TERMINATION</h3><p>6.1 This Agreement begins on the Effective Date and continues for an initial term of twelve (12) months, unless terminated earlier under this section.</p><p>6.2 Either party may terminate this Agreement for material breach if the breach remains uncured for thirty (30) days after written notice.</p></section>
+              <div class="paper-footer"><span>CONFIDENTIAL · NORTHSTAR / ACME</span><span>4</span></div>
+            </div>
+            <div class="paper" data-page="5"><div class="paper-head"><div class="paper-brand">Northstar Advisory Group</div><h2>PROFESSIONAL SERVICES AGREEMENT</h2><div class="paper-sub">Page 5 · Agreement dated 16 September 2026</div></div><section class="paper-section"><h3>7. CONFIDENTIALITY</h3><p>Each party shall protect the other party's Confidential Information using at least the same degree of care it uses to protect its own information of similar sensitivity, and no less than reasonable care.</p><p>The receiving party may use Confidential Information only to perform its obligations or exercise its rights under this Agreement.</p></section><section class="paper-section"><h3>8. DATA PROTECTION</h3><p>The parties shall comply with applicable data protection laws. The Provider shall process personal data only on documented instructions from the Client.</p></section><section class="paper-section"><h3>9. GENERAL</h3><p>This Agreement constitutes the entire agreement between the parties concerning its subject matter and supersedes all prior discussions and proposals.</p></section><div class="paper-footer"><span>CONFIDENTIAL · NORTHSTAR / ACME</span><span>5</span></div></div>
+          </div>
+          <nav class="page-tabs" aria-label="Contract 2 page selection"><button type="button" data-page="3">3</button><button type="button" class="active" data-page="4">4</button><button type="button" data-page="5">5</button><button type="button" data-page="6">6</button></nav>
+        </article>
+
+        <article class="column diff-column" aria-labelledby="diffTitle">
+          <header class="column-head"><span class="column-title diff-title" id="diffTitle"><span class="num">Δ</span>Diff</span><span class="column-meta">3 changes · page <span class="currentPage">4</span></span></header>
+          <div class="diff-intro"><strong>Page-aligned changes</strong><br>Choose a change to locate its highlight in both source PDFs.</div>
+          <div class="diff-scroll" id="diffScroll" tabindex="0" aria-label="Changes grouped by PDF page">
+            <section class="diff-page" data-page="4"><div class="diff-page-head"><strong>Page 4</strong><span class="change-count">3 changes</span></div>
+              <div class="diff-excerpt active" role="button" tabindex="0" data-change="term"><span class="change-type removed"><i class="dot"></i>Changed wording</span><p><del>thirty (30) days</del> <span aria-hidden="true">→</span> <ins>forty-five (45) days</ins></p><p class="context">4.2 · Invoice payment term</p></div>
+              <div class="diff-excerpt" role="button" tabindex="0" data-change="uptime"><span class="change-type removed"><i class="dot"></i>Changed wording</span><p><del>99.5%</del> <span aria-hidden="true">→</span> <ins>99.9%</ins></p><p class="context">5.2 · Monthly service availability</p></div>
+              <div class="diff-excerpt" role="button" tabindex="0" data-change="audit"><span class="change-type added"><i class="dot"></i>Added to Contract 2</span><p>“The Provider shall provide a monthly availability report on request.”</p><p class="context">5.3 · Service availability reporting</p></div>
+            </section>
+            <section class="diff-page" data-page="5"><div class="diff-page-head"><strong>Page 5</strong><span class="change-count">No changes</span></div><div class="diff-excerpt" style="cursor:default"><p class="context" style="margin:0">The text on this page is unchanged.</p></div></section>
+            <section class="diff-page" data-page="6"><div class="diff-page-head"><strong>Page 6</strong><span class="change-count">No changes</span></div><div class="diff-excerpt" style="cursor:default"><p class="context" style="margin:0">No text changes detected on this page.</p></div></section>
+          </div>
+          <div class="diff-footer"><svg viewBox="0 0 16 16"><path d="M8 1.8 14 4v3.7c0 3.1-2.1 5.1-6 6.5-3.9-1.4-6-3.4-6-6.5V4zM5.2 8l1.8 1.8 3.8-4"/></svg><span>Automated comparison is a review aid. Confirm every change against the source agreements.</span></div>
+        </article>
+      </section>
+
+      <div class="status-note"><span class="check">✓</span><span>Text comparison is available for both PDFs. Scanned pages without selectable text can still be viewed, but won’t show text-based highlights.</span></div>
+      <input class="sr-only" id="pdfPicker" type="file" accept="application/pdf,.pdf" multiple>
+      <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    </main>
+  </div>
+  <script>
+    (() => {
+      const pageLabel = document.getElementById('pageLabel');
+      const currentPages = document.querySelectorAll('.currentPage');
+      const pageButtons = [...document.querySelectorAll('.page-tabs button')];
+      const changeButtons = [...document.querySelectorAll('.diff-excerpt[data-change]')];
+      const toast = document.getElementById('toast');
+      let page = 4;
+      let zoom = 1;
+      let toastTimer;
+
+      function announce(message) {
+        toast.textContent = message;
+        toast.classList.add('show');
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => toast.classList.remove('show'), 2400);
+      }
+
+      function setPage(nextPage, scroll = true) {
+        page = Math.max(1, Math.min(12, nextPage));
+        pageLabel.textContent = String(page);
+        currentPages.forEach((node) => node.textContent = String(page));
+        pageButtons.forEach((button) => button.classList.toggle('active', Number(button.dataset.page) === page));
+        document.getElementById('prevPage').disabled = page <= 1;
+        document.getElementById('nextPage').disabled = page >= 12;
+        document.querySelectorAll('.diff-page').forEach((section) => section.classList.toggle('current', Number(section.dataset.page) === page));
+        if (scroll) {
+          document.querySelectorAll('.viewport').forEach((viewport) => {
+            const target = viewport.querySelector(`.paper[data-page="${page}"]`);
+            if (target) viewport.scrollTo({ top: target.offsetTop - viewport.offsetTop + viewport.scrollTop - 12, behavior: 'smooth' });
+          });
+          const targetDiff = document.querySelector(`.diff-page[data-page="${page}"]`);
+          if (targetDiff) document.getElementById('diffScroll').scrollTo({ top: targetDiff.offsetTop - 10, behavior: 'smooth' });
+        }
+      }
+
+      function focusChange(id) {
+        const selected = changeButtons.find((node) => node.dataset.change === id);
+        if (!selected) return;
+        changeButtons.forEach((node) => node.classList.toggle('active', node === selected));
+        const pageSection = selected.closest('.diff-page');
+        setPage(Number(pageSection.dataset.page), false);
+        document.querySelectorAll(`mark[data-change="${id}"]`).forEach((mark) => {
+          mark.animate([{ outline: '2px solid #C9A84C', outlineOffset: '2px' }, { outline: '2px solid transparent', outlineOffset: '4px' }], { duration: 1000, iterations: 2 });
+        });
+        const match = document.querySelector(`#viewport2 mark[data-change="${id}"]`) || document.querySelector(`#viewport1 mark[data-change="${id}"]`);
+        if (match) {
+          const viewport = match.closest('.viewport');
+          viewport.scrollTo({ top: match.offsetTop - viewport.offsetTop + viewport.scrollTop - 140, behavior: 'smooth' });
+        }
+      }
+
+      pageButtons.forEach((button) => button.addEventListener('click', () => setPage(Number(button.dataset.page))));
+      document.getElementById('prevPage').addEventListener('click', () => setPage(page - 1));
+      document.getElementById('nextPage').addEventListener('click', () => setPage(page + 1));
+      changeButtons.forEach((button) => {
+        button.addEventListener('click', () => focusChange(button.dataset.change));
+        button.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); focusChange(button.dataset.change); } });
+      });
+      document.getElementById('zoomIn').addEventListener('click', () => {
+        zoom = Math.min(1.25, zoom + .1);
+        document.querySelectorAll('.paper').forEach((paper) => paper.style.zoom = zoom);
+        announce(`Document zoom ${Math.round(zoom * 100)}%`);
+      });
+      document.getElementById('zoomOut').addEventListener('click', () => {
+        zoom = Math.max(.8, zoom - .1);
+        document.querySelectorAll('.paper').forEach((paper) => paper.style.zoom = zoom);
+        announce(`Document zoom ${Math.round(zoom * 100)}%`);
+      });
+      document.getElementById('saveReview').addEventListener('click', () => announce('Mockup only — comparison saving is not connected.'));
+      document.getElementById('replaceFiles').addEventListener('click', () => document.getElementById('pdfPicker').click());
+      document.getElementById('pdfPicker').addEventListener('change', (event) => {
+        const files = [...event.target.files].slice(0, 2);
+        files.forEach((file, index) => document.getElementById(`fileName${index + 1}`).textContent = file.name);
+        if (files.length) announce(`${files.length} selected PDF${files.length === 1 ? '' : 's'} shown by name. Viewer content is sample data.`);
+      });
+      document.addEventListener('keydown', (event) => {
+        if (event.target.matches('input, textarea, button, [role="button"]')) return;
+        if (event.key === 'ArrowLeft') setPage(page - 1);
+        if (event.key === 'ArrowRight') setPage(page + 1);
+      });
+      setPage(4, false);
+    })();
+  </script>
+</body>
+</html>
