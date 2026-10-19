@@ -2,13 +2,17 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
 import { Document, HeadingLevel, Packer, Paragraph, Table, TableCell, TableRow, TextRun, WidthType } from "docx";
 import { AlertCircle, ArrowLeft, Check, Download, FileText, FolderOpen, LoaderCircle, MessageSquareText, Plus, RefreshCw, Save, Trash2, Upload, X } from "lucide-react";
 import { compareSections, readWordSections, type DeltaEntry } from "@/lib/delta/compare";
 import { comparePdfPages, type PdfComparisonResult } from "@/lib/delta/pdfCompare";
 import { readPdfDocument, type LoadedPdfDocument } from "@/lib/delta/readPdfDocument";
+import { readWordHtml } from "@/lib/delta/wordDocument";
 import { chooseReviewFolder, deleteReview, getReviewStorageMode, hasChosenFolder, listReviews, saveReview, supportsDocumentsFolderSaving, type ReviewStorageMode, type SavedDeltaReview } from "@/lib/delta/localStore";
 import { PdfComparisonPanel } from "@/components/delta/PdfComparisonPanel";
+
+const WordComparisonPanel = dynamic(() => import("@/components/delta/WordComparisonPanel").then((module) => module.WordComparisonPanel), { ssr: false });
 
 const controlClass = "inline-flex min-h-10 items-center justify-center gap-2 border border-slate-300 bg-white px-3 text-xs font-semibold text-[#003366] transition-colors hover:border-[#003366] hover:bg-[#F7FAFC] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#003366] disabled:cursor-not-allowed disabled:opacity-50";
 
@@ -135,6 +139,8 @@ export function DeltaReview({ contextName, contextId, initialReview, onBack, ren
   const [pdfDocuments, setPdfDocuments] = useState<{ original: LoadedPdfDocument; revised: LoadedPdfDocument } | null>(null);
   const [pdfComparison, setPdfComparison] = useState<PdfComparisonResult | null>(null);
   const [pdfView, setPdfView] = useState<"side-by-side" | "cards">("side-by-side");
+  const [wordDocuments, setWordDocuments] = useState<{ original: { name: string; html: string }; revised: { name: string; html: string } } | null>(null);
+  const [wordView, setWordView] = useState<"side-by-side" | "cards">("side-by-side");
   const [title, setTitle] = useState(() => initialReview?.title || (contextName ? `${contextName} contract review` : "Contract review"));
   const [entries, setEntries] = useState<DeltaEntry[]>(() => initialReview?.entries || []);
   const [workspaceTab, setWorkspaceTab] = useState<"contracts" | "history" | "review">(() => initialReview || reviewRouteActive ? "review" : "contracts");
@@ -158,6 +164,7 @@ export function DeltaReview({ contextName, contextId, initialReview, onBack, ren
     if (side === "original") setOriginalFile(file); else setRevisedFile(file);
     setPdfDocuments(null);
     setPdfComparison(null);
+    setWordDocuments(null);
     setEntries([]);
     setReviewId("");
     setSavedAt("");
@@ -246,6 +253,7 @@ export function DeltaReview({ contextName, contextId, initialReview, onBack, ren
 
       if (originalIsPdf) {
         if (contextId) throw new Error("PDF comparison is available in the standalone Contracts workspace in this POC.");
+        setWordDocuments(null);
         setBusyLabel("Reading both PDFs in this browser");
         const [original, revised] = await Promise.all([readPdfDocument(originalDocument), readPdfDocument(revisedDocument)]);
         const result = comparePdfPages(original.pages, revised.pages);
@@ -268,19 +276,28 @@ export function DeltaReview({ contextName, contextId, initialReview, onBack, ren
         const scanPages = result.scannedPages.original.length + result.scannedPages.revised.length;
         setNotice(scanPages ? `Comparison ready with ${result.changes.length} text changes. ${scanPages} page${scanPages === 1 ? " has" : "s have"} no selectable text and were not compared.` : `${result.changes.length} text change${result.changes.length === 1 ? "" : "s"} ready. Source PDFs remain unchanged.`);
       } else {
-        setPdfDocuments(null); setPdfComparison(null);
+        setPdfDocuments(null); setPdfComparison(null); setWordDocuments(null);
         setBusyLabel("Reading both Word documents");
         if (!originalDocument.name.toLowerCase().endsWith(".docx") || !revisedDocument.name.toLowerCase().endsWith(".docx")) {
           throw new Error("Choose two PDFs or two .docx Word documents. Older .doc files are not supported.");
         }
-        const [original, revised] = await Promise.all([readWordSections(originalDocument), readWordSections(revisedDocument)]);
+        const [original, revised, renderedDocuments] = await Promise.all([
+          readWordSections(originalDocument),
+          readWordSections(revisedDocument),
+          contextId ? Promise.resolve(null) : Promise.all([readWordHtml(originalDocument), readWordHtml(revisedDocument)]),
+        ]);
         const result = compareSections(original, revised);
+        setWordDocuments(renderedDocuments ? {
+          original: { name: originalDocument.name, html: renderedDocuments[0] },
+          revised: { name: revisedDocument.name, html: renderedDocuments[1] },
+        } : null);
+        setWordView("side-by-side");
         setEntries(result); setReviewId(crypto.randomUUID()); setSavedAt(new Date().toISOString()); setAmendmentEntryId("");
         setWorkspaceTab("review");
         setNotice(result.length ? `${result.length} register entr${result.length === 1 ? "y" : "ies"} ready. Check each against the source files.` : "No wording, numbering, or comment changes were found between these documents.");
       }
     } catch (cause) {
-      setEntries([]); setPdfDocuments(null); setPdfComparison(null);
+      setEntries([]); setPdfDocuments(null); setPdfComparison(null); setWordDocuments(null);
       setError(cause instanceof Error ? cause.message : "The documents could not be compared.");
     } finally { setBusy(false); setBusyLabel(""); }
   };
@@ -401,7 +418,7 @@ export function DeltaReview({ contextName, contextId, initialReview, onBack, ren
 
       {workspaceTab === "contracts" && contextId && renderContractGallery ? renderContractGallery({ compareFiles: (original, revised) => { void runComparison(original, revised); } }) : workspaceTab === "contracts" && <div className="grid gap-5">
         <section className="border border-slate-200 bg-[#FFFCFB]">
-            <div className="border-b border-slate-200 px-4 py-3"><h2 className="text-sm font-semibold text-[#003366]">Add contract documents</h2><p className="mt-1 text-xs text-slate-600">Compare two PDFs or two .docx Word files. PDF pages are read in this browser; source PDFs stay unchanged.</p></div>
+            <div className="border-b border-slate-200 px-4 py-3"><h2 className="text-sm font-semibold text-[#003366]">Add contract documents</h2><p className="mt-1 text-xs text-slate-600">Compare two PDFs or two .docx Word files. Both are read in this browser; source files stay unchanged.</p></div>
           <div className="grid gap-4 p-4 md:grid-cols-2">
             <FileField label="Contract 1 · Original" file={originalFile} onChange={(file) => selectComparisonFile("original", file)} disabled={readOnly} />
             <FileField label="Contract 2 · Revised" file={revisedFile} onChange={(file) => selectComparisonFile("revised", file)} disabled={readOnly} />
@@ -426,7 +443,9 @@ export function DeltaReview({ contextName, contextId, initialReview, onBack, ren
 
       {workspaceTab === "review" && pdfComparison && pdfDocuments && <PdfComparisonPanel key={reviewId} originalName={pdfDocuments.original.name} revisedName={pdfDocuments.revised.name} originalPages={pdfDocuments.original.pages} revisedPages={pdfDocuments.revised.pages} originalDocument={pdfDocuments.original.document} revisedDocument={pdfDocuments.revised.document} comparison={pdfComparison} onViewChange={setPdfView} />}
 
-      {workspaceTab === "review" && entries.length > 0 && (!pdfComparison || pdfView === "cards") && <section className="border border-slate-200 bg-[#FFFCFB]">
+      {workspaceTab === "review" && wordDocuments && !pdfComparison && <WordComparisonPanel key={reviewId} originalName={wordDocuments.original.name} revisedName={wordDocuments.revised.name} originalHtml={wordDocuments.original.html} revisedHtml={wordDocuments.revised.html} entries={entries} onViewChange={setWordView} />}
+
+      {workspaceTab === "review" && entries.length > 0 && (!pdfComparison || pdfView === "cards") && (!wordDocuments || wordView === "cards") && <section className="border border-slate-200 bg-[#FFFCFB]">
         <div className="flex flex-col justify-between gap-3 border-b border-slate-200 px-4 py-3 sm:flex-row sm:items-center"><div><h2 className="text-sm font-semibold text-[#003366]">Change register <span className="ml-1 font-normal text-slate-500">{entries.length} entries</span></h2><p className="mt-1 text-xs text-slate-600">Review aid only. Verify each entry against the source documents.</p></div>{persistenceEnabled && <div className="flex flex-wrap gap-2"><button type="button" className={controlClass} onClick={exportRegister} disabled={busy}><Download aria-hidden="true" className="h-4 w-4" />Export Word</button>{!readOnly && <button type="button" className={controlClass} onClick={saveCurrentReview} disabled={busy || !originalFile || !revisedFile}><Save aria-hidden="true" className="h-4 w-4" />Save locally</button>}</div>}</div>
         <div className="border-b border-slate-100 px-4 py-3 text-xs text-slate-600">{pdfComparison ? "Changes are grouped by source PDF page. Verify each highlight against the original PDFs." : commentsFound ? "Word comments were found and are attached to relevant entries below." : "No Word comments found in either document."}</div>
         <div className="flex flex-wrap gap-x-5 gap-y-1 border-b border-slate-100 bg-white px-4 py-2 text-[10px] text-slate-500"><span><span className="mr-1 inline-block h-2.5 w-2.5 bg-rose-100 ring-1 ring-rose-300" />Removed from original wording</span><span><span className="mr-1 inline-block h-2.5 w-2.5 bg-emerald-100 ring-1 ring-emerald-300" />Added to reviewed wording</span></div>
@@ -440,7 +459,7 @@ export function DeltaReview({ contextName, contextId, initialReview, onBack, ren
         </li>)}</ol>
         <p className="border-t border-slate-200 px-4 py-3 text-[11px] leading-5 text-slate-500">AI explanations are optional and sent only when you request them. Confirm all comparisons against the source documents.</p>
       </section>}
-      {workspaceTab === "review" && entries.length === 0 && (!pdfComparison || pdfView === "cards") && <section className="border border-slate-200 bg-[#FFFCFB] px-6 py-12 text-center"><FileText aria-hidden="true" className="mx-auto h-6 w-6 text-[#31577D]" /><h2 className="mt-3 text-base font-semibold text-[#003366]">{reviewId && originalFile && revisedFile ? "No differences found" : "No review to show yet"}</h2><p className="mx-auto mt-2 max-w-md text-xs leading-5 text-slate-600">{reviewId && originalFile && revisedFile ? pdfComparison ? "No wording changes were detected in comparable PDF text. Pages without selectable text are listed above." : "No wording, numbering, or comment changes were found between these documents." : "Add the original and revised PDF or .docx Word files under Contracts, then choose Review documents to see the changes here."}</p><button type="button" onClick={() => selectWorkspaceTab("contracts")} className="mt-4 inline-flex min-h-10 items-center border border-[#003366] px-4 text-xs font-semibold text-[#003366] hover:bg-[#F7FAFC]">Go to Contracts</button></section>}
+      {workspaceTab === "review" && entries.length === 0 && (!pdfComparison || pdfView === "cards") && (!wordDocuments || wordView === "cards") && <section className="border border-slate-200 bg-[#FFFCFB] px-6 py-12 text-center"><FileText aria-hidden="true" className="mx-auto h-6 w-6 text-[#31577D]" /><h2 className="mt-3 text-base font-semibold text-[#003366]">{reviewId && originalFile && revisedFile ? "No differences found" : "No review to show yet"}</h2><p className="mx-auto mt-2 max-w-md text-xs leading-5 text-slate-600">{reviewId && originalFile && revisedFile ? pdfComparison ? "No wording changes were detected in comparable PDF text. Pages without selectable text are listed above." : "No wording, numbering, or comment changes were found between these documents." : "Add the original and revised PDF or .docx Word files under Contracts, then choose Review documents to see the changes here."}</p><button type="button" onClick={() => selectWorkspaceTab("contracts")} className="mt-4 inline-flex min-h-10 items-center border border-[#003366] px-4 text-xs font-semibold text-[#003366] hover:bg-[#F7FAFC]">Go to Contracts</button></section>}
     </section>
   );
 }
