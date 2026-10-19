@@ -58,19 +58,23 @@ function PdfPage({ document, pageNumber, page, highlights, side }: {
 export function PdfComparisonPanel({ originalName, revisedName, originalPages, revisedPages, originalDocument, revisedDocument, comparison, cardView, onViewChange }: PdfComparisonPanelProps) {
   const [view, setView] = useState<"side-by-side" | "cards">("side-by-side");
   const [selectedChangeId, setSelectedChangeId] = useState(comparison.changes[0]?.id || "");
-  const [pageNumber, setPageNumber] = useState(comparison.changes[0]?.pageNumber || 1);
+  const [originalPageNumber, setOriginalPageNumber] = useState(comparison.changes[0]?.originalPageNumber || 1);
+  const [revisedPageNumber, setRevisedPageNumber] = useState(comparison.changes[0]?.revisedPageNumber || 1);
   const originalPageCount = originalPages[originalPages.length - 1]?.pageNumber || 1;
   const revisedPageCount = revisedPages[revisedPages.length - 1]?.pageNumber || 1;
-  const maxPage = Math.max(originalPageCount, revisedPageCount);
-  const originalPage = originalPages.find((page) => page.pageNumber === pageNumber);
-  const revisedPage = revisedPages.find((page) => page.pageNumber === pageNumber);
-  const pageChanges = comparison.changes.filter((change) => change.pageNumber === pageNumber);
+  const originalPage = originalPages.find((page) => page.pageNumber === originalPageNumber);
+  const revisedPage = revisedPages.find((page) => page.pageNumber === revisedPageNumber);
+  const originalPageChanges = comparison.changes.filter((change) => change.originalPageNumber === originalPageNumber);
+  const revisedPageChanges = comparison.changes.filter((change) => change.revisedPageNumber === revisedPageNumber);
   const scanCount = comparison.scannedPages.original.length + comparison.scannedPages.revised.length;
   const selectedChange = comparison.changes.find((change) => change.id === selectedChangeId);
 
-  const selectChange = (id: string, page: number) => {
+  const selectChange = (id: string) => {
     setSelectedChangeId(id);
-    setPageNumber(page);
+    const change = comparison.changes.find((item) => item.id === id);
+    if (!change) return;
+    if (change.originalPageNumber) setOriginalPageNumber(change.originalPageNumber);
+    if (change.revisedPageNumber) setRevisedPageNumber(change.revisedPageNumber);
   };
   const selectView = (next: "side-by-side" | "cards") => {
     setView(next);
@@ -83,7 +87,10 @@ export function PdfComparisonPanel({ originalName, revisedName, originalPages, r
         <button type="button" aria-pressed={view === "side-by-side"} onClick={() => selectView("side-by-side")} className={`min-h-9 px-3 text-xs font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#C9A84C] ${view === "side-by-side" ? "bg-[#003366] text-white" : "text-[#003366] hover:bg-[#F7FAFC]"}`}>Side by side</button>
         <button type="button" aria-pressed={view === "cards"} onClick={() => selectView("cards")} className={`min-h-9 px-3 text-xs font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#C9A84C] ${view === "cards" ? "bg-[#003366] text-white" : "text-[#003366] hover:bg-[#F7FAFC]"}`}>Cards</button>
       </div>
-      {view === "side-by-side" && <div className="flex items-center gap-2 text-xs text-slate-600"><button type="button" aria-label="Previous page" disabled={pageNumber <= 1} onClick={() => setPageNumber((current) => Math.max(1, current - 1))} className="h-9 w-9 border border-slate-300 bg-white text-[#003366] disabled:opacity-40">‹</button><span>Page <strong className="text-[#003366]">{pageNumber}</strong> of {maxPage}</span><button type="button" aria-label="Next page" disabled={pageNumber >= maxPage} onClick={() => setPageNumber((current) => Math.min(maxPage, current + 1))} className="h-9 w-9 border border-slate-300 bg-white text-[#003366] disabled:opacity-40">›</button></div>}
+      {view === "side-by-side" && <div className="flex flex-wrap items-center justify-end gap-x-5 gap-y-2 text-xs text-slate-600">
+        <div className="flex items-center gap-2"><span className="text-[10px] text-slate-500">Contract 1</span><button type="button" aria-label="Previous Contract 1 page" disabled={originalPageNumber <= 1} onClick={() => setOriginalPageNumber((current) => Math.max(1, current - 1))} className="h-9 w-9 border border-slate-300 bg-white text-[#003366] disabled:opacity-40">‹</button><span>Page <strong className="text-[#003366]">{originalPageNumber}</strong> of {originalPageCount}</span><button type="button" aria-label="Next Contract 1 page" disabled={originalPageNumber >= originalPageCount} onClick={() => setOriginalPageNumber((current) => Math.min(originalPageCount, current + 1))} className="h-9 w-9 border border-slate-300 bg-white text-[#003366] disabled:opacity-40">›</button></div>
+        <div className="flex items-center gap-2"><span className="text-[10px] text-slate-500">Contract 2</span><button type="button" aria-label="Previous Contract 2 page" disabled={revisedPageNumber <= 1} onClick={() => setRevisedPageNumber((current) => Math.max(1, current - 1))} className="h-9 w-9 border border-slate-300 bg-white text-[#003366] disabled:opacity-40">‹</button><span>Page <strong className="text-[#003366]">{revisedPageNumber}</strong> of {revisedPageCount}</span><button type="button" aria-label="Next Contract 2 page" disabled={revisedPageNumber >= revisedPageCount} onClick={() => setRevisedPageNumber((current) => Math.min(revisedPageCount, current + 1))} className="h-9 w-9 border border-slate-300 bg-white text-[#003366] disabled:opacity-40">›</button></div>
+      </div>}
     </div>
 
     {scanCount > 0 && <p role="status" className="border border-amber-300 bg-[#FCFAF2] px-3 py-2 text-xs leading-5 text-[#66551F]">{scanCount} page{scanCount === 1 ? " has" : "s have"} no selectable text, so text differences can’t be checked there. Scanned pages remain visible in the source PDFs.</p>}
@@ -92,28 +99,27 @@ export function PdfComparisonPanel({ originalName, revisedName, originalPages, r
       <div className="flex flex-wrap gap-x-4 gap-y-1 border border-slate-200 bg-white px-3 py-2 text-[10px] text-slate-600"><span><i className="mr-1 inline-block h-2.5 w-2.5 bg-rose-200 ring-1 ring-rose-600" />Removed from Contract 1</span><span><i className="mr-1 inline-block h-2.5 w-2.5 bg-emerald-200 ring-1 ring-emerald-600" />Added in Contract 2</span><span className="ml-auto">Source PDFs stay unchanged</span></div>
       <div className="grid min-w-0 gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(260px,0.82fr)]">
         <section className="min-w-0 border border-slate-200 bg-[#E9EDF0]" aria-label="Contract 1 PDF">
-          <header className="flex min-h-11 items-center justify-between gap-2 border-b border-slate-200 bg-white px-3"><div className="min-w-0"><h2 className="text-xs font-semibold text-[#003366]">Contract 1</h2><span className="block truncate text-[10px] text-slate-500">{originalName}</span></div><span className="shrink-0 text-[10px] text-slate-500">Page {pageNumber} of {originalPageCount}</span></header>
-          <div className="max-h-[72vh] min-h-[520px] overflow-auto p-3"><PdfPage document={originalDocument} pageNumber={pageNumber} page={originalPage} highlights={pageChanges.flatMap((change) => change.originalRects)} side="original" /></div>
+          <header className="flex min-h-11 items-center justify-between gap-2 border-b border-slate-200 bg-white px-3"><div className="min-w-0"><h2 className="text-xs font-semibold text-[#003366]">Contract 1</h2><span className="block truncate text-[10px] text-slate-500">{originalName}</span></div><span className="shrink-0 text-[10px] text-slate-500">Page {originalPageNumber} of {originalPageCount}</span></header>
+          <div className="max-h-[72vh] min-h-[520px] overflow-auto p-3"><PdfPage document={originalDocument} pageNumber={originalPageNumber} page={originalPage} highlights={originalPageChanges.flatMap((change) => change.originalRects)} side="original" /></div>
         </section>
         <section className="min-w-0 border border-slate-200 bg-[#E9EDF0]" aria-label="Contract 2 PDF">
-          <header className="flex min-h-11 items-center justify-between gap-2 border-b border-slate-200 bg-white px-3"><div className="min-w-0"><h2 className="text-xs font-semibold text-[#003366]">Contract 2</h2><span className="block truncate text-[10px] text-slate-500">{revisedName}</span></div><span className="shrink-0 text-[10px] text-slate-500">Page {pageNumber} of {revisedPageCount}</span></header>
-          <div className="max-h-[72vh] min-h-[520px] overflow-auto p-3"><PdfPage document={revisedDocument} pageNumber={pageNumber} page={revisedPage} highlights={pageChanges.flatMap((change) => change.revisedRects)} side="revised" /></div>
+          <header className="flex min-h-11 items-center justify-between gap-2 border-b border-slate-200 bg-white px-3"><div className="min-w-0"><h2 className="text-xs font-semibold text-[#003366]">Contract 2</h2><span className="block truncate text-[10px] text-slate-500">{revisedName}</span></div><span className="shrink-0 text-[10px] text-slate-500">Page {revisedPageNumber} of {revisedPageCount}</span></header>
+          <div className="max-h-[72vh] min-h-[520px] overflow-auto p-3"><PdfPage document={revisedDocument} pageNumber={revisedPageNumber} page={revisedPage} highlights={revisedPageChanges.flatMap((change) => change.revisedRects)} side="revised" /></div>
         </section>
         <section className="min-w-0 border border-slate-200 bg-[#FFFCFB]" aria-label="PDF differences">
           <header className="flex min-h-11 items-center justify-between border-b border-slate-200 bg-white px-3"><h2 className="text-xs font-semibold text-[#003366]">Diff</h2><span className="text-[10px] text-slate-500">{comparison.changes.length} change{comparison.changes.length === 1 ? "" : "s"}</span></header>
           <div className="max-h-[72vh] min-h-[520px] space-y-2 overflow-auto p-2">
-            {pageChanges.length === 0 && <p className="border border-slate-200 bg-white p-3 text-xs text-slate-600">No text changes detected on this page.</p>}
-            {pageChanges.map((change) => <button key={change.id} type="button" aria-label={`Page ${change.pageNumber}, ${change.kind} wording`} aria-pressed={selectedChangeId === change.id} onClick={() => selectChange(change.id, change.pageNumber)} className={`block w-full border bg-white p-3 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#003366] ${selectedChangeId === change.id ? "border-[#C9A84C] shadow-[inset_2px_0_0_#C9A84C]" : "border-slate-200 hover:border-[#31577D]"}`}>
+            {comparison.changes.map((change) => <button key={change.id} type="button" aria-label={`Contract 1 page ${change.originalPageNumber ?? "not present"}, Contract 2 page ${change.revisedPageNumber ?? "not present"}, ${change.kind} wording`} aria-pressed={selectedChangeId === change.id} onClick={() => selectChange(change.id)} className={`block w-full border bg-white p-3 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#003366] ${selectedChangeId === change.id ? "border-[#C9A84C] shadow-[inset_2px_0_0_#C9A84C]" : "border-slate-200 hover:border-[#31577D]"}`}>
               <span className={`block text-[9px] font-bold uppercase tracking-wide ${change.kind === "added" ? "text-emerald-800" : change.kind === "removed" ? "text-rose-800" : "text-[#31577D]"}`}>{change.kind === "added" ? "Added to Contract 2" : change.kind === "removed" ? "Removed from Contract 1" : "Changed wording"}</span>
               {change.originalText && <span className="mt-1 block text-xs leading-5 text-rose-900"><del>{change.originalText}</del></span>}
               {change.revisedText && <span className="mt-1 block text-xs leading-5 text-emerald-900"><ins>{change.revisedText}</ins></span>}
-              <span className="mt-2 block text-[10px] text-slate-500">Page {change.pageNumber}{selectedChangeId === change.id && selectedChange ? " · highlighted in source pages" : " · select to locate"}</span>
+              <span className="mt-2 block text-[10px] text-slate-500">Contract 1 page {change.originalPageNumber ?? "not present"} · Contract 2 page {change.revisedPageNumber ?? "not present"}{selectedChangeId === change.id && selectedChange ? " · highlighted in source pages" : " · select to locate"}</span>
             </button>)}
             {comparison.changes.length === 0 && <p className="border border-slate-200 bg-white p-3 text-xs text-slate-600">{scanCount ? "No text differences can be reported for the scanned pages." : "No wording changes were found between these PDFs."}</p>}
           </div>
         </section>
       </div>
-      <p className="text-[10px] leading-5 text-slate-500">Text-based comparison is a review aid. It compares corresponding page numbers; it may miss wording moved to another page. Confirm each change against the source documents.</p>
+      <p className="text-[10px] leading-5 text-slate-500">Text-based comparison is a review aid. Pages are matched by their text, though heavily rewritten or scanned pages may still need manual review. Confirm each change against the source documents.</p>
     </>}
   </section>;
 }

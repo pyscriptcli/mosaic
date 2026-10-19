@@ -259,9 +259,9 @@ export function DeltaReview({ contextName, contextId, initialReview, onBack, ren
         const result = comparePdfPages(original.pages, revised.pages);
         const pdfEntries: DeltaEntry[] = result.changes.map((change) => ({
           id: change.id,
-          section: `Page ${change.pageNumber}`,
-          originalSection: change.originalText ? `Page ${change.pageNumber}` : "Not present",
-          revisedSection: change.revisedText ? `Page ${change.pageNumber}` : "Not present",
+          section: `Contract 1 page ${change.originalPageNumber ?? "not present"} · Contract 2 page ${change.revisedPageNumber ?? "not present"}`,
+          originalSection: change.originalPageNumber ? `Page ${change.originalPageNumber}` : "Not present",
+          revisedSection: change.revisedPageNumber ? `Page ${change.revisedPageNumber}` : "Not present",
           comments: [],
           originalText: change.originalText,
           revisedText: change.revisedText,
