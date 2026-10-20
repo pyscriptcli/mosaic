@@ -5,6 +5,10 @@ import type { DeltaEntry } from "@/lib/delta/compare";
 import { markWordSections } from "@/lib/delta/wordDocument";
 import { deltaEntryPreview, groupDeltaEntries } from "@/lib/delta/changeGroups";
 
+function setPaneScrollTop(pane: HTMLElement, scrollTop: number) {
+  pane.scrollTop = scrollTop;
+}
+
 type WordComparisonPanelProps = {
   originalName: string;
   revisedName: string;
@@ -15,16 +19,17 @@ type WordComparisonPanelProps = {
   onViewChange?: (view: "side-by-side" | "cards") => void;
 };
 
-function WordPane({ side, name, html, selectedChangeId, containerRef }: {
+function WordPane({ side, name, html, selectedChangeId, containerRef, onScroll }: {
   side: "original" | "revised";
   name: string;
   html: string;
   selectedChangeId: string;
   containerRef: RefObject<HTMLDivElement | null>;
+  onScroll?: () => void;
 }) {
   return <section className="min-w-0 border border-slate-200 bg-[#E9EDF0]" aria-label={`${side === "original" ? "Earlier" : "Later"} version Word document`}>
     <header className="flex min-h-11 items-center gap-2 border-b border-slate-200 bg-white px-3"><div className="min-w-0"><h2 className="text-xs font-semibold text-[#003366]">{side === "original" ? "Earlier version" : "Later version"}</h2><span className="block truncate text-[10px] text-slate-500">{name}</span></div></header>
-    <div className="max-h-[72vh] min-h-[520px] overflow-auto p-3">
+    <div className="max-h-[72vh] min-h-[520px] overflow-auto p-3" onScroll={onScroll}>
       <div
         ref={containerRef}
         data-selected-change={selectedChangeId}
@@ -36,10 +41,13 @@ function WordPane({ side, name, html, selectedChangeId, containerRef }: {
 }
 
 export function WordComparisonPanel({ originalName, revisedName, originalHtml, revisedHtml, entries, cardView, onViewChange }: WordComparisonPanelProps) {
-  const [view, setView] = useState<"side-by-side" | "cards">("side-by-side");
+  const [view, setView] = useState<"side-by-side" | "single" | "cards">("side-by-side");
+  const [singleSide, setSingleSide] = useState<"original" | "revised">("original");
+  const [scrollSync, setScrollSync] = useState(true);
   const [selectedChangeId, setSelectedChangeId] = useState(entries[0]?.id || "");
   const originalRef = useRef<HTMLDivElement>(null);
   const revisedRef = useRef<HTMLDivElement>(null);
+  const syncingRef = useRef(false);
   const markedOriginal = useMemo(() => markWordSections(originalHtml, entries, "original"), [entries, originalHtml]);
   const markedRevised = useMemo(() => markWordSections(revisedHtml, entries, "revised"), [entries, revisedHtml]);
   const changeGroups = useMemo(() => groupDeltaEntries(entries), [entries]);
@@ -77,22 +85,37 @@ export function WordComparisonPanel({ originalName, revisedName, originalHtml, r
     setView(next);
     onViewChange?.(next);
   };
+  const syncScroll = (side: "original" | "revised") => {
+    if (!scrollSync || syncingRef.current) return;
+    const source = (side === "original" ? originalRef : revisedRef).current?.parentElement;
+    const target = (side === "original" ? revisedRef : originalRef).current?.parentElement;
+    if (!source || !target) return;
+    const visible = Array.from(source.querySelectorAll<HTMLElement>("[data-word-change]")).find((block) => block.getBoundingClientRect().bottom > source.getBoundingClientRect().top);
+    const changeId = visible?.getAttribute("data-word-change");
+    const counterpart = changeId ? target.querySelector<HTMLElement>(`[data-word-change="${changeId}"]`) : null;
+    syncingRef.current = true;
+    if (counterpart) counterpart.scrollIntoView?.({ block: "start" });
+    else setPaneScrollTop(target, (source.scrollTop / Math.max(1, source.scrollHeight - source.clientHeight)) * Math.max(0, target.scrollHeight - target.clientHeight));
+    requestAnimationFrame(() => { syncingRef.current = false; });
+  };
 
   return <section className="space-y-3" aria-label="Word comparison">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div className="inline-flex border border-slate-300 bg-white p-1" role="group" aria-label="Comparison view">
         <button type="button" aria-pressed={view === "side-by-side"} onClick={() => selectView("side-by-side")} className={`min-h-9 px-3 text-xs font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#C9A84C] ${view === "side-by-side" ? "bg-[#003366] text-white" : "text-[#003366] hover:bg-[#F7FAFC]"}`}>Side by side</button>
+        <button type="button" aria-pressed={view === "single"} onClick={() => setView("single")} className={`min-h-9 px-3 text-xs font-semibold ${view === "single" ? "bg-[#003366] text-white" : "text-[#003366]"}`}>Single</button>
         <button type="button" aria-pressed={view === "cards"} onClick={() => selectView("cards")} className={`min-h-9 px-3 text-xs font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#C9A84C] ${view === "cards" ? "bg-[#003366] text-white" : "text-[#003366] hover:bg-[#F7FAFC]"}`}>Cards</button>
       </div>
+      <div className="flex flex-wrap items-center gap-2">{view === "single" && <label className="text-xs text-[#003366]">Version <select aria-label="Single version" value={singleSide} onChange={(event) => setSingleSide(event.target.value as "original" | "revised")}><option value="original">Earlier</option><option value="revised">Later</option></select></label>}<button type="button" aria-pressed={scrollSync} onClick={() => setScrollSync((value) => !value)} className="min-h-9 border border-slate-300 bg-white px-3 text-xs text-[#003366]">Scroll sync {scrollSync ? "On" : "Off"}</button></div>
       <div className="flex items-center gap-2" aria-label="Change navigation"><button type="button" aria-label="Previous change" disabled={selectedIndex <= 0} onClick={() => selectChange(entries[selectedIndex - 1]?.id || "")} className="h-9 w-9 border border-slate-300 bg-white text-[#003366] disabled:opacity-40">‹</button><span role="status" aria-live="polite" className="text-[10px] text-slate-600">{entries.length ? `Change ${selectedIndex + 1} of ${entries.length}` : "No changes"}</span><button type="button" aria-label="Next change" disabled={selectedIndex < 0 || selectedIndex >= entries.length - 1} onClick={() => selectChange(entries[selectedIndex + 1]?.id || "")} className="h-9 w-9 border border-slate-300 bg-white text-[#003366] disabled:opacity-40">›</button></div>
     </div>
 
     {view === "cards" ? cardView : <>
       <p role="note" className="border border-slate-200 bg-white px-3 py-2 text-[10px] leading-5 text-slate-600">Word content is rendered in this browser. Page breaks and some Word formatting may differ; source files stay unchanged.</p>
       <div className="flex flex-wrap gap-x-4 gap-y-1 border border-slate-200 bg-white px-3 py-2 text-[10px] text-slate-600"><span><i className="mr-1 inline-block h-2.5 w-2.5 bg-rose-200 ring-1 ring-rose-600" />Removed from earlier version</span><span><i className="mr-1 inline-block h-2.5 w-2.5 bg-emerald-200 ring-1 ring-emerald-600" />Added in later version</span><span className="ml-auto">Source DOCX files stay unchanged</span></div>
-      <div className="grid min-w-0 gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(260px,0.82fr)]">
-        <WordPane side="original" name={originalName} html={markedOriginal} selectedChangeId={selectedChangeId} containerRef={originalRef} />
-        <WordPane side="revised" name={revisedName} html={markedRevised} selectedChangeId={selectedChangeId} containerRef={revisedRef} />
+      <div className={`grid min-w-0 gap-3 ${view === "single" ? "xl:grid-cols-[minmax(0,1fr)_minmax(260px,0.82fr)]" : "xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(260px,0.82fr)]"}`}>
+        <div className={view === "single" && singleSide !== "original" ? "hidden" : ""}><WordPane side="original" name={originalName} html={markedOriginal} selectedChangeId={selectedChangeId} containerRef={originalRef} onScroll={() => syncScroll("original")} /></div>
+        <div className={view === "single" && singleSide !== "revised" ? "hidden" : ""}><WordPane side="revised" name={revisedName} html={markedRevised} selectedChangeId={selectedChangeId} containerRef={revisedRef} onScroll={() => syncScroll("revised")} /></div>
         <section className="min-w-0 border border-slate-200 bg-[#FFFCFB]" aria-label="Word differences">
           <header className="flex min-h-11 items-center justify-between gap-2 border-b border-slate-200 bg-white px-3"><h2 className="text-xs font-semibold text-[#003366]">Diff</h2><span className="text-[10px] text-slate-500">{entries.length} change{entries.length === 1 ? "" : "s"}</span></header>
           <div className="max-h-[72vh] min-h-[520px] space-y-2 overflow-auto p-2">

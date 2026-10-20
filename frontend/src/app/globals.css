@@ -104,6 +104,31 @@
   user-select: none;
 }
 
+.contracts-pdf-text-layer.selectable {
+  pointer-events: auto;
+  overflow: visible;
+}
+
+.contracts-pdf-text-layer.selectable span {
+  user-select: text;
+  cursor: text;
+}
+
+@media print {
+  .contracts-comparison-toolbar,
+  .contracts-pdf-toolbar,
+  .contracts-diff-rail {
+    display: none !important;
+  }
+
+  [aria-label="Earlier version PDF"],
+  [aria-label="Later version PDF"] {
+    break-inside: avoid;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+}
+
 .contracts-pdf-text-layer > :not(.markedContent),
 .contracts-pdf-text-layer .markedContent span:not(.markedContent) {
   --font-height: 0;

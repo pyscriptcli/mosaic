@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { comparePdfPages, type PdfPageText } from "./pdfCompare";
+import { comparePdfPages, resolvePairedPage, type PdfPageText } from "./pdfCompare";
+import { isBlankOnlyChange } from "./changeFilter";
 
 const page = (pageNumber: number, text: string, x = 18): PdfPageText => ({
   pageNumber,
@@ -64,24 +65,41 @@ describe("comparePdfPages", () => {
         revisedText: "New permit clause.",
       }),
     ]);
+    expect(result.pageAlignment).toEqual([
+      { originalPageNumber: null, revisedPageNumber: 1 },
+      { originalPageNumber: 1, revisedPageNumber: 2 },
+      { originalPageNumber: 2, revisedPageNumber: 3 },
+    ]);
   });
 
-  it("ignores different underscore lengths used for fill-in blanks", () => {
+  it("falls back to the nearest paired page for an unmatched page", () => {
+    const alignment = [
+      { originalPageNumber: 1, revisedPageNumber: 1 },
+      { originalPageNumber: 2, revisedPageNumber: null },
+      { originalPageNumber: 3, revisedPageNumber: 2 },
+    ];
+    expect(resolvePairedPage(alignment, "original", 2)).toBe(1);
+    expect(resolvePairedPage(alignment, "revised", 2)).toBe(3);
+  });
+
+  it("retains underscore-only edits so the user can choose to hide them", () => {
     const result = comparePdfPages(
       [page(1, "Signed by ____________________ on __________.")],
       [page(1, "Signed by ______________________________ on ______________.")],
     );
 
-    expect(result.changes).toEqual([]);
+    expect(result.changes).toHaveLength(2);
+    expect(result.changes.some((change) => isBlankOnlyChange(change))).toBe(true);
+    expect(result.changes.some((change) => !isBlankOnlyChange(change))).toBe(true);
   });
 
-  it("does not flag a fill-in underline when the other PDF renders that blank as empty", () => {
+  it("retains underline removal when the other PDF renders that blank as empty", () => {
     const result = comparePdfPages(
       [page(1, "Signed by ____________________ on file.")],
       [page(1, "Signed by on file.")],
     );
 
-    expect(result.changes).toEqual([]);
+    expect(result.changes).toEqual([expect.objectContaining({ originalText: "____________________", revisedText: "" })]);
   });
 
   it("normalizes non-breaking spaces without reporting text changes", () => {

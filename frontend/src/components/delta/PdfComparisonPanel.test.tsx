@@ -31,7 +31,8 @@ describe("PDF comparison views", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Side by side" }));
     fireEvent.click(screen.getByRole("button", { name: /page 3.*changed wording/i }));
-    expect(screen.getAllByText((_, node) => node?.textContent?.trim() === "Page 3 of 3")).toHaveLength(4);
+    expect(screen.getByLabelText("Earlier page").getAttribute("value")).toBe("3");
+    expect(screen.getByLabelText("Later page").getAttribute("value")).toBe("3");
   });
 
   it("opens the corresponding pages when the same clause moved to another page", () => {
@@ -49,7 +50,7 @@ describe("PDF comparison views", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /earlier version page 2, later version page 3, changed wording/i }));
 
-    expect(screen.getAllByText((_, node) => node?.textContent?.trim() === "Page 2 of 2").length).toBeGreaterThan(0);
-    expect(screen.getAllByText((_, node) => node?.textContent?.trim() === "Page 3 of 3").length).toBeGreaterThan(0);
+    expect(screen.getByLabelText("Earlier page").getAttribute("value")).toBe("2");
+    expect(screen.getByLabelText("Later page").getAttribute("value")).toBe("3");
   });
 });

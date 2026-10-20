@@ -44,6 +44,17 @@ export interface PdfPageChange {
 export interface PdfComparisonResult {
   changes: PdfPageChange[];
   scannedPages: { original: number[]; revised: number[] };
+  pageAlignment: Array<{ originalPageNumber: number | null; revisedPageNumber: number | null }>;
+}
+
+export function resolvePairedPage(alignment: PdfComparisonResult["pageAlignment"], side: "original" | "revised", pageNumber: number) {
+  const ownKey = side === "original" ? "originalPageNumber" : "revisedPageNumber";
+  const otherKey = side === "original" ? "revisedPageNumber" : "originalPageNumber";
+  const direct = alignment.find((pair) => pair[ownKey] === pageNumber)?.[otherKey];
+  if (direct != null) return direct;
+  return alignment
+    .filter((pair) => pair[ownKey] != null && pair[otherKey] != null)
+    .sort((left, right) => Math.abs(left[ownKey]! - pageNumber) - Math.abs(right[ownKey]! - pageNumber))[0]?.[otherKey] ?? null;
 }
 
 interface WordToken {
@@ -65,7 +76,7 @@ function pageTokens(page: PdfPageText): WordToken[] {
       const measuredWord = measuredWords.get(start);
       return {
         text,
-        key: text.replace(/^_+([.,;:!?)]*)$/u, "_$1"),
+        key: text,
         rect: { x: measuredWord?.x ?? span.x + start * scale, y: span.y, width: measuredWord?.width ?? length * scale, height: span.height },
         anchor: { textItemIndex: span.textItemIndex ?? spanIndex, start, end: start + length },
       };
@@ -186,11 +197,6 @@ function comparePage(original: PdfPageText, revised: PdfPageText, changes: PdfPa
   let group = 0;
   const flush = () => {
     if (!removed.length && !added.length) return;
-    if (![...removed, ...added].some((token) => !/^_[.,;:!?)]*$/u.test(token.key))) {
-      removed = [];
-      added = [];
-      return;
-    }
     changes.push({
       id: `pdf-page-${original.pageNumber}-change-${group++}`,
       originalPageNumber: original.pageNumber,
@@ -256,7 +262,13 @@ export function comparePdfPages(originalPages: PdfPageText[], revisedPages: PdfP
   originalPages.forEach((page) => { if (!tokensByOriginal.get(page.pageNumber)?.length) scannedPages.original.push(page.pageNumber); });
   revisedPages.forEach((page) => { if (!tokensByRevised.get(page.pageNumber)?.length) scannedPages.revised.push(page.pageNumber); });
 
-  for (const { original, revised } of alignPages(originalPages, revisedPages, tokensByOriginal, tokensByRevised)) {
+  const pageAlignment = alignPages(originalPages, revisedPages, tokensByOriginal, tokensByRevised).map(({ original, revised }) => ({
+    originalPageNumber: original?.pageNumber ?? null,
+    revisedPageNumber: revised?.pageNumber ?? null,
+  }));
+  for (const { originalPageNumber, revisedPageNumber } of pageAlignment) {
+    const original = originalPageNumber === null ? undefined : originalPages.find((page) => page.pageNumber === originalPageNumber);
+    const revised = revisedPageNumber === null ? undefined : revisedPages.find((page) => page.pageNumber === revisedPageNumber);
     if (original && revised) {
       const oldTokens = tokensByOriginal.get(original.pageNumber) || [];
       const newTokens = tokensByRevised.get(revised.pageNumber) || [];
@@ -269,5 +281,5 @@ export function comparePdfPages(originalPages: PdfPageText[], revisedPages: PdfP
     if (tokens.length) changes.push(wholePageChange(page, original ? "removed" : "added"));
   }
 
-  return { changes, scannedPages };
+  return { changes, scannedPages, pageAlignment };
 }
