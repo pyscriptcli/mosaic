@@ -50,7 +50,13 @@ function PdfPage({ document, pageNumber, page, highlights, side }: {
     {document && page
       ? <canvas ref={canvasRef} aria-label={`${side === "original" ? "Earlier version" : "Later version"}, page ${pageNumber}`} className="block h-full w-full" />
       : <div className="grid h-full place-items-center bg-white px-5 text-center text-xs text-slate-500">{page ? "PDF page preview" : `Page ${pageNumber} is not present in this PDF.`}</div>}
-    {page && <div className="pointer-events-none absolute inset-0" aria-hidden="true">{highlights.map((rect, index) => <span key={`${index}-${rect.x}`} className={`absolute border ${side === "original" ? "border-rose-700 bg-rose-300/35" : "border-emerald-700 bg-emerald-300/35"}`} style={{ left: `${rect.x / page.width * 100}%`, top: `${rect.y / page.height * 100}%`, width: `${Math.max(rect.width / page.width * 100, 0.5)}%`, height: `${Math.max(rect.height / page.height * 100, 0.7)}%` }} />)}</div>}
+    {page && <div className="pointer-events-none absolute inset-0" aria-hidden="true">{highlights.map((rect, index) => {
+      const left = Math.max(0, rect.x - 1);
+      const top = Math.max(0, rect.y - 1);
+      const right = Math.min(page.width, rect.x + rect.width + 1);
+      const bottom = Math.min(page.height, rect.y + rect.height + 1);
+      return <span key={`${index}-${rect.x}`} className={`absolute ${side === "original" ? "bg-rose-300/50" : "bg-emerald-300/50"}`} style={{ left: `${left / page.width * 100}%`, top: `${top / page.height * 100}%`, width: `${Math.max((right - left) / page.width * 100, 0.5)}%`, height: `${Math.max((bottom - top) / page.height * 100, 0.7)}%` }} />;
+    })}</div>}
     {renderError && <p role="alert" className="absolute inset-x-2 bottom-2 border border-red-300 bg-white p-2 text-center text-[10px] text-red-900">This PDF page could not be rendered.</p>}
   </div>;
 }

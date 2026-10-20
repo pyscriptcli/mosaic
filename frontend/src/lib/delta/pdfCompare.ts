@@ -4,6 +4,7 @@ export interface PdfTextSpan {
   y: number;
   width: number;
   height: number;
+  wordRects?: Array<{ start: number; end: number; x: number; width: number }>;
 }
 
 export interface PdfPageText {
@@ -45,15 +46,17 @@ interface WordToken {
 function pageTokens(page: PdfPageText): WordToken[] {
   const tokens = page.spans.flatMap((span) => {
     const matches = Array.from(span.text.matchAll(/\S+/gu));
+    const measuredWords = new Map(span.wordRects?.map((word) => [word.start, word]) || []);
     return matches.map((match) => {
       const start = match.index || 0;
       const length = match[0].length;
       const scale = span.text.length ? span.width / span.text.length : 0;
       const text = match[0].replace(/[\u00ad\u200b\ufeff]/gu, "");
+      const measuredWord = measuredWords.get(start);
       return {
         text,
         key: text.replace(/^_+([.,;:!?)]*)$/u, "_$1"),
-        rect: { x: span.x + start * scale, y: span.y, width: length * scale, height: span.height },
+        rect: { x: measuredWord?.x ?? span.x + start * scale, y: span.y, width: measuredWord?.width ?? length * scale, height: span.height },
       };
     });
   });

@@ -114,4 +114,28 @@ describe("comparePdfPages", () => {
 
     expect(result.changes[0].revisedRects).toHaveLength(1);
   });
+
+  it("uses PDF font-measured word rectangles instead of equal character widths", () => {
+    const original: PdfPageText = {
+      pageNumber: 1,
+      width: 100,
+      height: 100,
+      spans: [{ text: "Wide i", x: 10, y: 20, width: 40, height: 10, wordRects: [
+        { start: 0, end: 4, x: 10, width: 32 },
+        { start: 5, end: 6, x: 45, width: 5 },
+      ] }],
+    };
+    const revised: PdfPageText = {
+      ...original,
+      spans: [{ text: "Wide m", x: 10, y: 20, width: 40, height: 10, wordRects: [
+        { start: 0, end: 4, x: 10, width: 32 },
+        { start: 5, end: 6, x: 38, width: 12 },
+      ] }],
+    };
+
+    const result = comparePdfPages([original], [revised]);
+
+    expect(result.changes[0].originalRects).toEqual([{ x: 45, y: 20, width: 5, height: 10 }]);
+    expect(result.changes[0].revisedRects).toEqual([{ x: 38, y: 20, width: 12, height: 10 }]);
+  });
 });
