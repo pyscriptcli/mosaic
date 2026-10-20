@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { PDFDocumentProxy, RenderTask } from "pdfjs-dist";
-import { MoreHorizontal } from "lucide-react";
+import { ChevronLeft, ChevronRight, MoreHorizontal } from "lucide-react";
 import { resolvePairedPage, type PdfComparisonResult, type PdfPageText, type PdfTextAnchor, type PdfTextRect } from "@/lib/delta/pdfCompare";
 import { groupPdfChanges } from "@/lib/delta/changeGroups";
 import { measurePdfTextAnchors } from "@/lib/delta/pdfTextLayer";
@@ -33,12 +33,13 @@ function changePreview(originalText: string, revisedText: string) {
   return originalText ? `Removed: ${excerpt(originalText)}` : `Added: ${excerpt(revisedText)}`;
 }
 
-function PdfPage({ document, pageNumber, page, highlights, anchors, side }: {
+function PdfPage({ document, pageNumber, page, highlights, anchors, selectedHighlights = [], side }: {
   document?: PDFDocumentProxy;
   pageNumber: number;
   page?: PdfPageText;
   highlights: PdfTextRect[];
   anchors: PdfTextAnchor[];
+  selectedHighlights?: PdfTextRect[];
   side: "original" | "revised";
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -126,6 +127,7 @@ function PdfPage({ document, pageNumber, page, highlights, anchors, side }: {
       const bottom = Math.min(page.height, rect.y + rect.height + 0.5);
       return <span key={`${index}-${rect.x}`} className={`absolute ${side === "original" ? "bg-rose-300/50" : "bg-emerald-300/50"}`} style={{ left: `${left / page.width * 100}%`, top: `${top / page.height * 100}%`, width: `${Math.max((right - left) / page.width * 100, 0.5)}%`, height: `${Math.max((bottom - top) / page.height * 100, 0.7)}%` }} />;
     })}</div>}
+    {page && selectedHighlights.length > 0 && <div className="pointer-events-none absolute inset-0 z-20" aria-hidden="true">{selectedHighlights.map((rect, index) => <span key={`selected-${index}`} data-selected-diff-region="true" className="absolute rounded-[1px] ring-2 ring-[#C9A84C] ring-offset-1" style={{ left: `${rect.x / page.width * 100}%`, top: `${rect.y / page.height * 100}%`, width: `${Math.max(rect.width / page.width * 100, 0.7)}%`, height: `${Math.max(rect.height / page.height * 100, 0.8)}%` }} />)}</div>}
     {renderError && <p role="alert" className="absolute inset-x-2 bottom-2 border border-red-300 bg-white p-2 text-center text-[10px] text-red-900">This PDF page could not be rendered.</p>}
   </div>;
 }
@@ -142,6 +144,7 @@ export function PdfComparisonPanel({ originalName, revisedName, originalPages, r
   const revisedPageCount = revisedPages[revisedPages.length - 1]?.pageNumber || 1;
   const scanCount = comparison.scannedPages.original.length + comparison.scannedPages.revised.length;
   const selectedChange = comparison.changes.find((change) => change.id === selectedChangeId);
+  const [pagePairIndex, setPagePairIndex] = useState(() => Math.max(0, comparison.pageAlignment.findIndex((pair) => pair.originalPageNumber === originalPageNumber && pair.revisedPageNumber === revisedPageNumber)));
   const changeGroups = useMemo(() => groupPdfChanges(comparison.changes, originalPages, revisedPages), [comparison.changes, originalPages, revisedPages]);
   const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null);
   const originalPane = useRef<HTMLDivElement>(null);
@@ -238,6 +241,28 @@ export function PdfComparisonPanel({ originalName, revisedName, originalPages, r
     visiblePages.current[side] = pageNumber;
     if (side === "original") setOriginalPageNumber(pageNumber); else setRevisedPageNumber(pageNumber);
   };
+  const goToAlignment = (index: number) => {
+    const nextIndex = Math.max(0, Math.min(comparison.pageAlignment.length - 1, index));
+    const pair = comparison.pageAlignment[nextIndex];
+    if (!pair) return;
+    setPagePairIndex(nextIndex);
+    if (pair.originalPageNumber != null) goToPage("original", pair.originalPageNumber);
+    if (pair.revisedPageNumber != null) goToPage("revised", pair.revisedPageNumber);
+  };
+  const centerChange = (side: "original" | "revised", pageNumber: number, rects: PdfTextRect[]) => {
+    const pane = side === "original" ? originalPane.current : revisedPane.current;
+    const pageElement = pane?.querySelector<HTMLElement>(`[data-pdf-page="${pageNumber}"]`);
+    if (!pane || !pageElement) return;
+    visiblePages.current[side] = pageNumber;
+    if (side === "original") setOriginalPageNumber(pageNumber); else setRevisedPageNumber(pageNumber);
+    const rect = rects[0];
+    if (!rect) { pageElement.scrollIntoView?.({ block: "center", behavior: window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" }); return; }
+    const bounds = pageElement.getBoundingClientRect();
+    const page = (side === "original" ? originalPages : revisedPages).find((candidate) => candidate.pageNumber === pageNumber);
+    if (!page || !bounds.height) return;
+    const targetY = bounds.top - pane.getBoundingClientRect().top + pane.scrollTop + ((rect.y + rect.height / 2) / page.height) * bounds.height;
+    pane.scrollTo({ top: Math.max(0, targetY - pane.clientHeight / 2), behavior: window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
+  };
   const syncScroll = (side: "original" | "revised") => {
     if (syncLock.current) return;
     pendingScrollSide.current = side;
@@ -251,6 +276,8 @@ export function PdfComparisonPanel({ originalName, revisedName, originalPages, r
         .find((element) => element.getBoundingClientRect().bottom > sourceRect.top + 15);
       if (!current) return;
       const sourcePage = Number(current.dataset.pdfPage);
+      const pairIndex = comparison.pageAlignment.findIndex((pair) => pair[activeSide === "original" ? "originalPageNumber" : "revisedPageNumber"] === sourcePage);
+      if (pairIndex >= 0) setPagePairIndex(pairIndex);
       const sidePage = activeSide === "original" ? "original" : "revised";
       if (visiblePages.current[sidePage] !== sourcePage) {
         visiblePages.current[sidePage] = sourcePage;
@@ -278,8 +305,14 @@ export function PdfComparisonPanel({ originalName, revisedName, originalPages, r
     if (group) setExpandedGroupId(group.id);
     const change = comparison.changes.find((item) => item.id === id);
     if (!change) return;
-    if (change.originalPageNumber) goToPage("original", change.originalPageNumber);
-    if (change.revisedPageNumber) goToPage("revised", change.revisedPageNumber);
+    const pairIndex = comparison.pageAlignment.findIndex((pair) => (change.originalPageNumber != null && pair.originalPageNumber === change.originalPageNumber) || (change.revisedPageNumber != null && pair.revisedPageNumber === change.revisedPageNumber));
+    if (pairIndex >= 0) setPagePairIndex(pairIndex);
+    syncLock.current = true;
+    if (change.originalPageNumber) centerChange("original", change.originalPageNumber, change.originalRects);
+    else if (change.revisedPageNumber) { const paired = resolvePairedPage(comparison.pageAlignment, "revised", change.revisedPageNumber); if (paired != null) goToPage("original", paired); }
+    if (change.revisedPageNumber) centerChange("revised", change.revisedPageNumber, change.revisedRects);
+    else if (change.originalPageNumber) { const paired = resolvePairedPage(comparison.pageAlignment, "original", change.originalPageNumber); if (paired != null) goToPage("revised", paired); }
+    window.setTimeout(() => { syncLock.current = false; }, 350);
   };
   const selectView = (next: "side-by-side" | "single" | "cards") => {
     setView(next);
@@ -302,18 +335,20 @@ export function PdfComparisonPanel({ originalName, revisedName, originalPages, r
         <button type="button" aria-pressed={view === "single"} onClick={() => selectView("single")} className={`min-h-9 px-3 text-xs font-semibold ${view === "single" ? "bg-[#003366] text-white" : "text-[#003366]"}`}>Single</button>
         <button type="button" aria-pressed={view === "cards"} onClick={() => selectView("cards")} className={`min-h-9 px-3 text-xs font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#C9A84C] ${view === "cards" ? "bg-[#003366] text-white" : "text-[#003366] hover:bg-[#F7FAFC]"}`}>Cards</button>
       </div>
-      {view === "side-by-side" && <div className="flex items-center gap-2 text-[11px] text-slate-600">
-        <label className="inline-flex items-center gap-1">Earlier <input aria-label="Earlier page" type="number" min={1} max={originalPageCount} value={originalPageNumber} onChange={(event) => goToPage("original", Math.min(originalPageCount, Math.max(1, Number(event.target.value))))} className="w-12 border border-slate-300 bg-white px-1.5 py-1.5 tabular-nums text-[#003366]" /> / {originalPageCount}</label>
-        <label className="inline-flex items-center gap-1">Later <input aria-label="Later page" type="number" min={1} max={revisedPageCount} value={revisedPageNumber} onChange={(event) => goToPage("revised", Math.min(revisedPageCount, Math.max(1, Number(event.target.value))))} className="w-12 border border-slate-300 bg-white px-1.5 py-1.5 tabular-nums text-[#003366]" /> / {revisedPageCount}</label>
-      </div>}
       {view === "single" && <>
         <label className="sr-only" htmlFor="pdf-single-version">Single version</label>
         <select id="pdf-single-version" value={singleSide} onChange={(event) => setSingleSide(event.target.value as "original" | "revised")} className="h-9 border border-slate-300 bg-white px-2 text-xs text-[#003366]"><option value="original">Earlier</option><option value="revised">Later</option></select>
         <label className="inline-flex items-center gap-1 text-[11px] text-slate-600">{singleSide === "original" ? "Earlier" : "Later"} <input aria-label={`${singleSide === "original" ? "Earlier" : "Later"} page`} type="number" min={1} max={singleSide === "original" ? originalPageCount : revisedPageCount} value={singleSide === "original" ? originalPageNumber : revisedPageNumber} onChange={(event) => goToPage(singleSide, Math.min(singleSide === "original" ? originalPageCount : revisedPageCount, Math.max(1, Number(event.target.value))))} className="w-12 border border-slate-300 bg-white px-1.5 py-1.5 tabular-nums text-[#003366]" /> / {singleSide === "original" ? originalPageCount : revisedPageCount}</label>
       </>}
+      {view !== "cards" && <div className="ml-auto flex w-full min-w-0 flex-wrap items-center justify-end gap-2 sm:w-auto sm:flex-nowrap">
       <label className="sr-only" htmlFor="pdf-doc-search">Search documents</label>
       <input id="pdf-doc-search" type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search documents" className="min-h-9 w-36 min-w-0 border border-slate-300 bg-white px-2 text-xs" onKeyDown={(event) => { if (event.key === "Enter" && search.trim()) { const query = search.toLocaleLowerCase(); const originalHit = originalPages.find((page) => page.spans.some((span) => span.text.toLocaleLowerCase().includes(query))); const revisedHit = revisedPages.find((page) => page.spans.some((span) => span.text.toLocaleLowerCase().includes(query))); if (originalHit) goToPage("original", originalHit.pageNumber); if (revisedHit) goToPage("revised", revisedHit.pageNumber); } }} />
-      {view !== "cards" && <details className="relative ml-auto">
+      {view === "side-by-side" && <div className="inline-flex h-9 items-center border border-slate-300 bg-white" role="group" aria-label="Page pair selector">
+        <button type="button" aria-label="Previous page pair" disabled={pagePairIndex <= 0} onClick={() => goToAlignment(pagePairIndex - 1)} className="grid h-8 w-8 place-items-center text-[#003366] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#C9A84C] disabled:text-slate-300"><ChevronLeft aria-hidden="true" size={16} /></button>
+        <span aria-live="polite" className="min-w-16 px-1 text-center text-[11px] tabular-nums text-slate-600">{pagePairIndex + 1} / {comparison.pageAlignment.length}</span>
+        <button type="button" aria-label="Next page pair" disabled={pagePairIndex >= comparison.pageAlignment.length - 1} onClick={() => goToAlignment(pagePairIndex + 1)} className="grid h-8 w-8 place-items-center text-[#003366] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#C9A84C] disabled:text-slate-300"><ChevronRight aria-hidden="true" size={16} /></button>
+      </div>}
+      <details className="relative">
         <summary role="button" aria-label="Zoom options" title="Zoom options" className="flex h-9 w-9 cursor-pointer list-none items-center justify-center border border-slate-300 bg-white text-[#003366] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FFBF00]"><MoreHorizontal aria-hidden="true" className="h-5 w-5" /></summary>
         <div className="absolute right-0 z-30 mt-1 w-48 border border-slate-300 bg-white p-2 shadow-lg">
           <p className="px-2 py-1 text-[11px] font-semibold text-slate-600">Zoom · {Math.round(zoom * 100)}%</p>
@@ -321,7 +356,8 @@ export function PdfComparisonPanel({ originalName, revisedName, originalPages, r
             {[0.75, 0.9, 1, 1.1, 1.25, 1.5].map((preset) => <button key={preset} type="button" aria-pressed={zoom === preset} onClick={() => setZoomCentered(preset)} className={`min-h-9 border px-2 text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#C9A84C] ${zoom === preset ? "border-[#003366] bg-[#003366] text-white" : "border-slate-200 bg-white text-[#003366] hover:bg-[#F7FAFC]"}`}>{preset === 1 ? "Fit width" : `${Math.round(preset * 100)}%`}</button>)}
           </div>
         </div>
-      </details>}
+      </details>
+      </div>}
     </div>
 
     {scanCount > 0 && <p role="status" className="border border-amber-300 bg-[#FCFAF2] px-3 py-2 text-xs leading-5 text-[#66551F]">{scanCount} page{scanCount === 1 ? " has" : "s have"} no selectable text, so text differences can’t be checked there. Scanned pages remain visible in the source PDFs.</p>}
@@ -331,11 +367,11 @@ export function PdfComparisonPanel({ originalName, revisedName, originalPages, r
       <div className={`grid min-w-0 gap-3 ${view === "single" ? "xl:grid-cols-[minmax(0,1fr)_minmax(260px,0.82fr)]" : "xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(260px,0.82fr)]"}`}>
         <section className={`min-w-0 border border-slate-200 bg-[#E9EDF0] ${view === "single" && singleSide !== "original" ? "hidden" : ""}`} aria-label="Earlier version PDF">
           <header className="flex min-h-11 items-center justify-between gap-2 border-b border-slate-200 bg-white px-3"><div className="min-w-0"><h2 className="text-xs font-semibold text-[#003366]">Earlier version</h2><span className="block truncate text-[10px] text-slate-500">{originalName}</span></div><span className="shrink-0 text-[10px] text-slate-500">Page {originalPageNumber} of {originalPageCount}</span></header>
-          <div ref={originalPane} onScroll={() => syncScroll("original")} className="max-h-[72vh] min-h-[520px] space-y-3 overflow-auto p-3">{originalPages.map((page) => { const changes = originalChangesByPage.get(page.pageNumber) || []; return <div key={page.pageNumber} style={{ width: `${zoom * 100}%` }}><PdfPage document={originalDocument} pageNumber={page.pageNumber} page={page} highlights={changes.flatMap((change) => change.originalRects)} anchors={changes.flatMap((change) => change.originalAnchors)} side="original" /></div>; })}</div>
+          <div ref={originalPane} onScroll={() => syncScroll("original")} className="max-h-[72vh] min-h-[520px] space-y-3 overflow-auto p-3">{originalPages.map((page) => { const changes = originalChangesByPage.get(page.pageNumber) || []; return <div key={page.pageNumber} style={{ width: `${zoom * 100}%` }}><PdfPage document={originalDocument} pageNumber={page.pageNumber} page={page} highlights={changes.flatMap((change) => change.originalRects)} anchors={changes.flatMap((change) => change.originalAnchors)} selectedHighlights={selectedChange?.originalPageNumber === page.pageNumber ? selectedChange.originalRects : []} side="original" /></div>; })}</div>
         </section>
         <section className={`min-w-0 border border-slate-200 bg-[#E9EDF0] ${view === "single" && singleSide !== "revised" ? "hidden" : ""}`} aria-label="Later version PDF">
           <header className="flex min-h-11 items-center justify-between gap-2 border-b border-slate-200 bg-white px-3"><div className="min-w-0"><h2 className="text-xs font-semibold text-[#003366]">Later version</h2><span className="block truncate text-[10px] text-slate-500">{revisedName}</span></div><span className="shrink-0 text-[10px] text-slate-500">Page {revisedPageNumber} of {revisedPageCount}</span></header>
-          <div ref={revisedPane} onScroll={() => syncScroll("revised")} className="max-h-[72vh] min-h-[520px] space-y-3 overflow-auto p-3">{revisedPages.map((page) => { const changes = revisedChangesByPage.get(page.pageNumber) || []; return <div key={page.pageNumber} style={{ width: `${zoom * 100}%` }}><PdfPage document={revisedDocument} pageNumber={page.pageNumber} page={page} highlights={changes.flatMap((change) => change.revisedRects)} anchors={changes.flatMap((change) => change.revisedAnchors)} side="revised" /></div>; })}</div>
+          <div ref={revisedPane} onScroll={() => syncScroll("revised")} className="max-h-[72vh] min-h-[520px] space-y-3 overflow-auto p-3">{revisedPages.map((page) => { const changes = revisedChangesByPage.get(page.pageNumber) || []; return <div key={page.pageNumber} style={{ width: `${zoom * 100}%` }}><PdfPage document={revisedDocument} pageNumber={page.pageNumber} page={page} highlights={changes.flatMap((change) => change.revisedRects)} anchors={changes.flatMap((change) => change.revisedAnchors)} selectedHighlights={selectedChange?.revisedPageNumber === page.pageNumber ? selectedChange.revisedRects : []} side="revised" /></div>; })}</div>
         </section>
         <section className="contracts-diff-rail min-w-0 border border-slate-200 bg-[#FFFCFB]" aria-label="PDF differences">
           <header className="flex min-h-11 items-center justify-between border-b border-slate-200 bg-white px-3"><h2 className="text-xs font-semibold text-[#003366]">Diff</h2><span className="text-[10px] text-slate-500">{comparison.changes.length} change{comparison.changes.length === 1 ? "" : "s"}</span></header>
