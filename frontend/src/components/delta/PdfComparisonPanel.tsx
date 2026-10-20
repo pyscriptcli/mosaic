@@ -288,7 +288,7 @@ export function PdfComparisonPanel({ originalName, revisedName, originalPages, r
   const cardsContent = cardView ?? (
     <section className="grid gap-2 md:grid-cols-2" aria-label="PDF change cards">
       {comparison.changes.map((change) => <button key={change.id} type="button" aria-pressed={selectedChangeId === change.id} onClick={() => selectChange(change.id)} className={`border bg-white p-3 text-left ${selectedChangeId === change.id ? "border-[#C9A84C]" : "border-slate-200"}`}>
-        <span className="block text-xs font-semibold text-[#003366]">Earlier page {change.originalPageNumber ?? "—"} · Later page {change.revisedPageNumber ?? "—"}</span>
+        <span className="block text-xs font-semibold text-[#003366]">Earlier page {change.originalPageNumber ?? "not present"} · Later page {change.revisedPageNumber ?? "not present"}</span>
         {change.originalText && <span className="mt-2 block text-xs text-rose-900"><del>{change.originalText}</del></span>}
         {change.revisedText && <span className="mt-1 block text-xs text-emerald-900"><ins>{change.revisedText}</ins></span>}
       </button>)}

@@ -66,6 +66,21 @@ describe("PDF comparison views", () => {
     expect(after.y).toBeCloseTo(before.y);
   });
 
+  it("uses the inline document search to jump both page selectors to matching pages", () => {
+    const firstPage = { pageNumber: 1, width: 612, height: 792, spans: [{ text: "General terms.", x: 30, y: 120, width: 100, height: 12 }] };
+    const originalPages = [firstPage, { ...firstPage, pageNumber: 2, spans: [{ ...firstPage.spans[0], text: "Invoice is due within thirty days." }] }];
+    const revisedPages = [firstPage, { ...firstPage, pageNumber: 2, spans: [{ ...firstPage.spans[0], text: "Invoice is due within forty-five days." }] }];
+    const comparison = comparePdfPages(originalPages, revisedPages);
+    render(<PdfComparisonPanel originalName="draft.pdf" revisedName="revised.pdf" originalPages={originalPages} revisedPages={revisedPages} comparison={comparison} />);
+    const search = screen.getByRole("searchbox", { name: "Search documents" });
+
+    fireEvent.change(search, { target: { value: "invoice" } });
+    fireEvent.keyDown(search, { key: "Enter" });
+
+    expect(screen.getByLabelText("Earlier page").getAttribute("value")).toBe("2");
+    expect(screen.getByLabelText("Later page").getAttribute("value")).toBe("2");
+  });
+
   it("opens side by side, can switch to cards, and follows a selected change", () => {
     const originalPages = [{ pageNumber: 3, width: 612, height: 792, spans: [{ text: "Payment is due in thirty days.", x: 30, y: 120, width: 180, height: 12 }] }];
     const revisedPages = [{ pageNumber: 3, width: 612, height: 792, spans: [{ text: "Payment is due in forty five days.", x: 30, y: 120, width: 220, height: 12 }] }];
