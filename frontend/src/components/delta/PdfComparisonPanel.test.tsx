@@ -28,7 +28,8 @@ describe("PDF comparison views", () => {
 
     fireEvent.click(within(toolbar).getByRole("button", { name: "Single" }));
     fireEvent.change(within(toolbar).getByRole("combobox", { name: "Single version" }), { target: { value: "revised" } });
-    expect(within(toolbar).getByLabelText("Later page")).toBeDefined();
+    expect(within(toolbar).getByRole("group", { name: "Page selector" })).toBeDefined();
+    expect(within(toolbar).getByRole("button", { name: "Next page" })).toBeDefined();
   });
 
   it("moves both source panes by matched page pair and keeps the selected difference identified", () => {
