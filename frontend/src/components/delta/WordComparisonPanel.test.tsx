@@ -29,8 +29,8 @@ describe("WordComparisonPanel", () => {
     />);
 
     expect(screen.getByRole("button", { name: "Side by side" }).getAttribute("aria-pressed")).toBe("true");
-    expect(screen.getByRole("heading", { name: "Contract 1" })).toBeDefined();
-    expect(screen.getByRole("heading", { name: "Contract 2" })).toBeDefined();
+    expect(screen.getByRole("heading", { name: "Earlier version" })).toBeDefined();
+    expect(screen.getByRole("heading", { name: "Later version" })).toBeDefined();
     expect(screen.getByRole("heading", { name: "Diff" })).toBeDefined();
     expect(screen.getByText("draft.docx")).toBeDefined();
     expect(screen.getByText("revised.docx")).toBeDefined();
@@ -52,7 +52,7 @@ describe("WordComparisonPanel", () => {
     fireEvent.click(diff);
 
     expect(diff.getAttribute("aria-pressed")).toBe("true");
-    expect(screen.getByLabelText("Contract 1 Word document").innerHTML).toContain("data-word-change=\"delta-0-0\"");
-    expect(screen.getByLabelText("Contract 2 Word document").innerHTML).toContain("data-word-change=\"delta-0-0\"");
+    expect(screen.getByLabelText("Earlier version Word document").innerHTML).toContain("data-word-change=\"delta-0-0\"");
+    expect(screen.getByLabelText("Later version Word document").innerHTML).toContain("data-word-change=\"delta-0-0\"");
   });
 });

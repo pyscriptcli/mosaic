@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { getDocumentMock, pdfDocumentMock, pageMock } = vi.hoisted(() => ({
+const { getDocumentMock, pdfDocumentMock, pageMock, loadingTaskMock } = vi.hoisted(() => ({
   getDocumentMock: vi.fn(),
+  loadingTaskMock: { destroy: vi.fn() },
   pdfDocumentMock: {
     numPages: 1,
     getPage: vi.fn(),
@@ -29,7 +30,7 @@ describe("readPdfDocument", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     pdfDocumentMock.getPage.mockResolvedValue(pageMock);
-    getDocumentMock.mockReturnValue({ promise: Promise.resolve(pdfDocumentMock) });
+    getDocumentMock.mockReturnValue({ ...loadingTaskMock, promise: Promise.resolve(pdfDocumentMock) });
   });
 
   it("extracts selectable text and its page position locally", async () => {
@@ -39,6 +40,7 @@ describe("readPdfDocument", () => {
 
     expect(getDocumentMock).toHaveBeenCalledWith({ data: expect.any(Uint8Array) });
     expect(result.pages).toEqual([{ pageNumber: 1, width: 612, height: 792, spans: [{ text: "Payment", x: 10, y: 92, width: 42, height: 12 }] }]);
+    expect(result.loadingTask).toBeDefined();
     expect(pageMock.cleanup).toHaveBeenCalledOnce();
   });
 
@@ -47,5 +49,13 @@ describe("readPdfDocument", () => {
     vi.spyOn(file, "arrayBuffer").mockRejectedValue(new Error("invalid PDF"));
 
     await expect(readPdfDocument(file)).rejects.toThrow("broken.pdf could not be read as a PDF");
+  });
+
+  it("rejects oversized page counts and releases the local worker", async () => {
+    pdfDocumentMock.numPages = 201;
+    const file = new File(["pdf bytes"], "long.pdf", { type: "application/pdf" });
+    await expect(readPdfDocument(file)).rejects.toThrow("long.pdf exceeds the 200 page limit");
+    expect(loadingTaskMock.destroy).toHaveBeenCalled();
+    pdfDocumentMock.numPages = 1;
   });
 });

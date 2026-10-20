@@ -29,6 +29,13 @@ export interface DeltaEntry {
   };
 }
 
+export function assertWordArchiveWithinLimits(files: Record<string, unknown>) {
+  const entries = Object.values(files);
+  if (entries.length > 10_000) throw new Error("DOCX contains too many archive entries.");
+  const expandedBytes = entries.reduce<number>((total, entry) => total + (((entry as { _data?: { uncompressedSize?: number } })._data?.uncompressedSize) || 0), 0);
+  if (expandedBytes > 100 * 1024 * 1024) throw new Error("DOCX expanded content exceeds the 100 MiB safety limit.");
+}
+
 const WORD_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
 
 function paragraphText(element: Element) {
@@ -107,7 +114,9 @@ function splitSections(paragraphs: Array<{ text: string; style: string; comments
 }
 
 export async function readWordSections(file: File): Promise<DeltaSection[]> {
+  if (file.size > 20 * 1024 * 1024) throw new Error(`${file.name} exceeds the 20 MiB file limit.`);
   const zip = await JSZip.loadAsync(await file.arrayBuffer());
+  assertWordArchiveWithinLimits(zip.files);
   const documentXml = await zip.file("word/document.xml")?.async("text");
   if (!documentXml) throw new Error(`${file.name} does not contain a readable Word document.`);
   const commentsXml = await zip.file("word/comments.xml")?.async("text");
@@ -125,7 +134,9 @@ export async function readWordSections(file: File): Promise<DeltaSection[]> {
       comments: commentIds.map((id) => commentMap.get(id)).filter((value): value is DeltaComment => Boolean(value)),
     };
   });
-  return splitSections(paragraphs);
+  const sections = splitSections(paragraphs);
+  if (sections.reduce((total, section) => total + section.heading.length + section.text.length, 0) > 500_000) throw new Error(`${file.name} exceeds the 500,000 extracted character limit.`);
+  return sections;
 }
 
 function wordSet(value: string) {
@@ -170,7 +181,7 @@ export function compareSections(original: DeltaSection[], revised: DeltaSection[
     const originalText = previous ? [previous.heading, previous.text].filter(Boolean).join("\n\n") : "";
     const revisedText = [next.heading, next.text].filter(Boolean).join("\n\n");
     const renumbered = Boolean(previous && originalNumber !== revisedNumber);
-    const wordingChanged = Boolean(previous && normalize(originalText) !== normalize(revisedText));
+    const wordingChanged = Boolean(previous && originalText !== revisedText);
     const comments = [...(previous?.comments || []), ...next.comments];
     if (previous && !renumbered && !wordingChanged && !comments.length) return;
     const changeText = !previous ? "New section added" : !next ? "Section removed" : wordingChanged ? "Wording revised" : "Section renumbered";

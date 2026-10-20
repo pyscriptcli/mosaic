@@ -1,6 +1,7 @@
 import type { DeltaEntry } from "./compare";
 
 export interface SavedDeltaReview {
+  comparisonVersion?: 1;
   id: string;
   title: string;
   contextId?: string;
@@ -13,6 +14,16 @@ export interface SavedDeltaReview {
   registerFile?: Blob;
   originalFile?: File;
   revisedFile?: File;
+}
+
+function sourceFileName(file: Pick<File, "name"> | undefined, role: "earlier" | "later") {
+  const extension = file?.name.toLowerCase().match(/\.(pdf|docx|txt|md)$/u)?.[1] || "docx";
+  return `${role}.${extension}`;
+}
+
+async function readSourceFile(directory: FileSystemDirectoryHandle, primary: string, legacy: string) {
+  try { return await (await directory.getFileHandle(primary)).getFile(); }
+  catch { try { return await (await directory.getFileHandle(legacy)).getFile(); } catch { return undefined; } }
 }
 
 type DirectoryWindow = Window & {
@@ -203,10 +214,13 @@ export async function saveReview(review: SavedDeltaReview) {
   }
   const root = await authorizedReviewsDirectory();
   const directory = await root.getDirectoryHandle(`review-${review.id}`, { create: true });
-  const { originalFile: _original, revisedFile: _revised, registerFile: _register, ...saved } = review;
+  const saved = { ...review };
+  delete saved.originalFile;
+  delete saved.revisedFile;
+  delete saved.registerFile;
   await writeFile(directory, "review.json", JSON.stringify(saved, null, 2));
-  if (review.originalFile) await writeFile(directory, "original.docx", review.originalFile);
-  if (review.revisedFile) await writeFile(directory, "reviewed.docx", review.revisedFile);
+  if (review.originalFile) await writeFile(directory, sourceFileName(review.originalFile, "earlier"), review.originalFile);
+  if (review.revisedFile) await writeFile(directory, sourceFileName(review.revisedFile, "later"), review.revisedFile);
   if (review.registerFile) await writeFile(directory, "register.docx", review.registerFile);
   const ids = await readReviewIds(root);
   await writeFile(root, "index.json", JSON.stringify(Array.from(new Set([...ids, review.id]))));
@@ -221,8 +235,8 @@ export async function listReviews() {
       const directory = await root.getDirectoryHandle(`review-${id}`);
       const metadataFile = await (await directory.getFileHandle("review.json")).getFile();
       const review = JSON.parse(await metadataFile.text()) as SavedDeltaReview;
-      const originalFile = await (await directory.getFileHandle("original.docx")).getFile().catch(() => undefined);
-      const revisedFile = await (await directory.getFileHandle("reviewed.docx")).getFile().catch(() => undefined);
+      const originalFile = await readSourceFile(directory, sourceFileName({ name: review.originalName }, "earlier"), "original.docx");
+      const revisedFile = await readSourceFile(directory, sourceFileName({ name: review.revisedName }, "later"), "reviewed.docx");
       reviews.push({ ...review, originalFile, revisedFile });
     } catch {
       // Incomplete folders are skipped; they remain on disk for manual recovery.

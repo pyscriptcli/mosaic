@@ -21,8 +21,8 @@ function WordPane({ side, name, html, selectedChangeId, containerRef }: {
   selectedChangeId: string;
   containerRef: RefObject<HTMLDivElement | null>;
 }) {
-  return <section className="min-w-0 border border-slate-200 bg-[#E9EDF0]" aria-label={`Contract ${side === "original" ? "1" : "2"} Word document`}>
-    <header className="flex min-h-11 items-center gap-2 border-b border-slate-200 bg-white px-3"><div className="min-w-0"><h2 className="text-xs font-semibold text-[#003366]">Contract {side === "original" ? "1" : "2"}</h2><span className="block truncate text-[10px] text-slate-500">{name}</span></div></header>
+  return <section className="min-w-0 border border-slate-200 bg-[#E9EDF0]" aria-label={`${side === "original" ? "Earlier" : "Later"} version Word document`}>
+    <header className="flex min-h-11 items-center gap-2 border-b border-slate-200 bg-white px-3"><div className="min-w-0"><h2 className="text-xs font-semibold text-[#003366]">{side === "original" ? "Earlier version" : "Later version"}</h2><span className="block truncate text-[10px] text-slate-500">{name}</span></div></header>
     <div className="max-h-[72vh] min-h-[520px] overflow-auto p-3">
       <div
         ref={containerRef}
@@ -41,6 +41,7 @@ export function WordComparisonPanel({ originalName, revisedName, originalHtml, r
   const revisedRef = useRef<HTMLDivElement>(null);
   const markedOriginal = useMemo(() => markWordSections(originalHtml, entries, "original"), [entries, originalHtml]);
   const markedRevised = useMemo(() => markWordSections(revisedHtml, entries, "revised"), [entries, revisedHtml]);
+  const selectedIndex = entries.findIndex((entry) => entry.id === selectedChangeId);
 
   useEffect(() => {
     [originalRef.current, revisedRef.current].forEach((container) => {
@@ -74,11 +75,12 @@ export function WordComparisonPanel({ originalName, revisedName, originalHtml, r
         <button type="button" aria-pressed={view === "side-by-side"} onClick={() => selectView("side-by-side")} className={`min-h-9 px-3 text-xs font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#C9A84C] ${view === "side-by-side" ? "bg-[#003366] text-white" : "text-[#003366] hover:bg-[#F7FAFC]"}`}>Side by side</button>
         <button type="button" aria-pressed={view === "cards"} onClick={() => selectView("cards")} className={`min-h-9 px-3 text-xs font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#C9A84C] ${view === "cards" ? "bg-[#003366] text-white" : "text-[#003366] hover:bg-[#F7FAFC]"}`}>Cards</button>
       </div>
+      <div className="flex items-center gap-2" aria-label="Change navigation"><button type="button" aria-label="Previous change" disabled={selectedIndex <= 0} onClick={() => setSelectedChangeId(entries[selectedIndex - 1]?.id || "")} className="h-9 w-9 border border-slate-300 bg-white text-[#003366] disabled:opacity-40">‹</button><span role="status" aria-live="polite" className="text-[10px] text-slate-600">{entries.length ? `Change ${selectedIndex + 1} of ${entries.length}` : "No changes"}</span><button type="button" aria-label="Next change" disabled={selectedIndex < 0 || selectedIndex >= entries.length - 1} onClick={() => setSelectedChangeId(entries[selectedIndex + 1]?.id || "")} className="h-9 w-9 border border-slate-300 bg-white text-[#003366] disabled:opacity-40">›</button></div>
     </div>
 
     {view === "cards" ? cardView : <>
       <p role="note" className="border border-slate-200 bg-white px-3 py-2 text-[10px] leading-5 text-slate-600">Word content is rendered in this browser. Page breaks and some Word formatting may differ; source files stay unchanged.</p>
-      <div className="flex flex-wrap gap-x-4 gap-y-1 border border-slate-200 bg-white px-3 py-2 text-[10px] text-slate-600"><span><i className="mr-1 inline-block h-2.5 w-2.5 bg-rose-200 ring-1 ring-rose-600" />Removed from Contract 1</span><span><i className="mr-1 inline-block h-2.5 w-2.5 bg-emerald-200 ring-1 ring-emerald-600" />Added in Contract 2</span><span className="ml-auto">Source DOCX files stay unchanged</span></div>
+      <div className="flex flex-wrap gap-x-4 gap-y-1 border border-slate-200 bg-white px-3 py-2 text-[10px] text-slate-600"><span><i className="mr-1 inline-block h-2.5 w-2.5 bg-rose-200 ring-1 ring-rose-600" />Removed from earlier version</span><span><i className="mr-1 inline-block h-2.5 w-2.5 bg-emerald-200 ring-1 ring-emerald-600" />Added in later version</span><span className="ml-auto">Source DOCX files stay unchanged</span></div>
       <div className="grid min-w-0 gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(260px,0.82fr)]">
         <WordPane side="original" name={originalName} html={markedOriginal} selectedChangeId={selectedChangeId} containerRef={originalRef} />
         <WordPane side="revised" name={revisedName} html={markedRevised} selectedChangeId={selectedChangeId} containerRef={revisedRef} />

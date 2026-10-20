@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import mammoth from "mammoth";
+import JSZip from "jszip";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { readWordHtml } from "./wordDocument";
 
@@ -10,6 +11,15 @@ vi.mock("mammoth", () => ({
   },
 }));
 
+async function makeWordFile(name: string) {
+  const zip = new JSZip();
+  zip.file("word/document.xml", "<w:document />");
+  const buffer = await zip.generateAsync({ type: "arraybuffer" });
+  const file = new File(["docx bytes"], name);
+  Object.defineProperty(file, "arrayBuffer", { value: async () => buffer });
+  return file;
+}
+
 describe("readWordHtml", () => {
   beforeEach(() => vi.mocked(mammoth.convertToHtml).mockReset());
 
@@ -18,8 +28,7 @@ describe("readWordHtml", () => {
       value: '<h1>Payment</h1><p>Payment terms</p><script>alert(1)</script>',
       messages: [],
     });
-    const file = new File(["docx bytes"], "contract.docx");
-    Object.defineProperty(file, "arrayBuffer", { value: async () => new ArrayBuffer(10) });
+    const file = await makeWordFile("contract.docx");
 
     const html = await readWordHtml(file);
 
@@ -35,8 +44,7 @@ describe("readWordHtml", () => {
   it("reports an unreadable DOCX when the conversion has no document content", async () => {
     vi.mocked(mammoth.convertToHtml).mockResolvedValue({ value: "  ", messages: [] });
 
-    const file = new File(["bad"], "broken.docx");
-    Object.defineProperty(file, "arrayBuffer", { value: async () => new ArrayBuffer(3) });
+    const file = await makeWordFile("broken.docx");
     await expect(readWordHtml(file)).rejects.toThrow(
       "broken.docx could not be rendered as a Word document.",
     );

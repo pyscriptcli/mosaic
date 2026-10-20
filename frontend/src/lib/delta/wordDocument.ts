@@ -1,5 +1,6 @@
 import mammoth from "mammoth";
-import type { DeltaEntry } from "./compare";
+import JSZip from "jszip";
+import { assertWordArchiveWithinLimits, type DeltaEntry } from "./compare";
 
 const safeTags = new Set(["p", "h1", "h2", "h3", "h4", "h5", "h6", "div", "span", "br", "hr", "strong", "b", "em", "i", "u", "s", "del", "ins", "sub", "sup", "blockquote", "ul", "ol", "li", "table", "thead", "tbody", "tfoot", "tr", "td", "th", "img"]);
 const blockedTags = new Set(["script", "style", "iframe", "object", "embed", "form", "input", "video", "audio", "svg", "math"]);
@@ -81,13 +82,15 @@ export function markWordSections(html: string, entries: DeltaEntry[], side: "ori
 
 export async function readWordHtml(file: File): Promise<string> {
   try {
+    if (file.size > 20 * 1024 * 1024) throw new Error(`${file.name} exceeds the 20 MiB file limit.`);
     const arrayBuffer = await file.arrayBuffer();
+    const zip = await JSZip.loadAsync(arrayBuffer);
+    assertWordArchiveWithinLimits(zip.files);
     const result = await mammoth.convertToHtml({ arrayBuffer }, { convertImage: mammoth.images.dataUri });
     if (!result.value.trim()) throw new Error("No readable Word content was found.");
     return sanitizeWordHtml(result.value);
   } catch (cause) {
-    throw new Error(cause instanceof Error && cause.message.includes(file.name)
-      ? cause.message
-      : `${file.name} could not be rendered as a Word document. Check that it is a valid .docx file and try again.`);
+    if (cause instanceof Error && (cause.message.includes(file.name) || cause.message.includes("limit"))) throw cause;
+    throw new Error(`${file.name} could not be rendered as a Word document. Check that it is a valid .docx file and try again.`);
   }
 }

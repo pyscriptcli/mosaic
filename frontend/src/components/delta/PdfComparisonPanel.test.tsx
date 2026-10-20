@@ -22,8 +22,8 @@ describe("PDF comparison views", () => {
     />);
 
     expect(screen.getByRole("button", { name: "Side by side" }).getAttribute("aria-pressed")).toBe("true");
-    expect(screen.getByRole("heading", { name: "Contract 1" })).toBeDefined();
-    expect(screen.getByRole("heading", { name: "Contract 2" })).toBeDefined();
+    expect(screen.getByRole("heading", { name: "Earlier version" })).toBeDefined();
+    expect(screen.getByRole("heading", { name: "Later version" })).toBeDefined();
     expect(screen.getByRole("heading", { name: "Diff" })).toBeDefined();
 
     fireEvent.click(screen.getByRole("button", { name: "Cards" }));
@@ -47,7 +47,7 @@ describe("PDF comparison views", () => {
     const comparison = comparePdfPages(originalPages, revisedPages);
     render(<PdfComparisonPanel originalName="draft.pdf" revisedName="revised.pdf" originalPages={originalPages} revisedPages={revisedPages} comparison={comparison} />);
 
-    fireEvent.click(screen.getByRole("button", { name: /contract 1 page 2, contract 2 page 3, changed wording/i }));
+    fireEvent.click(screen.getByRole("button", { name: /earlier version page 2, later version page 3, changed wording/i }));
 
     expect(screen.getAllByText((_, node) => node?.textContent?.trim() === "Page 2 of 2").length).toBeGreaterThan(0);
     expect(screen.getAllByText((_, node) => node?.textContent?.trim() === "Page 3 of 3").length).toBeGreaterThan(0);
