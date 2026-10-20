@@ -5,6 +5,7 @@ import type { PDFDocumentProxy, RenderTask } from "pdfjs-dist";
 import { resolvePairedPage, type PdfComparisonResult, type PdfPageText, type PdfTextAnchor, type PdfTextRect } from "@/lib/delta/pdfCompare";
 import { groupPdfChanges } from "@/lib/delta/changeGroups";
 import { measurePdfTextAnchors } from "@/lib/delta/pdfTextLayer";
+import { createFrameScheduler } from "@/lib/delta/frameScheduler";
 
 type PdfComparisonPanelProps = {
   originalName: string;
@@ -133,7 +134,6 @@ export function PdfComparisonPanel({ originalName, revisedName, originalPages, r
   const [zoom, setZoom] = useState(1);
   const [textSelection, setTextSelection] = useState(false);
   const [search, setSearch] = useState("");
-  const comparisonRef = useRef<HTMLElement>(null);
   const [selectedChangeId, setSelectedChangeId] = useState(comparison.changes[0]?.id || "");
   const [originalPageNumber, setOriginalPageNumber] = useState(comparison.changes[0]?.originalPageNumber || 1);
   const [revisedPageNumber, setRevisedPageNumber] = useState(comparison.changes[0]?.revisedPageNumber || 1);
@@ -147,30 +147,71 @@ export function PdfComparisonPanel({ originalName, revisedName, originalPages, r
   const originalPane = useRef<HTMLDivElement>(null);
   const revisedPane = useRef<HTMLDivElement>(null);
   const syncLock = useRef(false);
+  const pendingScrollSide = useRef<"original" | "revised">("original");
+  const visiblePages = useRef({ original: originalPageNumber, revised: revisedPageNumber });
+  const scheduleScrollSync = useMemo(() => createFrameScheduler((callback) => requestAnimationFrame(callback)), []);
+  const changes = comparison.changes;
+  const originalChangesByPage = useMemo(() => {
+    const pages = new Map<number, typeof changes>();
+    for (const change of changes) {
+      if (change.originalPageNumber == null) continue;
+      const changes = pages.get(change.originalPageNumber) || [];
+      changes.push(change);
+      pages.set(change.originalPageNumber, changes);
+    }
+    return pages;
+  }, [changes]);
+  const revisedChangesByPage = useMemo(() => {
+    const pages = new Map<number, typeof changes>();
+    for (const change of changes) {
+      if (change.revisedPageNumber == null) continue;
+      const changes = pages.get(change.revisedPageNumber) || [];
+      changes.push(change);
+      pages.set(change.revisedPageNumber, changes);
+    }
+    return pages;
+  }, [changes]);
+
+  useEffect(() => () => scheduleScrollSync.cancel(), [scheduleScrollSync]);
 
   const goToPage = (side: "original" | "revised", pageNumber: number) => {
     const pane = side === "original" ? originalPane.current : revisedPane.current;
     pane?.querySelector<HTMLElement>(`[data-pdf-page="${pageNumber}"]`)?.scrollIntoView?.({ block: "start", behavior: "smooth" });
+    visiblePages.current[side] = pageNumber;
     if (side === "original") setOriginalPageNumber(pageNumber); else setRevisedPageNumber(pageNumber);
   };
   const syncScroll = (side: "original" | "revised") => {
     if (syncLock.current) return;
-    const source = side === "original" ? originalPane.current : revisedPane.current;
-    const target = side === "original" ? revisedPane.current : originalPane.current;
-    if (!source) return;
-    const sourcePages = Array.from(source.querySelectorAll<HTMLElement>("[data-pdf-page]"));
-    const current = sourcePages.find((element) => element.getBoundingClientRect().bottom > source.getBoundingClientRect().top + 15);
-    if (!current) return;
-    const sourcePage = Number(current.dataset.pdfPage);
-    if (side === "original") setOriginalPageNumber(sourcePage); else setRevisedPageNumber(sourcePage);
-    if (!scrollSync || !target) return;
-    const targetPage = resolvePairedPage(comparison.pageAlignment, side, sourcePage);
-    const destination = targetPage == null ? null : target.querySelector<HTMLElement>(`[data-pdf-page="${targetPage}"]`);
-    if (!destination) return;
-    const ratio = Math.min(1, Math.max(0, (source.scrollTop - current.offsetTop) / Math.max(1, current.offsetHeight)));
-    syncLock.current = true;
-    target.scrollTop = destination.offsetTop + ratio * destination.offsetHeight;
-    requestAnimationFrame(() => { syncLock.current = false; });
+    pendingScrollSide.current = side;
+    scheduleScrollSync(() => {
+      const activeSide = pendingScrollSide.current;
+      const source = activeSide === "original" ? originalPane.current : revisedPane.current;
+      const target = activeSide === "original" ? revisedPane.current : originalPane.current;
+      if (!source) return;
+      const sourceRect = source.getBoundingClientRect();
+      const current = Array.from(source.querySelectorAll<HTMLElement>("[data-pdf-page]"))
+        .find((element) => element.getBoundingClientRect().bottom > sourceRect.top + 15);
+      if (!current) return;
+      const sourcePage = Number(current.dataset.pdfPage);
+      const sidePage = activeSide === "original" ? "original" : "revised";
+      if (visiblePages.current[sidePage] !== sourcePage) {
+        visiblePages.current[sidePage] = sourcePage;
+        if (activeSide === "original") setOriginalPageNumber(sourcePage); else setRevisedPageNumber(sourcePage);
+      }
+      if (!scrollSync || !target) return;
+      const targetPage = resolvePairedPage(comparison.pageAlignment, activeSide, sourcePage);
+      const destination = targetPage == null ? null : target.querySelector<HTMLElement>(`[data-pdf-page="${targetPage}"]`);
+      if (!destination) return;
+      const sourcePageTop = current.getBoundingClientRect().top - sourceRect.top + source.scrollTop;
+      const ratio = Math.min(1, Math.max(0, (source.scrollTop - sourcePageTop) / Math.max(1, current.offsetHeight)));
+      const targetRect = target.getBoundingClientRect();
+      const destinationTop = destination.getBoundingClientRect().top - targetRect.top + target.scrollTop;
+      const nextScrollTop = destinationTop + ratio * destination.offsetHeight;
+      if (Math.abs(target.scrollTop - nextScrollTop) <= 2) return;
+      syncLock.current = true;
+      target.scrollTop = nextScrollTop;
+      requestAnimationFrame(() => requestAnimationFrame(() => { syncLock.current = false; }));
+    });
   };
 
   const selectChange = (id: string) => {
@@ -186,39 +227,49 @@ export function PdfComparisonPanel({ originalName, revisedName, originalPages, r
     setView(next);
     if (next !== "single") onViewChange?.(next);
   };
+  const cardsContent = cardView ?? (
+    <section className="grid gap-2 md:grid-cols-2" aria-label="PDF change cards">
+      {comparison.changes.map((change) => <button key={change.id} type="button" aria-pressed={selectedChangeId === change.id} onClick={() => selectChange(change.id)} className={`border bg-white p-3 text-left ${selectedChangeId === change.id ? "border-[#C9A84C]" : "border-slate-200"}`}>
+        <span className="block text-xs font-semibold text-[#003366]">Earlier page {change.originalPageNumber ?? "—"} · Later page {change.revisedPageNumber ?? "—"}</span>
+        {change.originalText && <span className="mt-2 block text-xs text-rose-900"><del>{change.originalText}</del></span>}
+        {change.revisedText && <span className="mt-1 block text-xs text-emerald-900"><ins>{change.revisedText}</ins></span>}
+      </button>)}
+    </section>
+  );
 
-  return <section ref={comparisonRef} className="space-y-3" aria-label="PDF comparison">
-    <div className="contracts-pdf-toolbar flex flex-wrap items-center justify-between gap-3">
-      <div className="inline-flex border border-slate-300 bg-white p-1" role="group" aria-label="Comparison view">
+  return <section className="space-y-3" aria-label="PDF comparison">
+    <div className="contracts-pdf-toolbar space-y-2 border border-slate-200 bg-[#F7FAFC] p-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="inline-flex shrink-0 border border-slate-300 bg-white p-1" role="group" aria-label="PDF comparison view">
         <button type="button" aria-pressed={view === "side-by-side"} onClick={() => selectView("side-by-side")} className={`min-h-9 px-3 text-xs font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#C9A84C] ${view === "side-by-side" ? "bg-[#003366] text-white" : "text-[#003366] hover:bg-[#F7FAFC]"}`}>Side by side</button>
         <button type="button" aria-pressed={view === "single"} onClick={() => selectView("single")} className={`min-h-9 px-3 text-xs font-semibold ${view === "single" ? "bg-[#003366] text-white" : "text-[#003366]"}`}>Single</button>
         <button type="button" aria-pressed={view === "cards"} onClick={() => selectView("cards")} className={`min-h-9 px-3 text-xs font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#C9A84C] ${view === "cards" ? "bg-[#003366] text-white" : "text-[#003366] hover:bg-[#F7FAFC]"}`}>Cards</button>
       </div>
       <div className="flex flex-wrap items-center gap-2">
         {view === "single" && <label className="text-xs text-[#003366]">Version <select aria-label="Single version" value={singleSide} onChange={(event) => setSingleSide(event.target.value as "original" | "revised")} className="border border-slate-300 bg-white p-2"><option value="original">Earlier</option><option value="revised">Later</option></select></label>}
-        {view !== "cards" && <><button type="button" aria-pressed={scrollSync} onClick={() => setScrollSync((value) => !value)} className="min-h-9 border border-slate-300 bg-white px-3 text-xs text-[#003366]">Scroll sync {scrollSync ? "On" : "Off"}</button><button type="button" aria-pressed={textSelection} onClick={() => setTextSelection((value) => !value)} className="min-h-9 border border-slate-300 bg-white px-3 text-xs text-[#003366]">{textSelection ? "Select text" : "Pan page"}</button><button type="button" aria-label="Zoom out" onClick={() => setZoom((value) => Math.max(0.65, value - 0.1))} className="h-9 w-9 border border-slate-300 bg-white text-[#003366]">−</button><span className="text-xs text-slate-600">{Math.round(zoom * 100)}%</span><button type="button" aria-label="Zoom in" onClick={() => setZoom((value) => Math.min(1.5, value + 0.1))} className="h-9 w-9 border border-slate-300 bg-white text-[#003366]">+</button><button type="button" onClick={() => setZoom(1)} className="min-h-9 border border-slate-300 bg-white px-2 text-xs text-[#003366]">Fit width</button></>}
+        {view !== "cards" && <><button type="button" aria-pressed={scrollSync} onClick={() => setScrollSync((value) => !value)} className="min-h-9 border border-slate-300 bg-white px-3 text-xs text-[#003366]">Sync {scrollSync ? "on" : "off"}</button><button type="button" aria-pressed={textSelection} onClick={() => setTextSelection((value) => !value)} className="min-h-9 border border-slate-300 bg-white px-3 text-xs text-[#003366]">{textSelection ? "Select text" : "Pan page"}</button><button type="button" aria-label="Zoom out" onClick={() => setZoom((value) => Math.max(0.65, value - 0.1))} className="h-9 w-9 border border-slate-300 bg-white text-[#003366]">−</button><span className="min-w-10 text-center text-xs tabular-nums text-slate-600">{Math.round(zoom * 100)}%</span><button type="button" aria-label="Zoom in" onClick={() => setZoom((value) => Math.min(1.5, value + 0.1))} className="h-9 w-9 border border-slate-300 bg-white text-[#003366]">+</button><button type="button" onClick={() => setZoom(1)} className="min-h-9 border border-slate-300 bg-white px-2 text-xs text-[#003366]">Fit width</button></>}
       </div>
-      <div className="flex items-center gap-2" aria-label="Change navigation"><button type="button" aria-label="Previous change" disabled={selectedChangeIndex <= 0} onClick={() => selectChange(comparison.changes[selectedChangeIndex - 1]?.id)} className="h-9 w-9 border border-slate-300 bg-white text-[#003366] disabled:opacity-40">‹</button><span role="status" aria-live="polite" className="text-[10px] text-slate-600">{comparison.changes.length ? `Change ${selectedChangeIndex + 1} of ${comparison.changes.length}` : "No changes"}</span><button type="button" aria-label="Next change" disabled={selectedChangeIndex < 0 || selectedChangeIndex >= comparison.changes.length - 1} onClick={() => selectChange(comparison.changes[selectedChangeIndex + 1]?.id)} className="h-9 w-9 border border-slate-300 bg-white text-[#003366] disabled:opacity-40">›</button></div>
-      {view !== "cards" && <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
+      <div className="flex items-center gap-2" aria-label="Change navigation"><button type="button" aria-label="Previous change" disabled={selectedChangeIndex <= 0} onClick={() => selectChange(comparison.changes[selectedChangeIndex - 1]?.id)} className="h-9 w-9 border border-slate-300 bg-white text-[#003366] disabled:opacity-40">‹</button><span role="status" aria-live="polite" className="min-w-24 text-center text-[10px] tabular-nums text-slate-600">{comparison.changes.length ? `${selectedChangeIndex + 1} / ${comparison.changes.length}` : "No changes"}</span><button type="button" aria-label="Next change" disabled={selectedChangeIndex < 0 || selectedChangeIndex >= comparison.changes.length - 1} onClick={() => selectChange(comparison.changes[selectedChangeIndex + 1]?.id)} className="h-9 w-9 border border-slate-300 bg-white text-[#003366] disabled:opacity-40">›</button></div>
+      </div>
+      {view !== "cards" && <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 pt-2 text-xs text-slate-600">
         {view === "side-by-side" && <><label>Earlier page <input aria-label="Earlier page" type="number" min={1} max={originalPageCount} value={originalPageNumber} onChange={(event) => goToPage("original", Math.min(originalPageCount, Math.max(1, Number(event.target.value))))} className="w-16 border border-slate-300 bg-white p-2" /> of {originalPageCount}</label><label>Later page <input aria-label="Later page" type="number" min={1} max={revisedPageCount} value={revisedPageNumber} onChange={(event) => goToPage("revised", Math.min(revisedPageCount, Math.max(1, Number(event.target.value))))} className="w-16 border border-slate-300 bg-white p-2" /> of {revisedPageCount}</label></>}
         {view === "single" && <label>{singleSide === "original" ? "Earlier" : "Later"} page <input aria-label={`${singleSide === "original" ? "Earlier" : "Later"} page`} type="number" min={1} max={singleSide === "original" ? originalPageCount : revisedPageCount} value={singleSide === "original" ? originalPageNumber : revisedPageNumber} onChange={(event) => goToPage(singleSide, Math.max(1, Number(event.target.value)))} className="w-16 border border-slate-300 bg-white p-2" /> of {singleSide === "original" ? originalPageCount : revisedPageCount}</label>}
         <label className="sr-only" htmlFor="pdf-doc-search">Search documents</label><input id="pdf-doc-search" type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search documents" className="min-h-9 w-36 border border-slate-300 bg-white px-2 text-xs" onKeyDown={(event) => { if (event.key === "Enter" && search.trim()) { const query = search.toLocaleLowerCase(); const originalHit = originalPages.find((page) => page.spans.some((span) => span.text.toLocaleLowerCase().includes(query))); const revisedHit = revisedPages.find((page) => page.spans.some((span) => span.text.toLocaleLowerCase().includes(query))); if (originalHit) goToPage("original", originalHit.pageNumber); if (revisedHit) goToPage("revised", revisedHit.pageNumber); } }} />
-        <button type="button" onClick={() => window.print()} className="min-h-9 border border-slate-300 bg-white px-3 text-xs text-[#003366]">Print</button><button type="button" onClick={() => { if (!document.fullscreenElement) void comparisonRef.current?.requestFullscreen(); else void document.exitFullscreen(); }} className="min-h-9 border border-slate-300 bg-white px-3 text-xs text-[#003366]">Full screen</button><details className="relative"><summary className="min-h-9 cursor-pointer border border-slate-300 bg-white px-3 py-2 text-xs text-[#003366]">More</summary><div className="absolute right-0 z-20 mt-1 w-56 border border-slate-300 bg-white p-3 text-xs shadow-lg">Use page jump to locate a PDF page. Changes Settings controls blank-only wording. Scroll sync follows matched pages.</div></details>
       </div>}
     </div>
 
     {scanCount > 0 && <p role="status" className="border border-amber-300 bg-[#FCFAF2] px-3 py-2 text-xs leading-5 text-[#66551F]">{scanCount} page{scanCount === 1 ? " has" : "s have"} no selectable text, so text differences can’t be checked there. Scanned pages remain visible in the source PDFs.</p>}
 
-    {view === "cards" ? cardView : <>
+    {view === "cards" ? cardsContent : <>
       <div className="flex flex-wrap gap-x-4 gap-y-1 border border-slate-200 bg-white px-3 py-2 text-[10px] text-slate-600"><span><i className="mr-1 inline-block h-2.5 w-2.5 bg-rose-200 ring-1 ring-rose-600" />Removed from earlier version</span><span><i className="mr-1 inline-block h-2.5 w-2.5 bg-emerald-200 ring-1 ring-emerald-600" />Added in later version</span><span className="ml-auto">Source PDFs stay unchanged</span></div>
       <div className={`grid min-w-0 gap-3 ${view === "single" ? "xl:grid-cols-[minmax(0,1fr)_minmax(260px,0.82fr)]" : "xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(260px,0.82fr)]"}`}>
         <section className={`min-w-0 border border-slate-200 bg-[#E9EDF0] ${view === "single" && singleSide !== "original" ? "hidden" : ""}`} aria-label="Earlier version PDF">
           <header className="flex min-h-11 items-center justify-between gap-2 border-b border-slate-200 bg-white px-3"><div className="min-w-0"><h2 className="text-xs font-semibold text-[#003366]">Earlier version</h2><span className="block truncate text-[10px] text-slate-500">{originalName}</span></div><span className="shrink-0 text-[10px] text-slate-500">Page {originalPageNumber} of {originalPageCount}</span></header>
-          <div ref={originalPane} onScroll={() => syncScroll("original")} className="max-h-[72vh] min-h-[520px] space-y-3 overflow-auto p-3">{originalPages.map((page) => { const changes = comparison.changes.filter((change) => change.originalPageNumber === page.pageNumber); return <div key={page.pageNumber} style={{ width: `${zoom * 100}%` }}><PdfPage document={originalDocument} pageNumber={page.pageNumber} page={page} highlights={changes.flatMap((change) => change.originalRects)} anchors={changes.flatMap((change) => change.originalAnchors)} side="original" textSelection={textSelection} /></div>; })}</div>
+          <div ref={originalPane} onScroll={() => syncScroll("original")} className="max-h-[72vh] min-h-[520px] space-y-3 overflow-auto p-3">{originalPages.map((page) => { const changes = originalChangesByPage.get(page.pageNumber) || []; return <div key={page.pageNumber} style={{ width: `${zoom * 100}%` }}><PdfPage document={originalDocument} pageNumber={page.pageNumber} page={page} highlights={changes.flatMap((change) => change.originalRects)} anchors={changes.flatMap((change) => change.originalAnchors)} side="original" textSelection={textSelection} /></div>; })}</div>
         </section>
         <section className={`min-w-0 border border-slate-200 bg-[#E9EDF0] ${view === "single" && singleSide !== "revised" ? "hidden" : ""}`} aria-label="Later version PDF">
           <header className="flex min-h-11 items-center justify-between gap-2 border-b border-slate-200 bg-white px-3"><div className="min-w-0"><h2 className="text-xs font-semibold text-[#003366]">Later version</h2><span className="block truncate text-[10px] text-slate-500">{revisedName}</span></div><span className="shrink-0 text-[10px] text-slate-500">Page {revisedPageNumber} of {revisedPageCount}</span></header>
-          <div ref={revisedPane} onScroll={() => syncScroll("revised")} className="max-h-[72vh] min-h-[520px] space-y-3 overflow-auto p-3">{revisedPages.map((page) => { const changes = comparison.changes.filter((change) => change.revisedPageNumber === page.pageNumber); return <div key={page.pageNumber} style={{ width: `${zoom * 100}%` }}><PdfPage document={revisedDocument} pageNumber={page.pageNumber} page={page} highlights={changes.flatMap((change) => change.revisedRects)} anchors={changes.flatMap((change) => change.revisedAnchors)} side="revised" textSelection={textSelection} /></div>; })}</div>
+          <div ref={revisedPane} onScroll={() => syncScroll("revised")} className="max-h-[72vh] min-h-[520px] space-y-3 overflow-auto p-3">{revisedPages.map((page) => { const changes = revisedChangesByPage.get(page.pageNumber) || []; return <div key={page.pageNumber} style={{ width: `${zoom * 100}%` }}><PdfPage document={revisedDocument} pageNumber={page.pageNumber} page={page} highlights={changes.flatMap((change) => change.revisedRects)} anchors={changes.flatMap((change) => change.revisedAnchors)} side="revised" textSelection={textSelection} /></div>; })}</div>
         </section>
         <section className="contracts-diff-rail min-w-0 border border-slate-200 bg-[#FFFCFB]" aria-label="PDF differences">
           <header className="flex min-h-11 items-center justify-between border-b border-slate-200 bg-white px-3"><h2 className="text-xs font-semibold text-[#003366]">Diff</h2><span className="text-[10px] text-slate-500">{comparison.changes.length} change{comparison.changes.length === 1 ? "" : "s"}</span></header>

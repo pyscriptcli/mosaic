@@ -53,4 +53,17 @@ describe("PDF comparison views", () => {
     expect(screen.getByLabelText("Earlier page").getAttribute("value")).toBe("2");
     expect(screen.getByLabelText("Later page").getAttribute("value")).toBe("3");
   });
+
+  it("keeps a working built-in Cards view when no custom card renderer is supplied", () => {
+    const originalPages = [{ pageNumber: 1, width: 612, height: 792, spans: [{ text: "Payment is due in thirty days.", x: 30, y: 120, width: 180, height: 12 }] }];
+    const revisedPages = [{ pageNumber: 1, width: 612, height: 792, spans: [{ text: "Payment is due in forty five days.", x: 30, y: 120, width: 220, height: 12 }] }];
+    const comparison = comparePdfPages(originalPages, revisedPages);
+    render(<PdfComparisonPanel originalName="draft.pdf" revisedName="revised.pdf" originalPages={originalPages} revisedPages={revisedPages} comparison={comparison} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Cards" }));
+
+    expect(screen.getByRole("region", { name: "PDF change cards" })).toBeDefined();
+    expect(screen.getByText("thirty")).toBeDefined();
+    expect(screen.getByText("forty five")).toBeDefined();
+  });
 });
