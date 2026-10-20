@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { WordComparisonPanel } from "./WordComparisonPanel";
 import type { DeltaEntry } from "@/lib/delta/compare";
@@ -48,7 +48,11 @@ describe("WordComparisonPanel", () => {
       entries={entries}
     />);
 
-    const diff = screen.getByRole("button", { name: /payment.*wording revised/i });
+    const differences = within(screen.getByLabelText("Word differences"));
+    expect(differences.getByText("1 Payment")).toBeTruthy();
+    expect(differences.getByText("1 Payment").closest("details")?.hasAttribute("open")).toBe(false);
+    fireEvent.click(differences.getByText("1 Payment").closest("summary")!);
+    const diff = differences.getByRole("button", { name: /payment.*wording revised/i });
     fireEvent.click(diff);
 
     expect(diff.getAttribute("aria-pressed")).toBe("true");

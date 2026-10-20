@@ -83,6 +83,36 @@
   to { transform: translateX(310%); }
 }
 
+.contracts-pdf-text-layer {
+  position: absolute;
+  inset: 0 auto auto 0;
+  overflow: hidden;
+  line-height: 1;
+  pointer-events: none;
+  --scale-round-x: 1px;
+  --scale-round-y: 1px;
+  --min-font-size: 1;
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+}
+
+.contracts-pdf-text-layer span {
+  position: absolute;
+  color: transparent;
+  white-space: pre;
+  transform-origin: 0% 0%;
+  user-select: none;
+}
+
+.contracts-pdf-text-layer > :not(.markedContent),
+.contracts-pdf-text-layer .markedContent span:not(.markedContent) {
+  --font-height: 0;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  --scale-x: 1;
+  --rotate: 0deg;
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+
 .mosaic-sync-progress-track {
   position: absolute;
   right: 0;

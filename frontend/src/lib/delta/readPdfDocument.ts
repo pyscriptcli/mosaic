@@ -78,8 +78,11 @@ export async function readPdfDocument(file: File): Promise<LoadedPdfDocument> {
       const page = await document.getPage(pageNumber);
       const viewport = page.getViewport({ scale: 1 });
       const content = await page.getTextContent();
+      let textItemIndex = 0;
       const spans = content.items.flatMap((item) => {
-        if (!("str" in item) || !item.str.trim()) return [];
+        if (!("str" in item)) return [];
+        const sourceIndex = textItemIndex++;
+        if (!item.str.trim()) return [];
         characters += item.str.length;
         if (characters > MAX_EXTRACTED_CHARACTERS) throw new Error(`${file.name} exceeds the 500,000 extracted character limit.`);
         const x = item.transform[4];
@@ -93,7 +96,7 @@ export async function readPdfDocument(file: File): Promise<LoadedPdfDocument> {
         const wordRects = measure
           ? measureWordRects(item.str, left, spanWidth, measure)
           : undefined;
-        return [{ text: item.str, x: left, y: top, width: spanWidth, height: Math.abs(corners[1][1] - corners[0][1]), ...(wordRects ? { wordRects } : {}) }];
+        return [{ text: item.str, textItemIndex: sourceIndex, x: left, y: top, width: spanWidth, height: Math.abs(corners[1][1] - corners[0][1]), ...(wordRects ? { wordRects } : {}) }];
       });
       pages.push({ pageNumber, width: viewport.width, height: viewport.height, spans });
       page.cleanup();

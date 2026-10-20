@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { DeltaEntry } from "@/lib/delta/compare";
 import { markWordSections } from "@/lib/delta/wordDocument";
+import { deltaEntryPreview, groupDeltaEntries } from "@/lib/delta/changeGroups";
 
 type WordComparisonPanelProps = {
   originalName: string;
@@ -41,7 +42,15 @@ export function WordComparisonPanel({ originalName, revisedName, originalHtml, r
   const revisedRef = useRef<HTMLDivElement>(null);
   const markedOriginal = useMemo(() => markWordSections(originalHtml, entries, "original"), [entries, originalHtml]);
   const markedRevised = useMemo(() => markWordSections(revisedHtml, entries, "revised"), [entries, revisedHtml]);
+  const changeGroups = useMemo(() => groupDeltaEntries(entries), [entries]);
+  const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null);
   const selectedIndex = entries.findIndex((entry) => entry.id === selectedChangeId);
+
+  const selectChange = (id: string) => {
+    setSelectedChangeId(id);
+    const group = changeGroups.find((candidate) => candidate.entries.some((entry) => entry.id === id));
+    if (group) setExpandedGroupId(group.id);
+  };
 
   useEffect(() => {
     [originalRef.current, revisedRef.current].forEach((container) => {
@@ -75,7 +84,7 @@ export function WordComparisonPanel({ originalName, revisedName, originalHtml, r
         <button type="button" aria-pressed={view === "side-by-side"} onClick={() => selectView("side-by-side")} className={`min-h-9 px-3 text-xs font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#C9A84C] ${view === "side-by-side" ? "bg-[#003366] text-white" : "text-[#003366] hover:bg-[#F7FAFC]"}`}>Side by side</button>
         <button type="button" aria-pressed={view === "cards"} onClick={() => selectView("cards")} className={`min-h-9 px-3 text-xs font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#C9A84C] ${view === "cards" ? "bg-[#003366] text-white" : "text-[#003366] hover:bg-[#F7FAFC]"}`}>Cards</button>
       </div>
-      <div className="flex items-center gap-2" aria-label="Change navigation"><button type="button" aria-label="Previous change" disabled={selectedIndex <= 0} onClick={() => setSelectedChangeId(entries[selectedIndex - 1]?.id || "")} className="h-9 w-9 border border-slate-300 bg-white text-[#003366] disabled:opacity-40">‹</button><span role="status" aria-live="polite" className="text-[10px] text-slate-600">{entries.length ? `Change ${selectedIndex + 1} of ${entries.length}` : "No changes"}</span><button type="button" aria-label="Next change" disabled={selectedIndex < 0 || selectedIndex >= entries.length - 1} onClick={() => setSelectedChangeId(entries[selectedIndex + 1]?.id || "")} className="h-9 w-9 border border-slate-300 bg-white text-[#003366] disabled:opacity-40">›</button></div>
+      <div className="flex items-center gap-2" aria-label="Change navigation"><button type="button" aria-label="Previous change" disabled={selectedIndex <= 0} onClick={() => selectChange(entries[selectedIndex - 1]?.id || "")} className="h-9 w-9 border border-slate-300 bg-white text-[#003366] disabled:opacity-40">‹</button><span role="status" aria-live="polite" className="text-[10px] text-slate-600">{entries.length ? `Change ${selectedIndex + 1} of ${entries.length}` : "No changes"}</span><button type="button" aria-label="Next change" disabled={selectedIndex < 0 || selectedIndex >= entries.length - 1} onClick={() => selectChange(entries[selectedIndex + 1]?.id || "")} className="h-9 w-9 border border-slate-300 bg-white text-[#003366] disabled:opacity-40">›</button></div>
     </div>
 
     {view === "cards" ? cardView : <>
@@ -87,12 +96,18 @@ export function WordComparisonPanel({ originalName, revisedName, originalHtml, r
         <section className="min-w-0 border border-slate-200 bg-[#FFFCFB]" aria-label="Word differences">
           <header className="flex min-h-11 items-center justify-between gap-2 border-b border-slate-200 bg-white px-3"><h2 className="text-xs font-semibold text-[#003366]">Diff</h2><span className="text-[10px] text-slate-500">{entries.length} change{entries.length === 1 ? "" : "s"}</span></header>
           <div className="max-h-[72vh] min-h-[520px] space-y-2 overflow-auto p-2">
-            {entries.map((entry) => <button key={entry.id} type="button" aria-label={`${entry.section} ${entry.summary}`} aria-pressed={selectedChangeId === entry.id} onClick={() => setSelectedChangeId(entry.id)} className={`block w-full border bg-white p-3 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#003366] ${selectedChangeId === entry.id ? "border-[#C9A84C] shadow-[inset_2px_0_0_#C9A84C]" : "border-slate-200 hover:border-[#31577D]"}`}>
-              <span className="block text-[9px] font-bold uppercase tracking-wide text-[#31577D]">{entry.section} · {entry.summary}</span>
-              {entry.originalText && <span className="mt-1 block whitespace-pre-wrap text-xs leading-5 text-rose-900"><del>{entry.originalText}</del></span>}
-              {entry.revisedText && <span className="mt-1 block whitespace-pre-wrap text-xs leading-5 text-emerald-900"><ins>{entry.revisedText}</ins></span>}
-              <span className="mt-2 block text-[10px] text-slate-500">Select to locate this section in both Word files.</span>
-            </button>)}
+            {changeGroups.map((group) => <details key={group.id} open={expandedGroupId === group.id} onToggle={(event) => event.currentTarget.open ? setExpandedGroupId(group.id) : setExpandedGroupId((current) => current === group.id ? null : current)} className={`border bg-white ${group.entries.some((entry) => entry.id === selectedChangeId) ? "border-[#C9A84C]" : "border-slate-200"}`}>
+              <summary className="cursor-pointer p-3 text-left text-xs font-semibold leading-5 text-[#003366] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#003366]">
+                <span className="ml-1">{group.label}</span><span className="ml-2 text-[10px] font-normal text-slate-500">{group.entries.length} change{group.entries.length === 1 ? "" : "s"}</span>
+                <span className="mt-1 block truncate text-[10px] font-normal leading-4 text-slate-600">{deltaEntryPreview(group.entries[0])}{group.entries.length > 1 ? ` · +${group.entries.length - 1} more` : ""}</span>
+              </summary>
+              <div className="space-y-1 border-t border-slate-100 p-2">{group.entries.map((entry) => <button key={entry.id} type="button" aria-label={`${entry.section} ${entry.summary}`} aria-pressed={selectedChangeId === entry.id} onClick={() => selectChange(entry.id)} className={`block min-h-11 w-full border p-2 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#003366] ${selectedChangeId === entry.id ? "border-[#C9A84C] bg-[#FCFAF2]" : "border-transparent hover:border-slate-200"}`}>
+                <span className="block text-[9px] font-bold uppercase tracking-wide text-[#31577D]">{entry.summary}</span>
+                {entry.originalText && <span className="mt-1 block whitespace-pre-wrap text-xs leading-5 text-rose-900"><del>{entry.originalText}</del></span>}
+                {entry.revisedText && <span className="mt-1 block whitespace-pre-wrap text-xs leading-5 text-emerald-900"><ins>{entry.revisedText}</ins></span>}
+                <span className="mt-2 block text-[10px] text-slate-500">Select to locate this section in both Word files.</span>
+              </button>)}</div>
+            </details>)}
             {entries.length === 0 && <p className="border border-slate-200 bg-white p-3 text-xs text-slate-600">No wording changes were found between these Word documents.</p>}
           </div>
         </section>

@@ -72,7 +72,7 @@ describe("readPdfDocument", () => {
     const result = await readPdfDocument(file);
 
     expect(getDocumentMock).toHaveBeenCalledWith({ data: expect.any(Uint8Array) });
-    expect(result.pages).toEqual([{ pageNumber: 1, width: 612, height: 792, spans: [{ text: "Payment", x: 10, y: 92, width: 42, height: 12 }] }]);
+    expect(result.pages).toEqual([{ pageNumber: 1, width: 612, height: 792, spans: [{ text: "Payment", textItemIndex: 0, x: 10, y: 92, width: 42, height: 12 }] }]);
     expect(result.loadingTask).toBeDefined();
     expect(pageMock.cleanup).toHaveBeenCalledOnce();
   });

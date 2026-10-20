@@ -138,4 +138,22 @@ describe("comparePdfPages", () => {
     expect(result.changes[0].originalRects).toEqual([{ x: 45, y: 20, width: 5, height: 10 }]);
     expect(result.changes[0].revisedRects).toEqual([{ x: 38, y: 20, width: 12, height: 10 }]);
   });
+
+  it("keeps text-item character anchors for precise rendered highlights", () => {
+    const original: PdfPageText = {
+      pageNumber: 1,
+      width: 100,
+      height: 100,
+      spans: [{ text: "Pay thirty days", textItemIndex: 7, x: 10, y: 20, width: 70, height: 10 }],
+    };
+    const revised: PdfPageText = {
+      ...original,
+      spans: [{ text: "Pay forty days", textItemIndex: 7, x: 10, y: 20, width: 70, height: 10 }],
+    };
+
+    const result = comparePdfPages([original], [revised]);
+
+    expect(result.changes[0].originalAnchors).toEqual([{ textItemIndex: 7, start: 4, end: 10 }]);
+    expect(result.changes[0].revisedAnchors).toEqual([{ textItemIndex: 7, start: 4, end: 9 }]);
+  });
 });

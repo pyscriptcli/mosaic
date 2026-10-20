@@ -14,6 +14,21 @@ describe("compareTextDocuments", () => {
     ]);
   });
 
+  it("labels paragraph changes with the nearest explicit legal section heading", () => {
+    expect(compareTextDocuments(
+      "Section 2.3. Pre-Termination\n\nThe lease may end after thirty days.",
+      "Section 2.3. Pre-Termination\n\nThe lease may end after forty days.",
+    )).toEqual([
+      expect.objectContaining({
+        section: "Section 2.3. Pre-Termination",
+        originalSection: "Section 2.3. Pre-Termination",
+        revisedSection: "Section 2.3. Pre-Termination",
+        originalText: "The lease may end after thirty days.",
+        revisedText: "The lease may end after forty days.",
+      }),
+    ]);
+  });
+
   it("returns no entries for identical documents", () => {
     expect(compareTextDocuments("Clause one.\n\nClause two.", "Clause one.\n\nClause two.")).toEqual([]);
   });

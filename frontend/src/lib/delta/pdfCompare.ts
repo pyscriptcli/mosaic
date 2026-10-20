@@ -4,6 +4,7 @@ export interface PdfTextSpan {
   y: number;
   width: number;
   height: number;
+  textItemIndex?: number;
   wordRects?: Array<{ start: number; end: number; x: number; width: number }>;
 }
 
@@ -21,6 +22,12 @@ export interface PdfTextRect {
   height: number;
 }
 
+export interface PdfTextAnchor {
+  textItemIndex: number;
+  start: number;
+  end: number;
+}
+
 export interface PdfPageChange {
   id: string;
   originalPageNumber: number | null;
@@ -30,6 +37,8 @@ export interface PdfPageChange {
   revisedText: string;
   originalRects: PdfTextRect[];
   revisedRects: PdfTextRect[];
+  originalAnchors: PdfTextAnchor[];
+  revisedAnchors: PdfTextAnchor[];
 }
 
 export interface PdfComparisonResult {
@@ -41,10 +50,11 @@ interface WordToken {
   text: string;
   key: string;
   rect: PdfTextRect;
+  anchor: PdfTextAnchor;
 }
 
 function pageTokens(page: PdfPageText): WordToken[] {
-  const tokens = page.spans.flatMap((span) => {
+  const tokens = page.spans.flatMap((span, spanIndex) => {
     const matches = Array.from(span.text.matchAll(/\S+/gu));
     const measuredWords = new Map(span.wordRects?.map((word) => [word.start, word]) || []);
     return matches.map((match) => {
@@ -57,6 +67,7 @@ function pageTokens(page: PdfPageText): WordToken[] {
         text,
         key: text.replace(/^_+([.,;:!?)]*)$/u, "_$1"),
         rect: { x: measuredWord?.x ?? span.x + start * scale, y: span.y, width: measuredWord?.width ?? length * scale, height: span.height },
+        anchor: { textItemIndex: span.textItemIndex ?? spanIndex, start, end: start + length },
       };
     });
   });
@@ -189,6 +200,8 @@ function comparePage(original: PdfPageText, revised: PdfPageText, changes: PdfPa
       revisedText: added.map((token) => token.text).join(" "),
       originalRects: mergeRects(removed.map((token) => token.rect)),
       revisedRects: mergeRects(added.map((token) => token.rect)),
+      originalAnchors: removed.map((token) => token.anchor),
+      revisedAnchors: added.map((token) => token.anchor),
     });
     removed = [];
     added = [];
@@ -230,6 +243,8 @@ function wholePageChange(page: PdfPageText, kind: "added" | "removed"): PdfPageC
     revisedText: kind === "added" ? tokens.map((token) => token.text).join(" ") : "",
     originalRects: kind === "removed" ? mergeRects(tokens.map((token) => token.rect)) : [],
     revisedRects: kind === "added" ? mergeRects(tokens.map((token) => token.rect)) : [],
+    originalAnchors: kind === "removed" ? tokens.map((token) => token.anchor) : [],
+    revisedAnchors: kind === "added" ? tokens.map((token) => token.anchor) : [],
   };
 }
 
