@@ -212,6 +212,11 @@ export function PdfComparisonPanel({ originalName, revisedName, originalPages, r
 
   useLayoutEffect(() => {
     const anchors = zoomAnchors.current;
+    const hasAnchors = Boolean(anchors.original || anchors.revised);
+    if (hasAnchors) {
+      scheduleScrollSync.cancel();
+      syncLock.current = true;
+    }
     for (const side of ["original", "revised"] as const) {
       const anchor = anchors[side];
       const pane = side === "original" ? originalPane.current : revisedPane.current;
@@ -224,7 +229,8 @@ export function PdfComparisonPanel({ originalName, revisedName, originalPages, r
       pane.scrollTop += pageRect.top + anchor.yRatio * pageRect.height - (paneRect.top + pane.clientHeight / 2);
     }
     zoomAnchors.current = {};
-  }, [zoom]);
+    if (hasAnchors) requestAnimationFrame(() => requestAnimationFrame(() => { syncLock.current = false; }));
+  }, [scheduleScrollSync, zoom]);
 
   const goToPage = (side: "original" | "revised", pageNumber: number) => {
     const pane = side === "original" ? originalPane.current : revisedPane.current;
