@@ -13,9 +13,10 @@ describe("POST /api/export-pdf generated document", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         meeting_details: { client_name: "Northstar", date: "2026-10-21", location: "Makati" },
-        summary: "The team reviewed the account.\n\nBottom line: **The proposal is ready for approval.**",
+        summary: "The team reviewed the account.",
+        outcome: "The proposal is ready for approval.",
         discussion_points: [{ topic_title: "Account review", discussion_point: longDiscussion }],
-        action_items: [{ discussion_point_title: "Account review", action_plan: "Send the proposal", target_date: "Oct 30", person_in_charge: ["Mika", "Dino"] }],
+        action_items: [{ discussion_point_title: "Account review", action_plan: "Send the proposal", target_date: "2026-10-30", person_in_charge: ["Mika", "Dino"] }],
         other_discussions: "The next review will be scheduled separately.",
       }),
     });
@@ -33,16 +34,20 @@ describe("POST /api/export-pdf generated document", () => {
       return content.items.map((item) => "str" in item ? item.str : "").join(" ");
     }));
     const text = pages.join(" ");
-    const headings = ["MEETING DETAILS", "SUMMARY", "DISCUSSION POINTS", "ACTION PLAN", "OTHER DISCUSSIONS"];
+    const headings = ["MEETING DETAILS", "OUTCOME", "ACTIONS", "DISCUSSION", "ADDITIONAL NOTES"];
     const positions = headings.map((heading) => text.indexOf(heading));
 
     expect(pdf.numPages).toBeGreaterThan(1);
     expect(positions.every((position) => position >= 0)).toBe(true);
     expect(positions).toEqual([...positions].sort((a, b) => a - b));
     expect(text).toContain("The proposal is ready for approval.");
+    expect(text).toContain("Northstar");
     expect(text).toContain("Update 90:");
     expect(text).toContain("Send the proposal");
     expect(text).toContain("Mika, Dino");
+    expect(text).toContain("30 Oct 2026");
     expect(text).toContain("The next review will be scheduled separately.");
+    const actionPageIndexes = pages.map((pageText, index) => pageText.includes("Send the proposal") && pageText.includes("Mika, Dino") && pageText.includes("30 Oct 2026") ? index : -1).filter((index) => index >= 0);
+    expect(actionPageIndexes).toHaveLength(1);
   });
 });

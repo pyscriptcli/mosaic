@@ -395,7 +395,7 @@ export async function deleteMeeting(meetingId: string) {
   return res.json();
 }
 
-export async function exportWord(metadata: any, items: any[], action_items: any[], summary: string, other_discussions: string) {
+export async function exportWord(metadata: any, items: any[], action_items: any[], summary: string, other_discussions: string, outcome?: string) {
   const res = await fetch("/api/export-word", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -404,21 +404,16 @@ export async function exportWord(metadata: any, items: any[], action_items: any[
       discussion_points: items,
       action_items,
       summary,
+      outcome,
       other_discussions,
     }),
   });
   if (!res.ok) throw new Error("Export failed");
   const blob = await res.blob();
-  const url = window.URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `MoM_${metadata.client_name || "Meeting"}_${new Date().toISOString().split("T")[0]}.docx`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
+  downloadBlob(blob, meetingExportFilename(metadata.client_name, metadata.date, "docx"));
 }
 
-export async function requestMeetingPdf(metadata: any, items: any[], action_items: any[], summary: string, other_discussions: string) {
+export async function requestMeetingPdf(metadata: any, items: any[], action_items: any[], summary: string, other_discussions: string, outcome?: string) {
   const res = await fetch("/api/export-pdf", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -427,12 +422,13 @@ export async function requestMeetingPdf(metadata: any, items: any[], action_item
       discussion_points: items,
       action_items,
       summary,
+      outcome,
       other_discussions,
     }),
   });
   if (!res.ok) throw new Error("Export failed");
   const blob = await res.blob();
-  const filename = `MoM_${String(metadata.client_name || "Meeting").replace(/[^a-z0-9-_]+/gi, "_")}_${new Date().toISOString().split("T")[0]}.pdf`;
+  const filename = meetingExportFilename(metadata.client_name, metadata.date, "pdf");
   return { blob, filename };
 }
 
@@ -447,8 +443,14 @@ export function downloadBlob(blob: Blob, filename: string) {
   window.setTimeout(() => window.URL.revokeObjectURL(url), 1000);
 }
 
-export async function exportPdf(metadata: any, items: any[], action_items: any[], summary: string, other_discussions: string) {
-  const { blob, filename } = await requestMeetingPdf(metadata, items, action_items, summary, other_discussions);
+function meetingExportFilename(clientValue: unknown, dateValue: unknown, extension: "docx" | "pdf") {
+  const client = String(clientValue || "Meeting").trim().replace(/[^a-z0-9-_]+/gi, "_").replace(/^_+|_+$/g, "") || "Meeting";
+  const date = String(dateValue || "").trim().match(/^\d{4}-\d{2}-\d{2}/)?.[0] || "undated";
+  return `MoM_${client}_${date}.${extension}`;
+}
+
+export async function exportPdf(metadata: any, items: any[], action_items: any[], summary: string, other_discussions: string, outcome?: string) {
+  const { blob, filename } = await requestMeetingPdf(metadata, items, action_items, summary, other_discussions, outcome);
   downloadBlob(blob, filename);
 }
 

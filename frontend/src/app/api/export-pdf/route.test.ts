@@ -23,6 +23,9 @@ vi.mock("jspdf", () => ({
     setFont(_family: string, style = "normal") { pdfCapture.fontStyle = style; }
     setFontSize(size: number) { pdfCapture.fontSizes.push(size); }
     setLineHeightFactor() {}
+    setProperties() {}
+    getNumberOfPages() { return 1; }
+    setPage() {}
     text(value: string | string[]) {
       const values = Array.isArray(value) ? value : [value];
       pdfCapture.text.push(...values);
@@ -64,11 +67,12 @@ describe("POST /api/export-pdf MoM structure", () => {
     pdfCapture.runs = [];
   });
 
-  it("exports the PRIME section order and uses a single table for action plans", async () => {
+  it("exports the meeting identity, explicit outcome, populated sections, and compact actions", async () => {
     const { POST } = await import("./route");
     const response = await POST(request({
       meeting_details: { client_name: "Northstar", date: "2026-10-21", location: "Makati", prepared_by: "Should not appear", confirmed_by: "Should not appear" },
-      summary: "The team aligned on next steps.\n\nBottom line: **Proceed after approval.**",
+      summary: "The team aligned on next steps.",
+      outcome: "Proceed after approval.",
       discussion_points: [
         { topic_title: "Account Renewal", discussion_point: "Renewal timing was reviewed.\n- The client approved the terms.", evidence_quote: "PRIVATE EVIDENCE QUOTE" },
         { topic_title: "Market Update", discussion_point: "Vacancy trends were discussed." },
@@ -78,11 +82,12 @@ describe("POST /api/export-pdf MoM structure", () => {
     }));
 
     const renderedText = pdfCapture.events.join(" ");
-    const sectionPositions = ["MEETING DETAILS", "SUMMARY", "DISCUSSION POINTS", "ACTION PLAN", "OTHER DISCUSSIONS"]
+    const sectionPositions = ["MEETING DETAILS", "OUTCOME", "ACTIONS", "DISCUSSION", "ADDITIONAL NOTES"]
       .map((heading) => renderedText.indexOf(heading));
     expect(response.status).toBe(200);
-    expect(sectionPositions.every((position) => position >= 0)).toBe(true);
-    expect(sectionPositions).toEqual([...sectionPositions].sort((a, b) => a - b));
+    expect(renderedText).toContain("Northstar");
+    expect(sectionPositions.slice(0, 4).every((position) => position >= 0)).toBe(true);
+    expect(sectionPositions.slice(0, 4)).toEqual([...sectionPositions.slice(0, 4)].sort((a, b) => a - b));
     expect(renderedText).toContain("The team aligned on next steps.");
     expect(renderedText).toContain("Proceed after approval.");
     expect(renderedText).toContain("•");
@@ -94,16 +99,18 @@ describe("POST /api/export-pdf MoM structure", () => {
 
     expect(pdfCapture.tables).toHaveLength(2);
     const detailsTable = pdfCapture.tables[0];
-    expect(detailsTable.body?.map((row) => row[0])).toContain("PROJECT / CLIENT");
+    expect(detailsTable.body?.map((row) => row[0])).toContain("CLIENT");
+    expect(detailsTable.body?.map((row) => row[0])).toContain("DATE");
     expect(detailsTable.body?.map((row) => row[1])).toContain("Northstar");
     expect(detailsTable.theme).toBe("plain");
     expect(detailsTable.styles).toMatchObject({ fillColor: [255, 252, 251], halign: "left" });
     expect(detailsTable.columnStyles?.[0]).toMatchObject({ fontStyle: "bold", textColor: [0, 51, 102] });
     const actionTable = pdfCapture.tables[1];
-    expect(actionTable.head?.[0]).toEqual(["DISCUSSION POINT", "ACTION PLAN", "TARGET DATE", "PERSON IN CHARGE"]);
-    expect(actionTable.body?.[0]).toEqual(["Account Renewal", "Send the proposal", "Oct 30", "Mika, Dino"]);
+    expect(actionTable.head?.[0]).toEqual(["ID", "ACTION", "OWNER", "DUE DATE"]);
+    expect(actionTable.body?.[0]).toEqual(["A1", "Account Renewal: Send the proposal", "Mika, Dino", "Oct 30"]);
     expect(JSON.stringify(actionTable.body?.[0])).not.toContain("Renewal timing was reviewed.");
     expect(actionTable.bodyStyles).toMatchObject({ halign: "left", fontSize: 9.5 });
+    expect(actionTable.columnStyles).toMatchObject({ 0: { cellWidth: 12 }, 1: { cellWidth: 90 }, 2: { cellWidth: 39 }, 3: { cellWidth: 29 } });
     expect(actionTable.headStyles?.halign).toBe("left");
   });
 
@@ -117,11 +124,20 @@ describe("POST /api/export-pdf MoM structure", () => {
 
     expect(response.status).toBe(200);
     expect(pdfCapture.tables).toHaveLength(1);
-    expect(pdfCapture.events.join(" ")).not.toContain("ACTION PLAN");
+    expect(pdfCapture.events.join(" ")).not.toContain("ACTIONS");
+    expect(pdfCapture.events.join(" ")).not.toContain("ADDITIONAL NOTES");
     expect(pdfCapture.text).toContain("PHP 250,000");
     expect(pdfCapture.runs).toContainEqual({ style: "bold", text: "PHP 250,000" });
-    expect(pdfCapture.fontSizes).toContain(22);
-    expect(pdfCapture.fontSizes).toContain(14);
+    expect(pdfCapture.fontSizes).toContain(24);
+    expect(pdfCapture.fontSizes).toContain(15);
     expect(pdfCapture.text).not.toContain("PRIVATE EVIDENCE QUOTE");
+  });
+
+  it("omits the meeting details section when no details are supplied", async () => {
+    const { POST } = await import("./route");
+    const response = await POST(request({ summary: "A brief update." }));
+
+    expect(response.status).toBe(200);
+    expect(pdfCapture.events.join(" ")).not.toContain("MEETING DETAILS");
   });
 });
