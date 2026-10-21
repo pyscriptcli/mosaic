@@ -13,7 +13,10 @@ describe("POST /api/export-word MoM structure", () => {
       body: JSON.stringify({
         meeting_details: { client_name: "Northstar", prepared_by: "Should not appear", confirmed_by: "Should not appear" },
         summary: "The team aligned on next steps.",
-        items: [{ topic_title: "Account Renewal", discussion_point: "Renewal timing was reviewed.", action_plan: "Send the proposal", indicative_delivery_date: "Oct 30", person_in_charge: "Mika" }],
+        items: [
+          { topic_title: "Account Renewal", discussion_point: "Renewal timing was reviewed.", action_plan: "Send the proposal", indicative_delivery_date: "Oct 30", person_in_charge: "Mika" },
+          { topic_title: "Market Update", discussion_point: "Vacancy trends were discussed.", action_plan: "None" },
+        ],
         other_discussions: "Team outing was mentioned.",
       }),
     });
@@ -32,5 +35,18 @@ describe("POST /api/export-word MoM structure", () => {
     expect(content).not.toContain("Should not appear");
     expect(content).not.toContain("PREPARED BY");
     expect(content).not.toContain("CONFIRMED BY");
+
+    const tables = xml.match(/<w:tbl>[\s\S]*?<\/w:tbl>/g) || [];
+    const discussionCards = tables.filter((table) => /Account Renewal|Market Update/.test(table) && !table.includes("Send the proposal"));
+    expect(discussionCards).toHaveLength(2);
+    expect(discussionCards[0]).toContain("Renewal timing was reviewed.");
+    expect(discussionCards[0]).not.toContain("Send the proposal");
+
+    const actionSection = content.slice(content.indexOf("ACTION ITEMS"), content.indexOf("OTHER DISCUSSIONS"));
+    const actionHeaders = ["Discussion Point", "Action Plan", "Target Date", "Person in Charge"]
+      .map((header) => actionSection.indexOf(header));
+    expect(actionHeaders.every((position) => position >= 0)).toBe(true);
+    expect(actionHeaders).toEqual([...actionHeaders].sort((a, b) => a - b));
+    expect(actionSection).toContain("Renewal timing was reviewed.");
   });
 });

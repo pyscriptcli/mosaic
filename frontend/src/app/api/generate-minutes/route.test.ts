@@ -49,6 +49,8 @@ describe("POST /api/generate-minutes", () => {
     expect(response.status).toBe(200);
     expect(systemPrompt).toContain("Meeting notes are the primary source of truth");
     expect(systemPrompt).toContain("Do not create discussion, decisions, or action items solely because they appear as agenda topics.");
+    expect(systemPrompt).toContain("Keep each discussion point concise: begin with a short paragraph, then use bullets for distinct details, decisions, or outcomes when useful.");
+    expect(systemPrompt).toContain("Do not include action plans, target dates, owners, or transcript evidence inside discussion_point.");
     expect(userPrompt).toContain("<meeting_notes>\nAgenda: Advisor account updates\nCorrect project name: Project Alon\n</meeting_notes>");
     expect(userPrompt).toContain("<transcript>\n[00:12] Nag-usap kami tungkol sa project.\n</transcript>");
     expect(userPrompt).not.toContain("Old agenda");

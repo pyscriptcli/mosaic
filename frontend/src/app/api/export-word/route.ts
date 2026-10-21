@@ -248,77 +248,57 @@ export async function POST(req: NextRequest) {
           ],
         });
 
-    // 4. Minutes Items Table: Columns [#, Discussion Point, Action Plan, Delivery Date, Person in Charge]
+    // Each discussion is exported as its own topic card, separate from follow-up actions.
     const gridBorder = {
       style: BorderStyle.SINGLE,
       size: 2,
       color: "DCDFE3",
     };
+    const discussionCards: Table[] = (items || []).map((item: any, index: number) => {
+      const title = cleanField(item.topic_title) || `Discussion ${index + 1}`;
+      const discussion = cleanField(item.discussion_point) || "No discussion details recorded.";
+      const discussionParagraphs = discussion.split(/\r?\n/).filter((line: string) => line.trim()).map((line: string) => {
+        const content = line.trim();
+        const bullet = content.match(/^(?:[-*•]|\d+[.)])\s+(.*)$/);
+        if (bullet) {
+          return new Paragraph({
+            bullet: { level: 0 },
+            children: [new TextRun({ text: bullet[1], size: 18, color: "333333" })],
+            spacing: { after: 60 },
+          });
+        }
+        return new Paragraph({
+          children: [new TextRun({ text: content, size: 18, color: "333333" })],
+          spacing: { after: 80 },
+        });
+      });
+      const contentParagraphs = discussionParagraphs.length > 0 ? discussionParagraphs : [new Paragraph({ text: "" })];
 
-    const tableHeader = new TableRow({
-      tableHeader: true,
-      children: [
-        new TableCell({
-          shading: { type: ShadingType.CLEAR, fill: "003366" },
-          borders: { top: gridBorder, bottom: gridBorder, left: gridBorder, right: gridBorder },
-          children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "#", bold: true, color: "FFFFFF", size: 19 })] })],
-          width: { size: 5, type: WidthType.PERCENTAGE }
-        }),
-        new TableCell({
-          shading: { type: ShadingType.CLEAR, fill: "003366" },
-          borders: { top: gridBorder, bottom: gridBorder, left: gridBorder, right: gridBorder },
-          children: [new Paragraph({ children: [new TextRun({ text: "Discussion Point", bold: true, color: "FFFFFF", size: 19 })] })],
-          width: { size: 95, type: WidthType.PERCENTAGE }
-        }),
-      ]
-    });
-
-    const tableRows: TableRow[] = [tableHeader];
-
-    (items || []).forEach((item: any, idx: number) => {
-      const isAlt = idx % 2 === 1;
-      const rowFill = isAlt ? "FAF9F7" : "FFFFFF";
-
-      const topic = cleanField(item.topic_title);
-      const disc = cleanField(item.discussion_point);
-      const topicParagraphs: Paragraph[] = [];
-
-      if (topic) {
-        topicParagraphs.push(new Paragraph({
-          children: [new TextRun({ text: topic, bold: true, color: "003366", size: 19 })],
-          spacing: { after: disc ? 60 : 0 }
-        }));
-      }
-      if (disc) {
-        topicParagraphs.push(new Paragraph({
-          children: [new TextRun({ text: disc, size: 18, color: "333333" })]
-        }));
-      }
-      if (topicParagraphs.length === 0) {
-        topicParagraphs.push(new Paragraph({ text: "" }));
-      }
-      // Note: evidence_quote is completely removed (soft copy only)
-
-      tableRows.push(new TableRow({
-        children: [
-          new TableCell({
-            shading: { type: ShadingType.CLEAR, fill: rowFill },
-            borders: { top: gridBorder, bottom: gridBorder, left: gridBorder, right: gridBorder },
-            children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: String(idx + 1), bold: true, color: "C9AB4C", size: 19 })] })]
+      return new Table({
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        borders: { top: gridBorder, bottom: gridBorder, left: gridBorder, right: gridBorder, insideHorizontal: gridBorder, insideVertical: gridBorder },
+        rows: [
+          new TableRow({
+            children: [new TableCell({
+              shading: { type: ShadingType.CLEAR, fill: "FAF9F7" },
+              borders: { top: gridBorder, bottom: gridBorder, left: gridBorder, right: gridBorder },
+              children: [new Paragraph({ children: [new TextRun({ text: title, bold: true, color: "003366", size: 19 })] })],
+            })],
           }),
-          new TableCell({
-            shading: { type: ShadingType.CLEAR, fill: rowFill },
-            borders: { top: gridBorder, bottom: gridBorder, left: gridBorder, right: gridBorder },
-            children: topicParagraphs
+          new TableRow({
+            children: [new TableCell({
+              shading: { type: ShadingType.CLEAR, fill: "FFFFFF" },
+              borders: { top: gridBorder, bottom: gridBorder, left: gridBorder, right: gridBorder },
+              children: contentParagraphs,
+            })],
           }),
-        ]
-      }));
+        ],
+      });
     });
-
     const actionItems = (items || []).filter((item: any) => cleanField(item.action_plan));
     const actionRows: TableRow[] = [new TableRow({
       tableHeader: true,
-      children: ["Action Item", "Due Date", "Person in Charge", "Related Discussion"].map((label) => new TableCell({
+      children: ["Discussion Point", "Action Plan", "Target Date", "Person in Charge"].map((label) => new TableCell({
         shading: { type: ShadingType.CLEAR, fill: "003366" },
         borders: { top: gridBorder, bottom: gridBorder, left: gridBorder, right: gridBorder },
         children: [new Paragraph({ children: [new TextRun({ text: label, bold: true, color: "FFFFFF", size: 19 })] })],
@@ -326,13 +306,28 @@ export async function POST(req: NextRequest) {
     })];
     actionItems.forEach((item: any, index: number) => {
       const rowFill = index % 2 ? "FAF9F7" : "FFFFFF";
-      const cells = [cleanField(item.action_plan), cleanField(item.indicative_delivery_date), cleanField(item.person_in_charge), cleanField(item.topic_title || item.discussion_point)];
+      const discussionCell: Paragraph[] = [];
+      const topic = cleanField(item.topic_title);
+      const discussion = cleanField(item.discussion_point);
+      if (topic) discussionCell.push(new Paragraph({ children: [new TextRun({ text: topic, bold: true, color: "003366", size: 18 })], spacing: { after: 60 } }));
+      if (discussion) discussionCell.push(...discussion.split(/\r?\n/).map((line: string) => {
+        const bullet = line.trim().match(/^(?:[-*•]|\d+[.)])\s+(.*)$/);
+        return bullet
+          ? new Paragraph({ bullet: { level: 0 }, children: [new TextRun({ text: bullet[1], size: 18, color: "333333" })], spacing: { after: 60 } })
+          : new Paragraph({ children: [new TextRun({ text: line.trim(), size: 18, color: "333333" })], spacing: { after: 60 } });
+      }));
+      if (discussionCell.length === 0) discussionCell.push(new Paragraph({ text: "" }));
+      const cells = [cleanField(item.action_plan), cleanField(item.indicative_delivery_date), cleanField(item.person_in_charge)];
       actionRows.push(new TableRow({
-        children: cells.map((value) => new TableCell({
+        children: [new TableCell({
+          shading: { type: ShadingType.CLEAR, fill: rowFill },
+          borders: { top: gridBorder, bottom: gridBorder, left: gridBorder, right: gridBorder },
+          children: discussionCell,
+        }), ...cells.map((value) => new TableCell({
           shading: { type: ShadingType.CLEAR, fill: rowFill },
           borders: { top: gridBorder, bottom: gridBorder, left: gridBorder, right: gridBorder },
           children: [new Paragraph({ children: [new TextRun({ text: value, size: 18, color: "333333" })] })],
-        })),
+        }))],
       }));
     });
     const docChildren: any[] = [
@@ -345,7 +340,9 @@ export async function POST(req: NextRequest) {
       summaryTable,
       new Paragraph({ text: "", spacing: { after: 150 } }),
       sectionHeading("DISCUSSION POINTS"),
-      new Table({ rows: tableRows, width: { size: 100, type: WidthType.PERCENTAGE } }),
+      ...(discussionCards.length > 0
+        ? discussionCards.flatMap((card) => [card, new Paragraph({ text: "", spacing: { after: 120 } })])
+        : [new Paragraph({ text: "No discussion points recorded.", spacing: { after: 150 } })]),
       new Paragraph({ text: "", spacing: { after: 200 } }),
       ...(actionItems.length > 0 ? [
         sectionHeading("ACTION ITEMS"),

@@ -31,13 +31,15 @@ Source authority and use:
 - If notes and transcript materially conflict about a decision, commitment, or fact, follow the notes for the MoM and make the discrepancy clear in the relevant discussion point. Do not invent a reconciliation or an unsupported detail.
 - Meeting notes may include an agenda. Use it to group and title discussion points. Do not create discussion, decisions, or action items solely because they appear as agenda topics.
 - Preserve the language used in the transcript, including Taglish. Do not translate transcript quotes.
+- Keep each discussion point concise: begin with a short paragraph, then use bullets for distinct details, decisions, or outcomes when useful.
+- Do not include action plans, target dates, owners, or transcript evidence inside discussion_point. Put those only in their separate fields.
 
 Output strict JSON only, matching this schema:
 {
   "matched_items": [
     {
       "topic_title": "Clear concise topic title",
-      "discussion_point": "Detailed explanation of discussions, conclusions, and arguments",
+      "discussion_point": "Short paragraph followed by bullets for distinct details, decisions, or outcomes when useful",
       "evidence_quote": "Direct quote from source text or transcript e.g. [00:00] ...",
       "action_plan": "Actionable next step, or 'None'",
       "indicative_delivery_date": "Target delivery date or 'TBD'",
@@ -48,7 +50,7 @@ Output strict JSON only, matching this schema:
   "recommended_missed_points": [
     {
       "topic_title": "Important topic not yet captured",
-      "discussion_point": "Detailed explanation of discussions, conclusions, and arguments",
+      "discussion_point": "Short paragraph followed by bullets for distinct details, decisions, or outcomes when useful",
       "evidence_quote": "Direct quote from source text or transcript e.g. [00:00] ...",
       "action_plan": "Actionable next step, or 'None'",
       "indicative_delivery_date": "Target delivery date or 'TBD'",

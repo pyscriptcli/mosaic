@@ -51,7 +51,7 @@ describe("POST /api/discover-topics", () => {
       },
     ];
 
-    vi.spyOn(global, "fetch").mockResolvedValue(
+    const fetchSpy = vi.spyOn(global, "fetch").mockResolvedValue(
       new Response(
         JSON.stringify({
           choices: [
@@ -89,6 +89,9 @@ describe("POST /api/discover-topics", () => {
       person_in_charge: "Melisa",
       confidence: "High",
     });
+    const requestBody = JSON.parse(String(fetchSpy.mock.calls[0][1]?.body));
+    expect(requestBody.messages[0].content).toContain("Keep each discussion point concise: begin with a short paragraph, then use bullets for distinct details, decisions, or outcomes when useful.");
+    expect(requestBody.messages[0].content).toContain("Do not include action plans, target dates, owners, or transcript evidence inside discussion_point.");
   });
 
   it("normalizes legacy topic and quote keys and falls back gracefully", async () => {

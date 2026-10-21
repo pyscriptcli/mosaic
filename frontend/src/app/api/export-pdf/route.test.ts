@@ -57,7 +57,18 @@ describe("POST /api/export-pdf MoM structure", () => {
     expect(positions).toEqual([...positions].sort((a, b) => a - b));
     expect(renderedText).toContain("The team aligned on next steps.");
     expect(renderedText).not.toContain("Should not appear");
-    expect(JSON.stringify(pdfCapture.tables[1])).not.toContain("Send the proposal");
-    expect(JSON.stringify(pdfCapture.tables[2])).toContain("Send the proposal");
+    const renderedTables = pdfCapture.tables as { head?: unknown[][]; body?: unknown[][] }[];
+    const discussionCards = renderedTables.filter((table) => {
+      const serialized = JSON.stringify(table);
+      return (serialized.includes("Account Renewal") || serialized.includes("Market Update")) && !serialized.includes("Send the proposal");
+    });
+    expect(discussionCards).toHaveLength(2);
+    expect(JSON.stringify(discussionCards)).toContain("Renewal timing was reviewed.");
+    expect(JSON.stringify(discussionCards)).not.toContain("Send the proposal");
+
+    const actionTable = renderedTables.find((table) => JSON.stringify(table.head || []).includes("Discussion Point"));
+    expect(actionTable?.head?.[0]).toEqual(["Discussion Point", "Action Plan", "Target Date", "Person in Charge"]);
+    expect(JSON.stringify(actionTable?.body)).toContain("Renewal timing was reviewed.");
+    expect(JSON.stringify(actionTable?.body)).toContain("Send the proposal");
   });
 });

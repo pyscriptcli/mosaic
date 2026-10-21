@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { Stepper, Stage } from "@/components/Stepper";
 import { MeetingWorkspaceTabs } from "@/components/MeetingWorkspaceTabs";
+import { MeetingActionItemsTable, MeetingDiscussionCard } from "@/components/MeetingWorkspaceContent";
 import { StudioRecoveryBanner } from "@/components/StudioRecoveryBanner";
 import { useStudioRecorderContext } from "@/components/StudioRecorderProvider";
 import type { StudioNote, StudioDisplayMode } from "@/types/studio";
@@ -2293,17 +2294,54 @@ export default function Home() {
             ) : reviewTab === "actions" ? (
               <div className="border border-gray-200 bg-[#FFFCFB] p-5 shadow-2xs rounded-none space-y-3">
                 <h3 className="text-lg font-serif text-[#003366] italic">Action Items</h3>
-                {momItems.filter((item) => item.action_plan?.trim() && !["none", "n/a", "tbd", "unassigned"].includes(item.action_plan.trim().toLowerCase())).length ? (
-                  momItems.filter((item) => item.action_plan?.trim() && !["none", "n/a", "tbd", "unassigned"].includes(item.action_plan.trim().toLowerCase())).map((item, index) => (
-                    <div key={item.id ?? index} className="border border-slate-200 bg-white p-3 shadow-2xs">
-                      <p className="text-sm font-semibold text-[#003366]">{item.topic_title || item.topic || `Action ${index + 1}`}</p>
-                      <p className="mt-1 text-xs text-slate-700">{item.action_plan}</p>
-                      {(item.indicative_delivery_date || item.target_date || item.person_in_charge) && (
-                        <p className="mt-2 text-[11px] text-slate-500">{[item.person_in_charge, item.indicative_delivery_date || item.target_date].filter(Boolean).join(" · ")}</p>
-                      )}
-                    </div>
-                  ))
-                ) : <p className="text-sm text-slate-500">No action items recorded.</p>}
+                <MeetingActionItemsTable
+                  items={momItems.map((item, index) => ({
+                    id: String(item.id ?? index),
+                    topicTitle: item.topic_title || item.topic || "",
+                    discussionPoint: item.discussion_point || "",
+                    actionPlan: item.action_plan === "None" ? "" : item.action_plan || "",
+                    targetDate: item.indicative_delivery_date || item.target_date || "",
+                    personInCharge: item.person_in_charge || "",
+                  }))}
+                  onChange={(id, field, value) => {
+                    const index = momItems.findIndex((item, itemIndex) => String(item.id ?? itemIndex) === id);
+                    if (index < 0) return;
+                    const fields = { discussionPoint: "discussion_point", actionPlan: "action_plan", targetDate: "indicative_delivery_date", personInCharge: "person_in_charge" } as const;
+                    const nextValue = field === "actionPlan" && !value.trim() ? "None" : value;
+                    setMomItems((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, [fields[field]]: nextValue } : item));
+                  }}
+                  renderAction={(row) => {
+                    const index = momItems.findIndex((item, itemIndex) => String(item.id ?? itemIndex) === row.id);
+                    const item = momItems[index];
+                    if (!item) return null;
+                    return item.clickUpTaskId ? (
+                      <button type="button" onClick={() => { setFocusedTaskId(item.clickUpTaskId); setCurrentView("tasks"); }} className="mt-2 flex items-center gap-1.5 border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-800 hover:bg-emerald-100" title="Already added to ClickUp. Click to view or edit in Tasks portal">
+                        <CheckCircle2 size={13} className="text-emerald-600" /><span>Added to Tasks</span>
+                      </button>
+                    ) : (
+                      <button type="button" onClick={() => setQuickAddTaskData({
+                        isOpen: true,
+                        data: {
+                          name: item.action_plan && item.action_plan !== "None" ? item.action_plan : item.topic_title || `Action from Topic #${index + 1}`,
+                          description: item.discussion_point || "",
+                          topic: item.topic_title || "",
+                          evidence: item.evidence_quote || "",
+                          meetingTitle: metadata.client_name || "Executive Meeting",
+                          meetingDate: metadata.date,
+                          dueDate: item.indicative_delivery_date || "",
+                          priority: "normal",
+                          assigneeName: item.person_in_charge || "",
+                          discussionPointId: item.id || `dp_${index + 1}`,
+                          existingTaskId: item.clickUpTaskId,
+                          existingTaskUrl: item.clickUpUrl,
+                        },
+                        topicIndex: index,
+                      })} className="mt-2 flex items-center gap-1.5 border border-[#003366]/30 bg-[#FFFCFB] px-2.5 py-1 text-[11px] font-bold text-[#003366] transition-colors hover:border-[#003366] hover:bg-blue-50/50">
+                        <CheckSquare size={13} className="text-[#c9ab4c]" /><span>Add to Tasks</span>
+                      </button>
+                    );
+                  }}
+                />
               </div>
             ) : (
               <>
@@ -2315,7 +2353,7 @@ export default function Home() {
                 <div className="flex items-center gap-2.5">
                   <div className="w-2 h-2 bg-[#c9ab4c]"></div>
                   <span className="text-xs font-bold uppercase tracking-[0.2em]">
-                    Discussion Points & Action Items
+                    Discussion Points
                   </span>
                 </div>
                 <span className="text-[11px] text-gray-300 font-semibold tracking-wider uppercase">
@@ -2326,249 +2364,65 @@ export default function Home() {
               {/* Discussion Cards Container */}
               <div className="p-4 bg-[#FFFCFB] space-y-4">
                 {momItems.length === 0 ? (
-                  <div className="p-10 text-center bg-[#FFFCFB] border border-gray-200 rounded-none">
-                    <p className="text-gray-500 text-xs mb-3">No minutes items generated yet.</p>
-                    <div className="flex items-center justify-center gap-2">
-                      <button onClick={addRow} className="btn-primary !text-xs !py-1.5 !px-3 rounded-none cursor-pointer">
-                        <Plus size={13} className="inline mr-1" /> Add First Topic Manually
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (!transcript?.trim()) {
-                            alert("No transcript available to discover topics from.");
-                            return;
-                          }
-                          setShowDiscoverTopicsModal(true);
-                          if (missedTopics.length === 0) {
-                            void discoverTopics("");
-                          }
-                        }}
-                        className="btn-outline !text-xs !py-1.5 !px-3 rounded-none flex items-center gap-1 cursor-pointer"
-                      >
-                        <Sparkles size={13} className="text-[#c9ab4c]" /> Discover Topics
-                      </button>
-                    </div>
+                  <div className="border border-gray-200 bg-[#FFFCFB] p-10 text-center">
+                    <p className="mb-3 text-xs text-gray-500">No minutes items generated yet.</p>
+                    <button onClick={addRow} className="btn-primary !text-xs !py-1.5 !px-3 rounded-none cursor-pointer">
+                      <Plus size={13} className="mr-1 inline" /> Add First Topic Manually
+                    </button>
                   </div>
-                ) : (
-                  momItems.map((item, idx) => (
-                    <div 
-                      key={idx} 
-                      className="p-4 bg-[#FFFCFB] border border-gray-200 shadow-2xs hover:border-[#003366]/40 transition-colors relative rounded-none"
-                    >
-                      {/* 1. TOPIC AS HEADER + MOVE/REMOVE BUTTONS */}
-                      <div className="flex items-start justify-between gap-4 pb-2.5 border-b border-gray-100">
-                        <div className="flex items-center gap-3 flex-1">
-                          <span className="font-[family-name:--font-bebas] text-xl text-[#c9ab4c] tracking-wider shrink-0 select-none">
-                            {String(idx + 1).padStart(2, "0")}
-                          </span>
-                          <div className="flex-1">
-                            <input 
-                              type="text" 
-                              className="w-full font-serif text-base text-[#003366] font-bold italic bg-transparent border-b border-transparent hover:border-gray-300 focus:border-[#003366] focus:outline-none transition-colors py-0.5 rounded-none" 
-                              value={item.topic_title || ""} 
-                              placeholder="Topic title (e.g., Project Updates & Milestones)..."
-                              onChange={(e) => {
-                                const newItems = [...momItems];
-                                newItems[idx].topic_title = e.target.value;
-                                setMomItems(newItems);
-                              }}
-                            />
-                          </div>
-                        </div>
-
-                        {/* Top-Right Move/Remove */}
-                        <div className="flex items-center gap-1 shrink-0 pt-0.5">
-                          <button 
-                            type="button" 
-                            onClick={() => moveRow(idx, -1)} 
-                            disabled={idx === 0}
-                            title="Move topic up"
-                            className="p-1 border border-gray-200 bg-[#FFFCFB] hover:bg-[#003366] hover:text-white disabled:opacity-30 disabled:pointer-events-none transition-colors text-gray-500 rounded-none"
-                          >
-                            <ChevronUp size={13} />
-                          </button>
-                          <button 
-                            type="button" 
-                            onClick={() => moveRow(idx, 1)} 
-                            disabled={idx === momItems.length - 1}
-                            title="Move topic down"
-                            className="p-1 border border-gray-200 bg-[#FFFCFB] hover:bg-[#003366] hover:text-white disabled:opacity-30 disabled:pointer-events-none transition-colors text-gray-500 rounded-none"
-                          >
-                            <ChevronDown size={13} />
-                          </button>
-                          <button 
-                            type="button" 
-                            onClick={() => removeRow(idx)} 
-                            title="Remove topic"
-                            className="p-1 border border-gray-200 bg-[#FFFCFB] hover:bg-red-500 hover:text-white transition-colors text-gray-400 hover:border-red-500 rounded-none ml-0.5"
-                          >
-                            <X size={13} />
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* 2. EVIDENCE SECTION */}
-                      <div className="pt-2.5 pb-3">
-                        <label className="block text-[9px] font-bold tracking-widest uppercase text-gray-400 mb-1">
-                          Evidence Quote / Context Reference
-                        </label>
-                        <AutoResizeTextarea
-                          rows={2}
-                          className="w-full border-l-2 border-[#c9ab4c] bg-[#FFFCFB] p-2 text-xs italic text-gray-700 focus:outline-none focus:bg-[#FFFCFB] focus:border-[#003366] transition-colors leading-relaxed rounded-none"
-                          value={item.evidence_quote || ""}
-                          placeholder='[00:00] Direct context or source reference quote...'
-                          onChange={(e) => {
-                            const newItems = [...momItems];
-                            newItems[idx].evidence_quote = e.target.value;
-                            setMomItems(newItems);
-                          }}
-                        />
-                      </div>
-
-                      {/* 3. ROW FOR DISCUSSION POINT, ACTION PLAN, TARGET DATE, PERSON IN CHARGE */}
-                      <div className="grid grid-cols-1 lg:grid-cols-12 gap-3.5 items-start pt-2.5 border-t border-gray-100">
-                        
-                        {/* Discussion Point */}
-                        <div className="lg:col-span-5">
-                          <label className="block text-[9px] font-bold tracking-widest uppercase text-gray-500 mb-1">
-                            Discussion Point
-                          </label>
-                          <AutoResizeTextarea
-                            rows={3}
-                            className="w-full border border-gray-200 p-2 text-xs bg-[#FFFCFB] text-gray-700 leading-relaxed focus:outline-none focus:border-[#C9AB4C] transition-colors shadow-2xs rounded-none"
-                            value={item.discussion_point || ""}
-                            placeholder="Detail discussions, key arguments, and conclusions..."
-                            onChange={(e) => {
-                              const newItems = [...momItems];
-                              newItems[idx].discussion_point = e.target.value;
-                              setMomItems(newItems);
-                            }}
-                          />
-                        </div>
-
-                        {/* Action Plan */}
-                        <div className="lg:col-span-3">
-                          <div className="flex items-center justify-between mb-1">
-                            <label className="block text-[9px] font-bold tracking-widest uppercase text-gray-500">
-                              Action Plan
-                            </label>
-                            <span className={`text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-none ${
-                              item.action_plan && item.action_plan !== "None"
-                                ? "bg-[#003366] text-[#c9ab4c]"
-                                : "bg-[#FFFCFB] text-gray-400"
-                            }`}>
-                              {item.action_plan && item.action_plan !== "None" ? "Action" : "Info"}
-                            </span>
-                          </div>
-                          <AutoResizeTextarea
-                            rows={3}
-                            className="w-full border border-gray-200 p-2 text-xs bg-[#FFFCFB] text-gray-700 leading-relaxed focus:outline-none focus:border-[#C9AB4C] transition-colors shadow-2xs rounded-none"
-                            value={item.action_plan || ""}
-                            placeholder="Next steps or operational action..."
-                            onChange={(e) => {
-                              const newItems = [...momItems];
-                              newItems[idx].action_plan = e.target.value;
-                              setMomItems(newItems);
-                            }}
-                          />
-                        </div>
-
-                        {/* Target Date */}
-                        <div className="lg:col-span-2">
-                          <label className="block text-[9px] font-bold tracking-widest uppercase text-gray-500 mb-1">
-                            Target Date
-                          </label>
-                          <DatePickerInput
-                            value={item.indicative_delivery_date || ""}
-                            onChange={(val) => {
-                              const newItems = [...momItems];
-                              newItems[idx].indicative_delivery_date = val;
-                              setMomItems(newItems);
-                            }}
-                          />
-                          <span className="text-[9px] text-gray-400 mt-0.5 block">Pick or type date</span>
-                        </div>
-
-                        {/* Person in Charge */}
-                        <div className="lg:col-span-2">
-                          <label className="block text-[9px] font-bold tracking-widest uppercase text-gray-500 mb-1">
-                            Person in Charge
-                          </label>
-                          <div className="flex items-center gap-1.5 border border-gray-200 bg-[#FFFCFB] px-2 py-1.5 rounded-none">
-                            <Users size={12} className="text-[#c9ab4c] shrink-0" />
-                            <input 
-                              type="text" 
-                              className="w-full text-xs font-semibold text-gray-800 bg-transparent focus:outline-none" 
-                              value={item.person_in_charge || ""} 
-                              placeholder="e.g. Dave Policarpio"
-                              onChange={(e) => {
-                                const newItems = [...momItems];
-                                newItems[idx].person_in_charge = e.target.value;
-                                setMomItems(newItems);
-                              }} 
-                            />
-                          </div>
-                        </div>
-
-                      </div>
-
-                      {/* Quick Task Action Bar */}
-                      <div className="flex items-center justify-between pt-2.5 mt-2 border-t border-gray-100">
-                        <span className="text-[10px] text-gray-400 font-mono">
-                          Topic #{idx + 1}
-                        </span>
+                ) : momItems.map((item, idx) => (
+                  <MeetingDiscussionCard
+                    key={String(item.id ?? idx)}
+                    title={item.topic_title || item.topic || ""}
+                    discussionPoint={item.discussion_point || ""}
+                    onTitleChange={(value) => {
+                      const nextItems = [...momItems];
+                      nextItems[idx].topic_title = value;
+                      setMomItems(nextItems);
+                    }}
+                    onDiscussionPointChange={(value) => {
+                      const nextItems = [...momItems];
+                      nextItems[idx].discussion_point = value;
+                      setMomItems(nextItems);
+                    }}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 pt-2">
+                      <span className="text-[10px] font-mono text-gray-400">Topic #{idx + 1}</span>
+                      <div className="flex items-center gap-1.5">
+                        <button type="button" onClick={() => moveRow(idx, -1)} disabled={idx === 0} title="Move topic up" className="border border-gray-200 p-1 text-gray-500 transition-colors hover:bg-[#003366] hover:text-white disabled:pointer-events-none disabled:opacity-30"><ChevronUp size={13} /></button>
+                        <button type="button" onClick={() => moveRow(idx, 1)} disabled={idx === momItems.length - 1} title="Move topic down" className="border border-gray-200 p-1 text-gray-500 transition-colors hover:bg-[#003366] hover:text-white disabled:pointer-events-none disabled:opacity-30"><ChevronDown size={13} /></button>
+                        <button type="button" onClick={() => removeRow(idx)} title="Remove topic" className="border border-gray-200 p-1 text-gray-400 transition-colors hover:border-red-500 hover:bg-red-500 hover:text-white"><X size={13} /></button>
                         {item.clickUpTaskId ? (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setFocusedTaskId(item.clickUpTaskId);
-                              setCurrentView("tasks");
-                            }}
-                            className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-300 hover:bg-emerald-100 transition-colors shadow-2xs rounded-none cursor-pointer"
-                            title="Already added to ClickUp. Click to view or edit in Tasks portal"
-                          >
-                            <CheckCircle2 size={13} className="text-emerald-600" />
-                            <span>Added to Tasks</span>
+                          <button type="button" onClick={() => { setFocusedTaskId(item.clickUpTaskId); setCurrentView("tasks"); }} className="flex items-center gap-1.5 border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-800 hover:bg-emerald-100" title="Already added to ClickUp. Click to view or edit in Tasks portal">
+                            <CheckCircle2 size={13} className="text-emerald-600" /><span>Added to Tasks</span>
                           </button>
                         ) : (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setQuickAddTaskData({
-                                isOpen: true,
-                                data: {
-                                  name:
-                                    item.action_plan && item.action_plan !== "None"
-                                      ? item.action_plan
-                                      : item.topic_title || `Action from Topic #${idx + 1}`,
-                                  description: item.discussion_point || "",
-                                  topic: item.topic_title || "",
-                                  evidence: item.evidence_quote || "",
-                                  meetingTitle: metadata.client_name || "Executive Meeting",
-                                  meetingDate: metadata.date,
-                                  dueDate: item.indicative_delivery_date || "",
-                                  priority: "normal",
-                                  assigneeName: item.person_in_charge || "",
-                                  discussionPointId: item.id || `dp_${idx + 1}`,
-                                  existingTaskId: item.clickUpTaskId,
-                                  existingTaskUrl: item.clickUpUrl,
-                                },
-                                topicIndex: idx,
-                              });
-                            }}
-                            className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold text-[#003366] bg-[#FFFCFB] border border-[#003366]/30 hover:border-[#003366] hover:bg-blue-50/50 transition-colors shadow-2xs rounded-none cursor-pointer"
-                          >
-                            <CheckSquare size={13} className="text-[#c9ab4c]" />
-                            <span>Add to Tasks</span>
+                          <button type="button" onClick={() => setQuickAddTaskData({
+                            isOpen: true,
+                            data: {
+                              name: item.action_plan && item.action_plan !== "None" ? item.action_plan : item.topic_title || `Action from Topic #${idx + 1}`,
+                              description: item.discussion_point || "",
+                              topic: item.topic_title || "",
+                              evidence: item.evidence_quote || "",
+                              meetingTitle: metadata.client_name || "Executive Meeting",
+                              meetingDate: metadata.date,
+                              dueDate: item.indicative_delivery_date || "",
+                              priority: "normal",
+                              assigneeName: item.person_in_charge || "",
+                              discussionPointId: item.id || `dp_${idx + 1}`,
+                              existingTaskId: item.clickUpTaskId,
+                              existingTaskUrl: item.clickUpUrl,
+                            },
+                            topicIndex: idx,
+                          })} className="flex items-center gap-1.5 border border-[#003366]/30 bg-[#FFFCFB] px-2.5 py-1 text-[11px] font-bold text-[#003366] transition-colors hover:border-[#003366] hover:bg-blue-50/50">
+                            <CheckSquare size={13} className="text-[#c9ab4c]" /><span>Add to Tasks</span>
                           </button>
                         )}
                       </div>
                     </div>
-                  ))
-                )}
+                  </MeetingDiscussionCard>
+                ))}
               </div>
-
               {/* Table / Card List Footer */}
               <div className="p-3.5 bg-[#FFFCFB] border-t border-gray-200 flex items-center gap-2">
                 <button onClick={addRow} className="btn-primary !py-2 !px-4 text-xs rounded-none cursor-pointer">

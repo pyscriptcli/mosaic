@@ -32,6 +32,9 @@ For EVERY discovered topic, you MUST extract complete, high-quality, professiona
 6. "person_in_charge": Full name of the responsible owner/speaker assigned (e.g. "Rommel", "Dave", "Melisa"), or "Unassigned" if unassigned.
 7. "confidence": "High" | "Medium" | "Low" based on relevance and evidence clarity.
 
+Keep each discussion point concise: begin with a short paragraph, then use bullets for distinct details, decisions, or outcomes when useful.
+Do not include action plans, target dates, owners, or transcript evidence inside discussion_point. Put those only in their separate fields.
+
 Output strictly valid JSON matching this schema:
 {
   "topics": [

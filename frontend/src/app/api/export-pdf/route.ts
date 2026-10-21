@@ -21,6 +21,12 @@ function cleanField(val: any): string {
   return s;
 }
 
+function formatDiscussionText(val: any): string {
+  return cleanField(val).split(/\r?\n/).map((line) =>
+    line.replace(/^(?:[-*•]|\d+[.)])\s+/, "• "),
+  ).join("\n");
+}
+
 export async function POST(req: NextRequest) {
   const denied = await requireFeature(req, "meetings-export");
   if (denied) return denied;
@@ -147,50 +153,23 @@ export async function POST(req: NextRequest) {
     doc.text("DISCUSSION POINTS", 14, tableStartY);
     tableStartY += 4;
 
-    // Discussion points are independent from actions, which may not exist for every topic.
-    const tableData = (items || []).map((item: any, index: number) => {
-      const topic = cleanField(item.topic_title);
-      const disc = cleanField(item.discussion_point);
-      let topicCell = topic;
-      if (disc) {
-        topicCell = topicCell ? `${topicCell}\n\n${disc}` : disc;
-      }
-      return [
-        String(index + 1),
-        topicCell,
-      ];
+    (items || []).forEach((item: any, index: number) => {
+      const topic = cleanField(item.topic_title) || `Discussion ${index + 1}`;
+      const discussionPoint = formatDiscussionText(item.discussion_point) || "No discussion details recorded.";
+      autoTable(doc, {
+        startY: tableStartY,
+        head: [[topic]],
+        body: [[discussionPoint]],
+        theme: "grid",
+        headStyles: { fillColor: [250, 249, 247], textColor: [0, 51, 102], fontStyle: "bold", fontSize: 9 },
+        bodyStyles: { fillColor: [255, 255, 255], textColor: [50, 50, 50], fontSize: 8, cellPadding: 3.5, overflow: "linebreak" },
+        styles: { lineColor: [220, 225, 230], lineWidth: 0.2 },
+      });
+      // @ts-ignore
+      tableStartY = ((doc as any).lastAutoTable?.finalY || (tableStartY + 18)) + 3;
     });
 
-    autoTable(doc, {
-      startY: tableStartY,
-      head: [["#", "Discussion Point"]],
-      body: tableData,
-      theme: "grid",
-      headStyles: {
-        fillColor: [0, 51, 102],
-        textColor: [255, 255, 255],
-        fontStyle: "bold",
-        fontSize: 8.5,
-        halign: "left",
-      },
-      columnStyles: {
-        0: { cellWidth: 9, halign: "center", fontStyle: "bold", textColor: [201, 171, 76] },
-        1: { cellWidth: 168, fontSize: 8 },
-      },
-      styles: {
-        cellPadding: 3,
-        overflow: "linebreak",
-        lineColor: [220, 225, 230],
-        lineWidth: 0.2,
-      },
-      alternateRowStyles: {
-        fillColor: [250, 249, 247],
-      },
-    });
-
-    // @ts-ignore
-    let currentY = (doc as any).lastAutoTable?.finalY || (tableStartY + 36);
-    currentY += 8;
+    let currentY = tableStartY + 5;
 
     const actionItems = (items || []).filter((item: any) => cleanField(item.action_plan));
     if (actionItems.length > 0) {
@@ -201,13 +180,14 @@ export async function POST(req: NextRequest) {
       currentY += 4;
       autoTable(doc, {
         startY: currentY,
-        head: [["#", "Action Item", "Due Date", "Person in Charge"]],
-        body: actionItems.map((item: any, index: number) => [
-          String(index + 1), cleanField(item.action_plan), cleanField(item.indicative_delivery_date), cleanField(item.person_in_charge),
+        head: [["Discussion Point", "Action Plan", "Target Date", "Person in Charge"]],
+        body: actionItems.map((item: any) => [
+          [cleanField(item.topic_title), formatDiscussionText(item.discussion_point)].filter(Boolean).join("\n"),
+          cleanField(item.action_plan), cleanField(item.indicative_delivery_date), cleanField(item.person_in_charge),
         ]),
         theme: "grid",
         headStyles: { fillColor: [0, 51, 102], textColor: [255, 255, 255], fontStyle: "bold", fontSize: 8.5 },
-        columnStyles: { 0: { cellWidth: 9, halign: "center" }, 1: { cellWidth: 95 }, 2: { cellWidth: 42 }, 3: { cellWidth: 50 } },
+        columnStyles: { 0: { cellWidth: 68 }, 1: { cellWidth: 55 }, 2: { cellWidth: 27 }, 3: { cellWidth: 32 } },
         styles: { cellPadding: 3, overflow: "linebreak", lineColor: [220, 225, 230], lineWidth: 0.2 },
       });
       // @ts-ignore
