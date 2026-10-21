@@ -821,6 +821,9 @@ export default function Home() {
         (momRes.matched_items || []).map((item: any, idx: number) => ({
           id: item.id || `dp_${Date.now()}_${idx}`,
           topic_title: item.topic_title || item.topic || `Discussion ${idx + 1}`,
+          category: item.category || "",
+          importance: item.importance || "",
+          why_it_matters: item.why_it_matters || "",
           discussion_point: item.discussion_point || "",
           evidence_quote: item.evidence_quote || item.evidence || "",
           action_suggestion: {
@@ -899,6 +902,9 @@ export default function Home() {
         (res.matched_items || []).map((item: any, idx: number) => ({
           id: item.id || `dp_${Date.now()}_${idx}`,
           topic_title: item.topic_title || item.topic || `Discussion ${idx + 1}`,
+          category: item.category || "",
+          importance: item.importance || "",
+          why_it_matters: item.why_it_matters || "",
           discussion_point: item.discussion_point || "",
           evidence_quote: item.evidence_quote || item.evidence || "",
           action_suggestion: {
@@ -2483,6 +2489,9 @@ export default function Home() {
                     title={item.topic_title || item.topic || ""}
                     discussionPoint={item.discussion_point || ""}
                     evidenceQuote={item.evidence_quote || ""}
+                    category={item.category}
+                    importance={item.importance}
+                    whyItMatters={item.why_it_matters || ""}
                     actionCount={actionItems.filter((action) => String(action.discussion_point_id) === String(item.id)).length}
                     onAddAction={() => addActionItem(item)}
                     onTitleChange={(value) => {

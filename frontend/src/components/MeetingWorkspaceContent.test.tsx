@@ -43,6 +43,22 @@ describe("MeetingDiscussionCard", () => {
     expect(bold.tagName).toBe("STRONG");
     expect(screen.queryByText(/\\\*\\\*/)).toBeNull();
   });
+
+  it("shows classification and why an insight matters", () => {
+    render(
+      <MeetingDiscussionCard
+        title="Client timeline"
+        discussionPoint="The delivery date may move."
+        category="insight"
+        importance="material"
+        whyItMatters="The timing could change the client rollout plan."
+      />,
+    );
+
+    expect(screen.getByText("insight")).toBeTruthy();
+    expect(screen.getByText("material")).toBeTruthy();
+    expect(screen.getByText("Why it matters").parentElement?.textContent).toContain("The timing could change the client rollout plan.");
+  });
 });
 
 describe("MeetingActionItemsTable", () => {

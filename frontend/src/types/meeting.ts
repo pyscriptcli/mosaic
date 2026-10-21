@@ -1,6 +1,9 @@
 export interface DiscussionItem {
   id: string | number;
   topic: string;
+  category?: "decision" | "action" | "risk" | "open_question" | "insight" | "context";
+  importance?: "material" | "supporting";
+  why_it_matters?: string;
   evidence: string;
   discussion_point: string;
   /** Legacy read compatibility for older archive consumers. New edits store these on action_items. */

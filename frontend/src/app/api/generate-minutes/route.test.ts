@@ -95,4 +95,45 @@ describe("POST /api/generate-minutes", () => {
     expect(userPrompt).toContain("<meeting_notes>\nAttendees: Ana and Ben\n</meeting_notes>");
     expect(userPrompt).toContain("<transcript>\n[00:20] The account is progressing.\n</transcript>");
   });
+
+  it("uses the indexed materiality rubric and returns classified insight fields", async () => {
+    const generatedMinutes = {
+      summary: "The team reviewed the launch plan.",
+      bottom_line: "Launch timing depends on client approval.",
+      matched_items: [{
+        category: "insight",
+        importance: "material",
+        topic_title: "Client approval risk",
+        discussion_point: "The client has not approved the revised schedule.",
+        why_it_matters: "The launch date depends on approval.",
+        evidence_quote: "[00:42] We still need the client to approve this schedule.",
+        action_plan: "None",
+        indicative_delivery_date: "TBD",
+        person_in_charge: "Unassigned",
+        confidence: "High",
+      }],
+      recommended_missed_points: [],
+      other_discussions: "",
+    };
+    const fetchSpy = vi.spyOn(global, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(generatedMinutes) } }] }), { status: 200 }),
+    );
+    const { POST } = await import("./route");
+    const req = new NextRequest("http://localhost/api/generate-minutes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ transcript: "[00:42] We still need the client to approve this schedule." }),
+    });
+
+    const response = await POST(req);
+    const requestBody = JSON.parse(String(fetchSpy.mock.calls[0][1]?.body));
+    const systemPrompt = requestBody.messages[0].content as string;
+
+    expect(systemPrompt).toContain("# PROMPT INDEX");
+    expect(systemPrompt).toContain("2. Importance rubric");
+    expect(systemPrompt).toContain("3. Key insight test");
+    expect(systemPrompt).toContain("identify candidate points; resolve source conflicts using section 4; classify each point using section 2");
+    expect(systemPrompt).toContain("An insight is a source-supported observation");
+    expect(await response.json()).toEqual(generatedMinutes);
+  });
 });

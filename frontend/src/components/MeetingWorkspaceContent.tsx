@@ -42,6 +42,9 @@ interface MeetingDiscussionCardProps {
   title: string;
   discussionPoint: string;
   evidenceQuote?: string;
+  category?: string;
+  importance?: string;
+  whyItMatters?: string;
   actionCount?: number;
   onTitleChange?: (value: string) => void;
   onDiscussionPointChange?: (value: string) => void;
@@ -178,6 +181,9 @@ export function MeetingDiscussionCard({
   title,
   discussionPoint,
   evidenceQuote = "",
+  category,
+  importance,
+  whyItMatters = "",
   actionCount = 0,
   onTitleChange,
   onDiscussionPointChange,
@@ -218,6 +224,20 @@ export function MeetingDiscussionCard({
         <section aria-label="Evidence quote / context reference" className="border-l-2 border-[#C9AB4C] bg-white/70 px-3 py-2">
           <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">Evidence quote / context reference</p>
           <p className="font-serif text-sm italic leading-relaxed text-slate-600">{evidenceQuote}</p>
+        </section>
+      )}
+
+      {(category || importance) && (
+        <div aria-label="Discussion classification" className="flex flex-wrap gap-1.5">
+          {category && <span className="border border-[#003366]/15 bg-blue-50/60 px-2 py-0.5 text-[10px] font-semibold capitalize tracking-wide text-[#003366]">{category.replace(/_/g, " ")}</span>}
+          {importance && <span className="border border-[#C9AB4C]/40 bg-[#C9AB4C]/10 px-2 py-0.5 text-[10px] font-semibold capitalize tracking-wide text-[#6B571D]">{importance}</span>}
+        </div>
+      )}
+
+      {category === "insight" && whyItMatters.trim() && (
+        <section aria-label="Why it matters" className="border-l-2 border-[#003366]/30 bg-blue-50/40 px-3 py-2">
+          <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">Why it matters</p>
+          <p className="text-sm leading-relaxed text-slate-700">{whyItMatters}</p>
         </section>
       )}
 
