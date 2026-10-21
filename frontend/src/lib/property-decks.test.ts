@@ -1,9 +1,13 @@
+import JSZip from "jszip";
 import { describe, expect, it } from "vitest";
 import {
   applySlideOverrides,
   buildCompilationManifest,
+  compilePptxInBrowser,
   extractSpecsFromSlideText,
   filterPropertySlides,
+  getOrderedSlidePathsFromZip,
+  indexPptxFilesInBrowser,
   parseNumericGla,
   reorderSelectedSlides,
   type PropertySlideItem,
@@ -192,5 +196,89 @@ describe("Property Decks filtering, overrides, and cart sequencing", () => {
       gla: "3,200 sqm",
       leaseRate: "₱350/sqm",
     });
+  });
+
+  it("indexes PPTX buffers directly in the browser without requiring server filesystem access", async () => {
+    const zip = new JSZip();
+    zip.file(
+      "ppt/slides/slide1.xml",
+      `<p:sld><a:p><a:t>PROPERTY INFORMATION SHEET</a:t></a:p><a:p><a:t>Prepared Exclusively For: Nestle</a:t></a:p></p:sld>`,
+    );
+    zip.file(
+      "ppt/slides/slide2.xml",
+      `<p:sld><a:p><a:t>CABUYAO LOGISTICS PARK - BLDG 3</a:t></a:p><a:p><a:t>Location: Cabuyao, Laguna</a:t></a:p><a:p><a:t>GLA: 5,400 sqm</a:t></a:p><a:p><a:t>Ceiling Height: 12 meters</a:t></a:p><a:p><a:t>Lease Rate: Php 350 / sqm</a:t></a:p></p:sld>`,
+    );
+    const buffer = await zip.generateAsync({ type: "arraybuffer" });
+
+    const catalog = await indexPptxFilesInBrowser(
+      [
+        {
+          name: "Laguna_Industrial_2026.pptx",
+          relativePath: "Converted/Laguna_Industrial_2026.pptx",
+          data: buffer,
+        },
+      ],
+      "C:\\Users\\PRIME_Dave\\OneDrive - Jet Innovisions\\Converted",
+    );
+
+    expect(catalog.decksCount).toBe(1);
+    expect(catalog.slides).toHaveLength(2);
+    expect(catalog.slides[0].slideRole).toBe("cover");
+    expect(catalog.slides[1].slideRole).toBe("property");
+    expect(catalog.slides[1].specs.location).toContain("Laguna");
+    expect(catalog.slides[1].specs.gla).toBe("5,400 sqm");
+    expect(catalog.slides[1].thumbnailUrl).toMatch(/^data:image\//);
+  });
+
+  it("compiles a complete OpenXML PPTX archive directly in the browser", async () => {
+    const manifest = buildCompilationManifest({
+      selectedSlideIds: ["deck-1:slide:2", "deck-2:slide:3"],
+      catalogSlides: sampleSlides,
+      overrides: {
+        "deck-1:slide:2": { leaseRate: "₱345/sqm (Final)" },
+      },
+      proposal: {
+        clientName: "Shopee Express",
+        projectTitle: "Luzon Fulfillment Hubs",
+        brokerName: "Dave P.",
+        brokerEmail: "dave@primephilippines.com",
+        brokerPhone: "+63 917 000 0000",
+        date: "2026-10-21",
+        mode: "comprehensive",
+      },
+    });
+
+    const compiled = await compilePptxInBrowser(manifest);
+    expect(compiled.fileName).toBe("PRIME_Proposal_Shopee_Express_Comprehensive_2026-10-21.pptx");
+    expect(compiled.slideCount).toBe(6);
+
+    const loadedZip = await JSZip.loadAsync(compiled.buffer);
+    expect(loadedZip.file("[Content_Types].xml")).not.toBeNull();
+    expect(loadedZip.file("_rels/.rels")).not.toBeNull();
+    expect(loadedZip.file("ppt/presentation.xml")).not.toBeNull();
+    expect(loadedZip.file("ppt/slides/slide1.xml")).not.toBeNull();
+    expect(loadedZip.file("ppt/slides/slide6.xml")).not.toBeNull();
+
+    const slide3Xml = await loadedZip.file("ppt/slides/slide3.xml")!.async("string");
+    expect(slide3Xml).toContain("Cabuyao Cold Storage");
+    expect(slide3Xml).toContain("345/sqm (Final)");
+  });
+
+  it("reads active slide order from presentation.xml and skips orphan deleted slides", async () => {
+    const zip = new JSZip();
+    zip.file(
+      "ppt/presentation.xml",
+      `<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:sldIdLst><p:sldId id="256" r:id="rId2"/><p:sldId id="273" r:id="rId10"/></p:sldIdLst></p:presentation>`,
+    );
+    zip.file(
+      "ppt/_rels/presentation.xml.rels",
+      `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId2" Target="slides/slide1.xml"/><Relationship Id="rId7" Target="slides/slide6.xml"/><Relationship Id="rId10" Target="slides/slide9.xml"/></Relationships>`,
+    );
+    zip.file("ppt/slides/slide1.xml", "<p:sld><a:t>Active Slide 1</a:t></p:sld>");
+    zip.file("ppt/slides/slide6.xml", "<p:sld><a:t>Orphan Deleted Slide 6</a:t></p:sld>");
+    zip.file("ppt/slides/slide9.xml", "<p:sld><a:t>Active Slide 9</a:t></p:sld>");
+
+    const ordered = await getOrderedSlidePathsFromZip(zip);
+    expect(ordered).toEqual(["ppt/slides/slide1.xml", "ppt/slides/slide9.xml"]);
   });
 });

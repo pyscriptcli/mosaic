@@ -3,7 +3,9 @@ import { NextResponse } from "next/server";
 import { readCachedCatalog, scanOneDriveFolder } from "@/lib/property-decks-server";
 
 const DEFAULT_SUGGESTED_FOLDER =
-  "C:\\Users\\PRIME_Dave\\OneDrive - Jet Innovisions\\Sondi Tuazon's files - CRD 2026  COMPILED ONE DRIVE\\Industrial";
+  "C:\\Users\\PRIME_Dave\\OneDrive - Jet Innovisions\\Sondi Tuazon's files - CRD 2026  COMPILED ONE DRIVE\\Industrial\\Property Deck\\Converted";
+const DEFAULT_OUTPUT_FOLDER =
+  "C:\\Users\\PRIME_Dave\\OneDrive - Jet Innovisions\\Sondi Tuazon's files - CRD 2026  COMPILED ONE DRIVE\\Industrial\\Property Deck\\Proposals";
 
 export async function GET() {
   try {
@@ -12,7 +14,7 @@ export async function GET() {
       (!catalog || !catalog.sourceFolder || !fs.existsSync(catalog.sourceFolder)) &&
       fs.existsSync(DEFAULT_SUGGESTED_FOLDER)
     ) {
-      catalog = await scanOneDriveFolder(DEFAULT_SUGGESTED_FOLDER, undefined, 20);
+      catalog = await scanOneDriveFolder(DEFAULT_SUGGESTED_FOLDER, DEFAULT_OUTPUT_FOLDER, 35);
     }
     return NextResponse.json({
       catalog,
