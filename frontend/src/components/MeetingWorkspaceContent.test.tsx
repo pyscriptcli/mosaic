@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { MeetingActionItemsTable, MeetingDiscussionCard } from "./MeetingWorkspaceContent";
+
+afterEach(cleanup);
 
 describe("MeetingDiscussionCard", () => {
   it("presents a short discussion paragraph and its supporting bullets as a card", () => {
@@ -9,13 +11,14 @@ describe("MeetingDiscussionCard", () => {
       <MeetingDiscussionCard
         title="Advisor account update"
         discussionPoint={"The team reviewed the account's renewal status.\n- The client requested revised terms.\n- The renewal is due this quarter."}
+        evidenceQuote="[00:18] The client asked whether the renewal can be completed this quarter."
       />,
     );
 
     expect(screen.getByRole("heading", { name: "Advisor account update" })).toBeTruthy();
     expect(screen.getByText("The team reviewed the account's renewal status.")).toBeTruthy();
     expect(screen.getByRole("list").textContent).toContain("The client requested revised terms.");
-    expect(screen.queryByText(/Evidence|Transcript Timestamp|Action Plan/i)).toBeNull();
+    expect(within(screen.getAllByRole("article")[0]).getByText("[00:18] The client asked whether the renewal can be completed this quarter.")).toBeTruthy();
   });
 
   it("keeps topic and discussion text editable inside the card", () => {
@@ -38,13 +41,14 @@ describe("MeetingDiscussionCard", () => {
 });
 
 describe("MeetingActionItemsTable", () => {
-  it("shows the agreed four columns and updates an action field", () => {
+  it("shows each action as a topic card with evidence and the four requested fields", () => {
     const onChange = vi.fn();
     render(
       <MeetingActionItemsTable
         items={[{
           id: "dp-1",
           topicTitle: "Account renewal",
+          evidenceQuote: "[00:18] The client asked whether the renewal can be completed this quarter.",
           discussionPoint: "The team reviewed the renewal.",
           actionPlan: "Send revised terms",
           targetDate: "2026-11-02",
@@ -54,12 +58,10 @@ describe("MeetingActionItemsTable", () => {
       />,
     );
 
-    expect(screen.getAllByRole("columnheader").map((header) => header.textContent)).toEqual([
-      "Discussion Point",
-      "Action Plan",
-      "Target Date",
-      "Person in Charge",
-    ]);
+    expect(screen.getByRole("heading", { name: "Account renewal" })).toBeTruthy();
+    const actionCard = screen.getByRole("heading", { name: "Account renewal" }).closest("article");
+    expect(actionCard && within(actionCard).getByText("[00:18] The client asked whether the renewal can be completed this quarter.")).toBeTruthy();
+    expect(screen.getAllByLabelText(/^(Discussion Point|Action Plan|Target Date|Person in Charge) for/)).toHaveLength(4);
     expect(screen.getByDisplayValue("The team reviewed the renewal.")).toBeTruthy();
     fireEvent.change(screen.getByDisplayValue("Send revised terms"), { target: { value: "Send final terms" } });
     expect(onChange).toHaveBeenCalledWith("dp-1", "actionPlan", "Send final terms");

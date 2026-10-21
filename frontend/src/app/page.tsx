@@ -2298,6 +2298,7 @@ export default function Home() {
                   items={momItems.map((item, index) => ({
                     id: String(item.id ?? index),
                     topicTitle: item.topic_title || item.topic || "",
+                    evidenceQuote: item.evidence_quote || "",
                     discussionPoint: item.discussion_point || "",
                     actionPlan: item.action_plan === "None" ? "" : item.action_plan || "",
                     targetDate: item.indicative_delivery_date || item.target_date || "",
@@ -2375,6 +2376,7 @@ export default function Home() {
                     key={String(item.id ?? idx)}
                     title={item.topic_title || item.topic || ""}
                     discussionPoint={item.discussion_point || ""}
+                    evidenceQuote={item.evidence_quote || ""}
                     onTitleChange={(value) => {
                       const nextItems = [...momItems];
                       nextItems[idx].topic_title = value;

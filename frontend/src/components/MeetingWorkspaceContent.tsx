@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 export interface MeetingActionItemRow {
   id: string;
   topicTitle: string;
+  evidenceQuote?: string;
   discussionPoint: string;
   actionPlan: string;
   targetDate: string;
@@ -20,6 +21,7 @@ interface MeetingActionItemsTableProps {
 interface MeetingDiscussionCardProps {
   title: string;
   discussionPoint: string;
+  evidenceQuote?: string;
   onTitleChange?: (value: string) => void;
   onDiscussionPointChange?: (value: string) => void;
   children?: ReactNode;
@@ -65,6 +67,7 @@ function renderDiscussionPoint(value: string) {
 export function MeetingDiscussionCard({
   title,
   discussionPoint,
+  evidenceQuote = "",
   onTitleChange,
   onDiscussionPointChange,
   children,
@@ -83,6 +86,13 @@ export function MeetingDiscussionCard({
         />
       ) : (
         <h3 className="font-serif text-base font-bold italic text-[#003366]">{title || "Discussion"}</h3>
+      )}
+
+      {evidenceQuote.trim() && (
+        <section aria-label="Evidence quote / context reference" className="border-l-2 border-[#C9AB4C] bg-white/70 px-3 py-2">
+          <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">Evidence quote / context reference</p>
+          <p className="font-serif text-sm italic leading-relaxed text-slate-600">{evidenceQuote}</p>
+        </section>
       )}
 
       {onDiscussionPointChange ? (
@@ -110,44 +120,46 @@ export function MeetingActionItemsTable({ items, onChange, renderAction }: Meeti
   }
 
   return (
-    <div className="overflow-x-auto border border-gray-200 bg-white">
-      <table className="w-full min-w-[760px] border-collapse text-left text-xs">
-        <thead className="bg-[#003366] text-white">
-          <tr>
-            {actionColumns.map(({ label }) => (
-              <th key={label} scope="col" className="border border-[#003366] px-3 py-2.5 font-semibold">{label}</th>
+    <div className="space-y-4">
+      {items.map((item, index) => (
+        <article key={item.id} className="border border-gray-200/90 bg-[#FFFCFB] p-5 shadow-2xs">
+          <header className="mb-3 flex items-center gap-3 border-b border-gray-100 pb-3">
+            <span className="font-serif text-xl text-[#C9AB4C]">{String(index + 1).padStart(2, "0")}</span>
+            <h4 className="font-serif text-base font-bold italic text-[#003366]">{item.topicTitle || "Discussion"}</h4>
+          </header>
+          {item.evidenceQuote?.trim() && (
+            <section aria-label={`Evidence quote / context reference for ${item.topicTitle || "discussion"}`} className="mb-4 border-l-2 border-[#C9AB4C] py-1 pl-3">
+              <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">Evidence quote / context reference</p>
+              <p className="font-serif text-sm italic leading-relaxed text-slate-600">{item.evidenceQuote}</p>
+            </section>
+          )}
+          <div className="grid grid-cols-1 gap-4 border-t border-gray-100 pt-3 md:grid-cols-2 xl:grid-cols-[1.8fr_1.1fr_0.7fr_0.8fr]">
+            {actionColumns.map(({ label, field }) => (
+              <section key={field} className="min-w-0">
+                <h5 className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.1em] text-slate-500">{label}</h5>
+                {onChange ? field === "targetDate" || field === "personInCharge" ? (
+                  <input
+                    aria-label={`${label} for ${item.discussionPoint}`}
+                    value={item[field]}
+                    placeholder={field === "targetDate" ? "TBD" : "Unassigned"}
+                    onChange={(event) => onChange(item.id, field, event.target.value)}
+                    className="w-full border-b border-gray-300 bg-transparent px-1 py-2 text-sm font-medium text-[#003366] focus:border-[#C9AB4C] focus:outline-none"
+                  />
+                ) : (
+                  <textarea
+                    aria-label={`${label} for ${item.discussionPoint}`}
+                    value={item[field]}
+                    onChange={(event) => onChange(item.id, field, event.target.value)}
+                    rows={Math.max(2, item[field].split(/\r?\n/).length)}
+                    className={`w-full resize-y border border-gray-200 bg-white p-2.5 text-sm leading-relaxed text-[#003366] focus:border-[#C9AB4C] focus:outline-none ${field === "discussionPoint" ? "border-[#C9AB4C]" : ""}`}
+                  />
+                ) : <p className="min-h-10 whitespace-pre-line border border-gray-200 bg-white p-2.5 text-sm leading-relaxed text-[#003366]">{item[field] || "—"}</p>}
+              </section>
             ))}
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((item, index) => (
-            <tr key={item.id} className={index % 2 === 0 ? "bg-white" : "bg-[#FAF9F7]"}>
-              {actionColumns.map(({ field }) => (
-                <td key={field} className="align-top border border-gray-200 px-3 py-2.5 text-slate-700">
-                  {field === "discussionPoint" && item.topicTitle && <p className="mb-1 font-semibold text-[#003366]">{item.topicTitle}</p>}
-                  {onChange ? field === "targetDate" || field === "personInCharge" ? (
-                    <input
-                      aria-label={`${actionColumns.find((column) => column.field === field)?.label} for ${item.discussionPoint}`}
-                      value={item[field]}
-                      onChange={(event) => onChange(item.id, field, event.target.value)}
-                      className="w-full min-w-24 border border-gray-200 bg-white px-2 py-1.5 focus:border-[#C9AB4C] focus:outline-none"
-                    />
-                  ) : (
-                    <textarea
-                      aria-label={`${actionColumns.find((column) => column.field === field)?.label} for ${item.discussionPoint}`}
-                      value={item[field]}
-                      onChange={(event) => onChange(item.id, field, event.target.value)}
-                      rows={Math.max(2, item[field].split(/\r?\n/).length)}
-                      className="w-full min-w-36 resize-y border border-gray-200 bg-white px-2 py-1.5 leading-relaxed focus:border-[#C9AB4C] focus:outline-none"
-                    />
-                  ) : <span className="block whitespace-pre-line leading-relaxed">{item[field] || "—"}</span>}
-                  {field === "actionPlan" && renderAction?.(item)}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
+          </div>
+          <footer className="mt-4 flex justify-end border-t border-gray-100 pt-3">{renderAction?.(item)}</footer>
+        </article>
+      ))}
     </div>
   );
 }

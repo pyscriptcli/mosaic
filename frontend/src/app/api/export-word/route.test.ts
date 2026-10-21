@@ -14,7 +14,7 @@ describe("POST /api/export-word MoM structure", () => {
         meeting_details: { client_name: "Northstar", prepared_by: "Should not appear", confirmed_by: "Should not appear" },
         summary: "The team aligned on next steps.",
         items: [
-          { topic_title: "Account Renewal", discussion_point: "Renewal timing was reviewed.", action_plan: "Send the proposal", indicative_delivery_date: "Oct 30", person_in_charge: "Mika" },
+          { topic_title: "Account Renewal", discussion_point: "Renewal timing was reviewed.", evidence_quote: "PRIVATE EVIDENCE QUOTE", action_plan: "Send the proposal", indicative_delivery_date: "Oct 30", person_in_charge: "Mika" },
           { topic_title: "Market Update", discussion_point: "Vacancy trends were discussed.", action_plan: "None" },
         ],
         other_discussions: "Team outing was mentioned.",
@@ -32,6 +32,7 @@ describe("POST /api/export-word MoM structure", () => {
     expect(positions).toEqual([...positions].sort((a, b) => a - b));
     expect(content).toContain("The team aligned on next steps.");
     expect(content).toContain("Send the proposal");
+    expect(content).not.toContain("PRIVATE EVIDENCE QUOTE");
     expect(content).not.toContain("Should not appear");
     expect(content).not.toContain("PREPARED BY");
     expect(content).not.toContain("CONFIRMED BY");

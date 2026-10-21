@@ -1681,6 +1681,7 @@ export function MeetingsView({
                     items={activeMeeting.items.map((item, index) => ({
                       id: String(item.id ?? index),
                       topicTitle: item.topic || "",
+                      evidenceQuote: item.evidence || "",
                       discussionPoint: item.discussion_point,
                       actionPlan: item.action_plan === "None" ? "" : item.action_plan,
                       targetDate: item.target_date === "TBD" ? "" : item.target_date,
@@ -1771,6 +1772,7 @@ export function MeetingsView({
                       key={item.id || idx}
                       title={item.topic}
                       discussionPoint={item.discussion_point}
+                      evidenceQuote={item.evidence || ""}
                       onTitleChange={(value) => handleUpdateItem(idx, "topic", value)}
                       onDiscussionPointChange={(value) => handleUpdateItem(idx, "discussion_point", value)}
                     >
