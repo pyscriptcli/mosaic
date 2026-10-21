@@ -54,6 +54,14 @@ describe("POST /api/export-word MoM structure", () => {
     expect(actionHeaders).toEqual([...actionHeaders].sort((a, b) => a - b));
     expect(actionSection).toContain("Renewal timing was reviewed.");
     expect(xml).toMatch(/<w:spacing[^>]*w:line="276"[^>]*w:lineRule="auto"/);
-    expect(xml).toContain('<w:jc w:val="both"');
+    expect(xml).not.toContain('<w:jc w:val="both"');
+    expect(xml).toContain('<w:jc w:val="left"');
+    expect(discussionCards[0]).toContain('w:val="34"');
+    expect(xml).toContain('w:fill="FFFCFB"');
+    expect(xml).toContain('w:ascii="Montserrat"');
+    expect(xml).toContain('w:ascii="Cormorant Garamond"');
+    expect(xml).not.toContain('w:fill="1A1A1A"');
+    expect(xml).not.toContain('w:fill="FAF9F7"');
+    expect(xml).not.toContain('w:fill="F8F6F2"');
   });
 });

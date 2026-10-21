@@ -25,8 +25,31 @@ function formatDiscussionText(val: any): string {
   return cleanField(val).replace(/\\+\*/g, "*").split(/\r?\n/).map((line) => {
     const normalized = line.replace(/\\-/g, "-");
     const bullet = normalized.match(/^(?:[-*•]|\d+[.)])\s+(.*)$/);
-    return `${bullet ? "• " : ""}${(bullet ? bullet[1] : normalized).replace(/\*\*([^*]+)\*\*/g, "$1")}`;
+    return `${bullet ? "• " : ""}${bullet ? bullet[1] : normalized}`;
   }).join("\n");
+}
+
+function plainDiscussionText(value: string): string {
+  return value.replace(/\*\*([^*]+)\*\*/g, "$1");
+}
+
+function boldRanges(value: string): { start: number; end: number }[] {
+  let position = 0;
+  return value.replace(/\\+\*/g, "*").split("\n").flatMap((line) => {
+    const ranges: { start: number; end: number }[] = [];
+    const normalized = line.replace(/\\-/g, "-");
+    const bullet = normalized.match(/^(?:[-*•]|\d+[.)])\s+(.*)$/);
+    const content = `${bullet ? "• " : ""}${bullet ? bullet[1] : normalized}`;
+    let removed = 0;
+    for (const match of content.matchAll(/\*\*([^*]+)\*\*/g)) {
+      const start = position + (match.index || 0) - removed;
+      const phrase = match[1];
+      ranges.push({ start, end: start + phrase.length });
+      removed += 4;
+    }
+    position += plainDiscussionText(content).length + 1;
+    return ranges;
+  });
 }
 
 export async function POST(req: NextRequest) {
@@ -43,21 +66,6 @@ export async function POST(req: NextRequest) {
     doc.setLineHeightFactor(1.15);
 
     const pageWidth = doc.internal.pageSize.getWidth();
-
-    // 1. Smaller, sleek Header Banner (Height: 11mm, Deep Charcoal #1A1A1A)
-    const bannerHeight = 11;
-    doc.setFillColor(26, 26, 26);
-    doc.rect(0, 0, pageWidth, bannerHeight, "F");
-
-    // Gold Accent Border (#C9AB4C)
-    doc.setFillColor(201, 171, 76);
-    doc.rect(0, bannerHeight, pageWidth, 0.8, "F");
-
-    // Header branding text: “Minutes of the Meeting”.
-    doc.setTextColor(255, 255, 255);
-    doc.setFont("times", "bolditalic");
-    doc.setFontSize(12);
-    doc.text("Minutes of the Meeting", 14, 7.5);
 
     // 2. Document Metadata Preparation (Blank fields stay blank, no defaults/hints)
     const clientName = cleanField(meeting_details?.client_name);
@@ -76,13 +84,23 @@ export async function POST(req: NextRequest) {
     const teamAtt = cleanField(meeting_details?.team_attendees || meeting_details?.prime_attendees);
     const extAtt = cleanField(meeting_details?.external_attendees);
 
-    // 3. Auto-Adjusting Meeting Details Container
-    // Uses autoTable to dynamically compute row heights & line breaks without overlapping
-    doc.setFont("times", "bolditalic");
-    doc.setFontSize(11);
+    // Editorial masthead: a quiet project kicker, large serif title, and gold rule.
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8);
     doc.setTextColor(0, 51, 102);
-    doc.text("MEETING DETAILS", 14, 14);
-    const metaStartY = 18;
+    doc.text([clientName, dateStr].filter(Boolean).join("  ·  ") || "MEETING RECORD", 22, 18);
+    doc.setFont("times", "normal");
+    doc.setFontSize(30);
+    doc.text("Minutes of the Meeting", 22, 33);
+    doc.setDrawColor(201, 168, 76);
+    doc.setLineWidth(0.35);
+    doc.line(22, 39, pageWidth - 22, 39);
+
+    doc.setFont("times", "bolditalic");
+    doc.setFontSize(16);
+    doc.setTextColor(0, 51, 102);
+    doc.text("MEETING DETAILS", 22, 49);
+    const metaStartY = 54;
     const metaBody = [
       ["PROJECT / CLIENT:", clientName, "MEETING TYPE:", typeStr],
       ["DATE & TIME:", dateTimeStr, "TEAM ATTENDEES:", teamAtt],
@@ -91,99 +109,123 @@ export async function POST(req: NextRequest) {
 
     autoTable(doc, {
       startY: metaStartY,
-      margin: { left: 14, right: 14 },
+      margin: { left: 22, right: 22, bottom: 16 },
       body: metaBody,
       theme: "plain",
       styles: {
-        fontSize: 7.8,
-        cellPadding: { top: 2.2, bottom: 2.2, left: 2.5, right: 2.5 },
+        fontSize: 9,
+        cellPadding: { top: 2.8, bottom: 2.8, left: 2, right: 2 },
         overflow: "linebreak",
         valign: "top",
         textColor: [27, 29, 30],
-        fillColor: [248, 246, 242], // Light warm container fill
+        fillColor: [255, 252, 251],
       },
       columnStyles: {
-        0: { cellWidth: 34, fontStyle: "bold", textColor: [0, 51, 102] },
-        1: { cellWidth: 57, textColor: [35, 40, 45] },
-        2: { cellWidth: 34, fontStyle: "bold", textColor: [0, 51, 102] },
-        3: { cellWidth: 57, textColor: [35, 40, 45] },
+        0: { cellWidth: 28, fontStyle: "bold", textColor: [0, 51, 102] },
+        1: { cellWidth: 55, textColor: [24, 29, 30] },
+        2: { cellWidth: 28, fontStyle: "bold", textColor: [0, 51, 102] },
+        3: { cellWidth: 55, textColor: [24, 29, 30] },
       },
     });
 
     const metaFinalY = (doc as any).lastAutoTable?.finalY || (metaStartY + 24);
 
     // Draw container card boundary cleanly wrapping the calculated height
-    doc.setDrawColor(205, 210, 218);
-    doc.setLineWidth(0.3);
-    doc.rect(14, metaStartY, pageWidth - 28, metaFinalY - metaStartY, "S");
+    doc.setDrawColor(220, 224, 227);
+    doc.setLineWidth(0.2);
+    doc.line(22, metaFinalY + 1, pageWidth - 22, metaFinalY + 1);
 
     const summaryParagraphs = cleanField(summary).split(/\r?\n\s*\r?\n/).filter(Boolean);
 
-    const summaryStartY = metaFinalY + 4;
-    doc.setFont("times", "bolditalic");
-    doc.setFontSize(11);
+    const summaryLabelY = metaFinalY + 12;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8);
     doc.setTextColor(0, 51, 102);
-    doc.text("SUMMARY", 14, summaryStartY + 3);
-    let tableStartY = summaryStartY + 7;
+    doc.text("SUMMARY", 25, summaryLabelY);
+    const summaryStartY = summaryLabelY + 4;
+    let tableStartY = summaryStartY + 1;
+    const summaryRows = [[summaryParagraphs[0] || "No summary provided."], ...(summaryParagraphs[1] ? [[`Bottom line: ${summaryParagraphs[1]}`]] : [])];
+    autoTable(doc, {
+      startY: tableStartY,
+      margin: { left: 26, right: 30, bottom: 16 },
+      body: summaryRows,
+      theme: "plain",
+      bodyStyles: { fillColor: [255, 252, 251], textColor: [24, 29, 30], fontSize: 10, cellPadding: { top: 2, right: 2, bottom: 3, left: 2 }, overflow: "linebreak", halign: "left", valign: "top" },
+      styles: { lineColor: [255, 252, 251], lineWidth: 0, font: "times" },
+    });
+    const summaryFinalY = (doc as any).lastAutoTable?.finalY || (tableStartY + 18);
+    doc.setDrawColor(201, 168, 76);
+    doc.setLineWidth(0.8);
+    doc.line(22, summaryStartY, 22, summaryFinalY - 1);
+    tableStartY = summaryFinalY + 12;
 
-    {
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(7.8);
-      const summaryLines = doc.splitTextToSize(summaryParagraphs[0] || "No summary provided.", pageWidth - 38);
-      const bottomLines = summaryParagraphs[1] ? doc.splitTextToSize(summaryParagraphs[1], pageWidth - 38) : [];
-      const summaryBoxStartY = summaryStartY + 6;
-      const summaryBoxHeight = Math.max(12, (summaryLines.length * 3.8) + (bottomLines.length ? bottomLines.length * 3.8 + 12 : 8));
-
-      doc.setFillColor(250, 249, 247);
-      doc.rect(14, summaryBoxStartY, pageWidth - 28, summaryBoxHeight, "F");
-      doc.setDrawColor(220, 225, 230);
-      doc.rect(14, summaryBoxStartY, pageWidth - 28, summaryBoxHeight, "S");
-
-      // Gold accent on left edge
-      doc.setFillColor(201, 171, 76);
-      doc.rect(14, summaryBoxStartY, 2, summaryBoxHeight, "F");
-
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(7.8);
-      doc.setTextColor(55, 65, 81);
-      doc.text(summaryLines, 19, summaryBoxStartY + 5, { align: "justify" });
-      if (bottomLines.length) {
-        const bottomY = summaryBoxStartY + 7 + summaryLines.length * 3.8;
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(0, 51, 102);
-        doc.text("Bottom line:", 19, bottomY);
-        doc.setFont("helvetica", "normal");
-        doc.setTextColor(55, 65, 81);
-        doc.text(bottomLines, 19, bottomY + 3.8, { align: "justify" });
-      }
-
-      tableStartY = summaryBoxStartY + summaryBoxHeight + 5;
+    if (tableStartY > 260) {
+      doc.addPage();
+      tableStartY = 24;
     }
-
-    doc.setFont("times", "bolditalic");
-    doc.setFontSize(11);
+    doc.setFont("times", "italic");
+    doc.setFontSize(18);
     doc.setTextColor(0, 51, 102);
-    doc.text("DISCUSSION POINTS", 14, tableStartY);
-    tableStartY += 4;
+    doc.text("DISCUSSION POINTS", 22, tableStartY);
+    tableStartY += 9;
 
     (discussion_points || []).forEach((item: any, index: number) => {
       const topic = cleanField(item.topic_title) || `Discussion ${index + 1}`;
       const sourceDiscussion = cleanField(item.discussion_point) || "No discussion details recorded.";
-      const discussionPoint = formatDiscussionText(sourceDiscussion);
+      const markedDiscussion = formatDiscussionText(sourceDiscussion);
+      const discussionPoint = plainDiscussionText(markedDiscussion);
+      const emphasisRanges = boldRanges(sourceDiscussion);
       autoTable(doc, {
         startY: tableStartY,
+        margin: { left: 22, right: 22, bottom: 16 },
         head: [[topic]],
         body: [[discussionPoint]],
-        theme: "grid",
-        headStyles: { fillColor: [250, 249, 247], textColor: [0, 51, 102], fontStyle: "bold", fontSize: 9 },
-        bodyStyles: { fillColor: [255, 255, 255], textColor: [50, 50, 50], fontSize: 8, cellPadding: 3.5, overflow: "linebreak", halign: "justify" },
-        styles: { lineColor: [220, 225, 230], lineWidth: 0.2 },
+        theme: "plain",
+        headStyles: { fillColor: [255, 252, 251], textColor: [0, 51, 102], fontStyle: "bold", fontSize: 15, halign: "left", cellPadding: { top: 4, right: 1, bottom: 2, left: 1 } },
+        bodyStyles: { fillColor: [255, 252, 251], textColor: [24, 29, 30], fontSize: 10, cellPadding: { top: 2, right: 1, bottom: 7, left: 1 }, overflow: "linebreak", halign: "left", valign: "top" },
+        styles: { lineColor: [255, 252, 251], lineWidth: 0, valign: "top", font: "helvetica" },
         didParseCell: (data: any) => {
-          if (data.section === "body" && sourceDiscussion.replace(/\\+\*/g, "*").includes("**")) data.cell.styles.fontStyle = "bold";
+          if (data.section === "body" && emphasisRanges.length) data.cell.styles.textColor = [24, 29, 30];
+        },
+        didDrawCell: (data: any) => {
+          if (data.section !== "body" || !emphasisRanges.length) return;
+          const lines: string[] = Array.isArray(data.cell.text) ? data.cell.text : [String(data.cell.text || "")];
+          const left = data.cell.x + data.cell.padding("left");
+          const fontSize = data.cell.styles.fontSize || 10;
+          const lineHeight = fontSize * 0.3528 * 1.15;
+          let y = data.cell.y + data.cell.padding("top") + fontSize * 0.3528;
+          let searchFrom = 0;
+          lines.forEach((line) => {
+            const start = discussionPoint.indexOf(line, searchFrom);
+            if (start < 0) return;
+            const end = start + line.length;
+            const boundaries = new Set([start, end]);
+            emphasisRanges.forEach((range) => {
+              if (range.start < end && range.end > start) {
+                boundaries.add(Math.max(start, range.start));
+                boundaries.add(Math.min(end, range.end));
+              }
+            });
+            const positions = [...boundaries].sort((a, b) => a - b);
+            let x = left;
+            for (let index = 0; index < positions.length - 1; index += 1) {
+              const pieceStart = positions[index];
+              const pieceEnd = positions[index + 1];
+              const emphasized = emphasisRanges.some((range) => range.start <= pieceStart && range.end >= pieceEnd);
+              const piece = discussionPoint.slice(pieceStart, pieceEnd);
+              doc.setFont("helvetica", emphasized ? "bold" : "normal");
+              doc.setFontSize(fontSize);
+              doc.setTextColor(24, 29, 30);
+              doc.text(piece, x, y);
+              x += doc.getTextWidth(piece);
+            }
+            searchFrom = end;
+            y += lineHeight;
+          });
         },
       });
       // @ts-ignore
-      tableStartY = ((doc as any).lastAutoTable?.finalY || (tableStartY + 18)) + 3;
+      tableStartY = ((doc as any).lastAutoTable?.finalY || (tableStartY + 18)) + 4;
     });
 
     let currentY = tableStartY + 5;
@@ -191,21 +233,27 @@ export async function POST(req: NextRequest) {
     const actions = (action_items || []).filter((item: any) => cleanField(item.action_plan));
     if (actions.length > 0) {
       doc.setFont("times", "bolditalic");
-      doc.setFontSize(11);
+      doc.setFontSize(12);
       doc.setTextColor(0, 51, 102);
-      doc.text("ACTION ITEMS", 14, currentY);
-      currentY += 4;
+      if (currentY > 260) {
+        doc.addPage();
+        currentY = 20;
+      }
+      doc.text("ACTION ITEMS", 16, currentY);
+      currentY += 7;
       autoTable(doc, {
         startY: currentY,
+        margin: { left: 22, right: 22, bottom: 16 },
         head: [["Discussion Point", "Action Plan", "Target Date", "Person in Charge"]],
         body: actions.map((item: any) => [
-          [cleanField(item.discussion_point_title || item.topic_title), formatDiscussionText(item.discussion_point)].filter(Boolean).join("\n"),
+          [cleanField(item.discussion_point_title || item.topic_title), plainDiscussionText(formatDiscussionText(item.discussion_point))].filter(Boolean).join("\n"),
           cleanField(item.action_plan), cleanField(item.target_date || item.indicative_delivery_date), cleanField(item.person_in_charge),
         ]),
-        theme: "grid",
-        headStyles: { fillColor: [0, 51, 102], textColor: [255, 255, 255], fontStyle: "bold", fontSize: 8.5 },
-        columnStyles: { 0: { cellWidth: 68 }, 1: { cellWidth: 55 }, 2: { cellWidth: 27 }, 3: { cellWidth: 32 } },
-        styles: { cellPadding: 3, overflow: "linebreak", lineColor: [220, 225, 230], lineWidth: 0.2, halign: "justify" },
+        theme: "plain",
+        headStyles: { fillColor: [255, 252, 251], textColor: [0, 51, 102], fontStyle: "bold", fontSize: 8, halign: "left", lineColor: [0, 51, 102], lineWidth: { bottom: 0.5 } },
+        columnStyles: { 0: { cellWidth: 44 }, 1: { cellWidth: 50 }, 2: { cellWidth: 30 }, 3: { cellWidth: 42 } },
+        bodyStyles: { fillColor: [255, 252, 251], textColor: [24, 29, 30], halign: "left", valign: "top" },
+        styles: { fontSize: 9, cellPadding: { top: 3.5, right: 2, bottom: 5, left: 2 }, overflow: "linebreak", lineColor: [220, 224, 227], lineWidth: { bottom: 0.2 }, halign: "left", valign: "top" },
       });
       // @ts-ignore
       currentY = (doc as any).lastAutoTable?.finalY || (currentY + 12);
@@ -215,26 +263,16 @@ export async function POST(req: NextRequest) {
     // Other discussions follow the action items.
     const otherDiscussionsText = cleanField(other_discussions);
     {
-      if (currentY > 235) {
-        doc.addPage();
-        currentY = 20;
-      }
-
-      doc.setFillColor(0, 51, 102);
-      doc.rect(14, currentY, 3, 6, "F");
-
-      doc.setFont("times", "bolditalic");
-      doc.setFontSize(11);
-      doc.setTextColor(0, 51, 102);
-      doc.text("OTHER DISCUSSIONS", 20, currentY + 4.8);
-
-      currentY += 9;
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(8);
-      doc.setTextColor(50, 50, 50);
-      const splitOther = doc.splitTextToSize(otherDiscussionsText || "None recorded.", pageWidth - 28);
-      doc.text(splitOther, 14, currentY, { align: "justify" });
-      currentY += (splitOther.length * 4) + 6;
+      autoTable(doc, {
+        startY: currentY,
+        margin: { left: 22, right: 22, bottom: 16 },
+        head: [["OTHER DISCUSSIONS"]],
+        body: [[otherDiscussionsText || "None recorded."]],
+        theme: "plain",
+        headStyles: { fillColor: [255, 252, 251], textColor: [0, 51, 102], fontStyle: "bold", fontSize: 14, halign: "left", cellPadding: { top: 3, right: 0, bottom: 2, left: 0 } },
+        bodyStyles: { fillColor: [255, 252, 251], textColor: [24, 29, 30], fontSize: 10, cellPadding: { top: 1, right: 0, bottom: 2, left: 0 }, overflow: "linebreak", halign: "left", valign: "top" },
+        styles: { lineColor: [255, 252, 251], lineWidth: 0 },
+      });
     }
 
     const buffer = Buffer.from(doc.output("arraybuffer"));
