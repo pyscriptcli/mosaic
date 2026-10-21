@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { Stepper, Stage } from "@/components/Stepper";
+import { MeetingWorkspaceTabs } from "@/components/MeetingWorkspaceTabs";
 import { StudioRecoveryBanner } from "@/components/StudioRecoveryBanner";
 import { useStudioRecorderContext } from "@/components/StudioRecorderProvider";
 import type { StudioNote, StudioDisplayMode } from "@/types/studio";
@@ -311,7 +312,7 @@ export default function Home() {
   const [isDiscoveringTopics, setIsDiscoveringTopics] = useState(false);
   const [autoDiscoverEnabled, setAutoDiscoverEnabled] = useState(true);
   const [hasAutoDiscovered, setHasAutoDiscovered] = useState(false);
-  const [reviewTab, setReviewTab] = useState<"discussion" | "notes" | "transcript">("discussion");
+  const [reviewTab, setReviewTab] = useState<"discussion" | "actions" | "notes" | "transcript">("discussion");
   const [copiedTranscript, setCopiedTranscript] = useState(false);
   const [isStudioOpen, setIsStudioOpen] = useState(false);
   const [studioMode, setStudioMode] = useState<StudioDisplayMode>("panel");
@@ -999,6 +1000,12 @@ export default function Home() {
   }, [stage, autoDiscoverEnabled, hasAutoDiscovered, transcript, missedTopics.length, isDiscoveringTopics]);
 
   // Export handlers with effective metadata
+  const meetingSummary = momItems
+    .map((item) => String(item.discussion_point || "").trim())
+    .filter(Boolean)
+    .slice(0, 3)
+    .join(" ");
+
   const handleExportWord = async () => {
     const effectiveMeta = getEffectiveMetadata();
     if (!effectiveMeta.client_name?.trim()) {
@@ -1008,7 +1015,7 @@ export default function Home() {
     setIsLoading(true);
     setLoadingText("Generating Word Document (.docx)...");
     try {
-      await exportWord(effectiveMeta, momItems, otherDiscussions);
+      await exportWord(effectiveMeta, momItems, meetingSummary, otherDiscussions);
       setShowFinalizeModal(false);
       setShowExportModal(false);
     } catch (err: any) {
@@ -1027,7 +1034,7 @@ export default function Home() {
     setIsLoading(true);
     setLoadingText("Generating PDF (.pdf)...");
     try {
-      await exportPdf(effectiveMeta, momItems, otherDiscussions);
+      await exportPdf(effectiveMeta, momItems, meetingSummary, otherDiscussions);
       setShowFinalizeModal(false);
       setShowExportModal(false);
     } catch (err: any) {
@@ -2198,42 +2205,7 @@ export default function Home() {
         {stage === "Review" && (
           <div className="flex flex-col gap-5 w-full">
 
-            {/* 3 TABS HEADER: DISCUSSION POINTS VS MEETING NOTES VS TRANSCRIPT */}
-            <div className="flex border-b border-[#003366]/20 bg-[#FFFCFB]">
-              <button
-                type="button"
-                onClick={() => setReviewTab("discussion")}
-                className={`px-5 py-3 text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer border-b-2 ${
-                  reviewTab === "discussion"
-                    ? "border-[#003366] text-[#003366] bg-white"
-                    : "border-transparent text-gray-400 hover:text-gray-700 hover:bg-gray-50"
-                }`}
-              >
-                Discussion Points
-              </button>
-              <button
-                type="button"
-                onClick={() => setReviewTab("notes")}
-                className={`px-5 py-3 text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer border-b-2 ${
-                  reviewTab === "notes"
-                    ? "border-[#003366] text-[#003366] bg-white"
-                    : "border-transparent text-gray-400 hover:text-gray-700 hover:bg-gray-50"
-                }`}
-              >
-                Meeting Notes
-              </button>
-              <button
-                type="button"
-                onClick={() => setReviewTab("transcript")}
-                className={`px-5 py-3 text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer border-b-2 ${
-                  reviewTab === "transcript"
-                    ? "border-[#003366] text-[#003366] bg-white"
-                    : "border-transparent text-gray-400 hover:text-gray-700 hover:bg-gray-50"
-                }`}
-              >
-                Transcript
-              </button>
-            </div>
+            <MeetingWorkspaceTabs value={reviewTab} onChange={setReviewTab} />
 
             {reviewTab === "transcript" ? (
               /* TRANSCRIPT TAB */
@@ -2305,19 +2277,9 @@ export default function Home() {
                     <div className="space-y-2 max-h-[460px] overflow-y-auto pr-1">
                       {lines.map((line, idx) => {
                         const match = line.match(/^(\[\d{2}:\d{2}(?::\d{2})?\])\s*(.*)$/);
-                        const timestamp = match ? match[1] : null;
                         const noteText = match ? match[2] : line;
                         return (
                           <div key={idx} className="flex items-start gap-2.5 border border-slate-200 bg-white p-3 shadow-2xs">
-                            {timestamp ? (
-                              <span className="text-[#003366] font-mono text-[11px] font-semibold shrink-0 border border-[#003366]/15 px-2 py-0.5 bg-slate-50">
-                                {timestamp}
-                              </span>
-                            ) : (
-                              <span className="text-[#C9AB4C] font-mono text-[11px] font-semibold shrink-0 border border-[#C9AB4C]/20 px-2 py-0.5 bg-amber-50/50">
-                                #{idx + 1}
-                              </span>
-                            )}
                             <span className="text-xs text-slate-700 flex-1 leading-relaxed break-words">
                               {noteText}
                             </span>
@@ -2327,6 +2289,21 @@ export default function Home() {
                     </div>
                   );
                 })()}
+              </div>
+            ) : reviewTab === "actions" ? (
+              <div className="border border-gray-200 bg-[#FFFCFB] p-5 shadow-2xs rounded-none space-y-3">
+                <h3 className="text-lg font-serif text-[#003366] italic">Action Items</h3>
+                {momItems.filter((item) => item.action_plan?.trim() && !["none", "n/a", "tbd", "unassigned"].includes(item.action_plan.trim().toLowerCase())).length ? (
+                  momItems.filter((item) => item.action_plan?.trim() && !["none", "n/a", "tbd", "unassigned"].includes(item.action_plan.trim().toLowerCase())).map((item, index) => (
+                    <div key={item.id ?? index} className="border border-slate-200 bg-white p-3 shadow-2xs">
+                      <p className="text-sm font-semibold text-[#003366]">{item.topic_title || item.topic || `Action ${index + 1}`}</p>
+                      <p className="mt-1 text-xs text-slate-700">{item.action_plan}</p>
+                      {(item.indicative_delivery_date || item.target_date || item.person_in_charge) && (
+                        <p className="mt-2 text-[11px] text-slate-500">{[item.person_in_charge, item.indicative_delivery_date || item.target_date].filter(Boolean).join(" · ")}</p>
+                      )}
+                    </div>
+                  ))
+                ) : <p className="text-sm text-slate-500">No action items recorded.</p>}
               </div>
             ) : (
               <>

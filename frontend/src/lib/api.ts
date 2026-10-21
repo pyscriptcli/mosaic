@@ -372,13 +372,14 @@ export async function deleteMeeting(meetingId: string) {
   return res.json();
 }
 
-export async function exportWord(metadata: any, items: any[], other_discussions: string) {
+export async function exportWord(metadata: any, items: any[], summary: string, other_discussions: string) {
   const res = await fetch("/api/export-word", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       meeting_details: metadata,
       items,
+      summary,
       other_discussions,
     }),
   });
@@ -393,13 +394,14 @@ export async function exportWord(metadata: any, items: any[], other_discussions:
   a.remove();
 }
 
-export async function requestMeetingPdf(metadata: any, items: any[], other_discussions: string) {
+export async function requestMeetingPdf(metadata: any, items: any[], summary: string, other_discussions: string) {
   const res = await fetch("/api/export-pdf", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       meeting_details: metadata,
       items,
+      summary,
       other_discussions,
     }),
   });
@@ -420,8 +422,8 @@ export function downloadBlob(blob: Blob, filename: string) {
   window.setTimeout(() => window.URL.revokeObjectURL(url), 1000);
 }
 
-export async function exportPdf(metadata: any, items: any[], other_discussions: string) {
-  const { blob, filename } = await requestMeetingPdf(metadata, items, other_discussions);
+export async function exportPdf(metadata: any, items: any[], summary: string, other_discussions: string) {
+  const { blob, filename } = await requestMeetingPdf(metadata, items, summary, other_discussions);
   downloadBlob(blob, filename);
 }
 

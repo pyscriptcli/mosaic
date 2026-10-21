@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
   const denied = await requireFeature(req, "meetings-export");
   if (denied) return denied;
   try {
-    const { meeting_details, items, other_discussions } = await req.json();
+    const { meeting_details, items, summary, other_discussions } = await req.json();
 
     const doc = new jsPDF({
       orientation: "portrait",
@@ -69,7 +69,11 @@ export async function POST(req: NextRequest) {
 
     // 3. Auto-Adjusting Meeting Details Container
     // Uses autoTable to dynamically compute row heights & line breaks without overlapping
-    const metaStartY = 15;
+    doc.setFont("times", "bolditalic");
+    doc.setFontSize(11);
+    doc.setTextColor(0, 51, 102);
+    doc.text("MEETING DETAILS", 14, 14);
+    const metaStartY = 18;
     const metaBody = [
       ["PROJECT / CLIENT:", clientName, "MEETING TYPE:", typeStr],
       ["DATE & TIME:", dateTimeStr, "TEAM ATTENDEES:", teamAtt],
@@ -104,56 +108,46 @@ export async function POST(req: NextRequest) {
     doc.setLineWidth(0.3);
     doc.rect(14, metaStartY, pageWidth - 28, metaFinalY - metaStartY, "S");
 
-    // 4. Executive Summary Box (Auto-adjusting height)
-    let summaryText = "";
-    if (items && items.length > 0) {
-      const pointSummaries = items
-        .map((it: any) => {
-          const disc = cleanField(it.discussion_point);
-          if (!disc) return "";
-          const firstSentence = disc.split(/\.\s+/)[0];
-          return firstSentence.endsWith(".") ? firstSentence : `${firstSentence}.`;
-        })
-        .filter(Boolean);
-
-      if (pointSummaries.length > 0) {
-        summaryText = pointSummaries.slice(0, 3).join(" ");
-        if (!summaryText.endsWith(".")) summaryText += ".";
-      }
-    }
+    const summaryText = cleanField(summary);
 
     const summaryStartY = metaFinalY + 4;
-    let tableStartY = summaryStartY;
+    doc.setFont("times", "bolditalic");
+    doc.setFontSize(11);
+    doc.setTextColor(0, 51, 102);
+    doc.text("SUMMARY", 14, summaryStartY + 3);
+    let tableStartY = summaryStartY + 7;
 
-    if (summaryText) {
+    {
       doc.setFont("helvetica", "normal");
       doc.setFontSize(7.8);
-      const summaryLines = doc.splitTextToSize(summaryText, pageWidth - 38);
+      const summaryLines = doc.splitTextToSize(summaryText || "No summary provided.", pageWidth - 38);
+      const summaryBoxStartY = summaryStartY + 6;
       const summaryBoxHeight = Math.max(12, (summaryLines.length * 3.8) + 8);
 
       doc.setFillColor(250, 249, 247);
-      doc.rect(14, summaryStartY, pageWidth - 28, summaryBoxHeight, "F");
+      doc.rect(14, summaryBoxStartY, pageWidth - 28, summaryBoxHeight, "F");
       doc.setDrawColor(220, 225, 230);
-      doc.rect(14, summaryStartY, pageWidth - 28, summaryBoxHeight, "S");
+      doc.rect(14, summaryBoxStartY, pageWidth - 28, summaryBoxHeight, "S");
 
       // Gold accent on left edge
       doc.setFillColor(201, 171, 76);
-      doc.rect(14, summaryStartY, 2, summaryBoxHeight, "F");
-
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(7.5);
-      doc.setTextColor(0, 51, 102);
-      doc.text("EXECUTIVE SUMMARY", 19, summaryStartY + 4.5);
+      doc.rect(14, summaryBoxStartY, 2, summaryBoxHeight, "F");
 
       doc.setFont("helvetica", "normal");
       doc.setFontSize(7.8);
       doc.setTextColor(55, 65, 81);
-      doc.text(summaryLines, 19, summaryStartY + 8.5);
+      doc.text(summaryLines, 19, summaryBoxStartY + 5);
 
-      tableStartY = summaryStartY + summaryBoxHeight + 4;
+      tableStartY = summaryBoxStartY + summaryBoxHeight + 5;
     }
 
-    // 5. Discussion Points Table Data (Evidence removed - soft copy only)
+    doc.setFont("times", "bolditalic");
+    doc.setFontSize(11);
+    doc.setTextColor(0, 51, 102);
+    doc.text("DISCUSSION POINTS", 14, tableStartY);
+    tableStartY += 4;
+
+    // Discussion points are independent from actions, which may not exist for every topic.
     const tableData = (items || []).map((item: any, index: number) => {
       const topic = cleanField(item.topic_title);
       const disc = cleanField(item.discussion_point);
@@ -164,15 +158,12 @@ export async function POST(req: NextRequest) {
       return [
         String(index + 1),
         topicCell,
-        cleanField(item.action_plan),
-        cleanField(item.indicative_delivery_date),
-        cleanField(item.person_in_charge),
       ];
     });
 
     autoTable(doc, {
       startY: tableStartY,
-      head: [["#", "Discussion Point", "Action Plan", "Delivery Date", "Person in Charge"]],
+      head: [["#", "Discussion Point"]],
       body: tableData,
       theme: "grid",
       headStyles: {
@@ -184,10 +175,7 @@ export async function POST(req: NextRequest) {
       },
       columnStyles: {
         0: { cellWidth: 9, halign: "center", fontStyle: "bold", textColor: [201, 171, 76] },
-        1: { cellWidth: 82, fontSize: 8 },
-        2: { cellWidth: 43, fontSize: 8 },
-        3: { cellWidth: 24, fontSize: 8 },
-        4: { cellWidth: 24, fontSize: 8 },
+        1: { cellWidth: 168, fontSize: 8 },
       },
       styles: {
         cellPadding: 3,
@@ -204,9 +192,32 @@ export async function POST(req: NextRequest) {
     let currentY = (doc as any).lastAutoTable?.finalY || (tableStartY + 36);
     currentY += 8;
 
-    // 6. Other Discussions Section
+    const actionItems = (items || []).filter((item: any) => cleanField(item.action_plan));
+    if (actionItems.length > 0) {
+      doc.setFont("times", "bolditalic");
+      doc.setFontSize(11);
+      doc.setTextColor(0, 51, 102);
+      doc.text("ACTION ITEMS", 14, currentY);
+      currentY += 4;
+      autoTable(doc, {
+        startY: currentY,
+        head: [["#", "Action Item", "Due Date", "Person in Charge"]],
+        body: actionItems.map((item: any, index: number) => [
+          String(index + 1), cleanField(item.action_plan), cleanField(item.indicative_delivery_date), cleanField(item.person_in_charge),
+        ]),
+        theme: "grid",
+        headStyles: { fillColor: [0, 51, 102], textColor: [255, 255, 255], fontStyle: "bold", fontSize: 8.5 },
+        columnStyles: { 0: { cellWidth: 9, halign: "center" }, 1: { cellWidth: 95 }, 2: { cellWidth: 42 }, 3: { cellWidth: 50 } },
+        styles: { cellPadding: 3, overflow: "linebreak", lineColor: [220, 225, 230], lineWidth: 0.2 },
+      });
+      // @ts-ignore
+      currentY = (doc as any).lastAutoTable?.finalY || (currentY + 12);
+      currentY += 8;
+    }
+
+    // Other discussions follow the action items.
     const otherDiscussionsText = cleanField(other_discussions);
-    if (otherDiscussionsText) {
+    {
       if (currentY > 235) {
         doc.addPage();
         currentY = 20;
@@ -218,61 +229,15 @@ export async function POST(req: NextRequest) {
       doc.setFont("times", "bolditalic");
       doc.setFontSize(11);
       doc.setTextColor(0, 51, 102);
-      doc.text("Other Discussions & Administrative Notes", 20, currentY + 4.8);
+      doc.text("OTHER DISCUSSIONS", 20, currentY + 4.8);
 
       currentY += 9;
       doc.setFont("helvetica", "normal");
       doc.setFontSize(8);
       doc.setTextColor(50, 50, 50);
-      const splitOther = doc.splitTextToSize(otherDiscussionsText, pageWidth - 28);
+      const splitOther = doc.splitTextToSize(otherDiscussionsText || "None recorded.", pageWidth - 28);
       doc.text(splitOther, 14, currentY);
       currentY += (splitOther.length * 4) + 6;
-    }
-
-    // 7. Signatures / Confirmation Block
-    if (currentY > 245) {
-      doc.addPage();
-      currentY = 25;
-    } else {
-      currentY += 6;
-    }
-
-    const prepBy = cleanField(meeting_details?.prepared_by);
-    const confBy = cleanField(meeting_details?.confirmed_by);
-    const prepDes = cleanField(meeting_details?.prep_designation);
-    const confDes = cleanField(meeting_details?.conf_designation);
-
-    doc.setDrawColor(201, 171, 76);
-    doc.line(14, currentY, pageWidth - 14, currentY);
-    currentY += 7;
-
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(8);
-    doc.setTextColor(0, 51, 102);
-    doc.text("PREPARED BY:", 18, currentY);
-    doc.text("CONFIRMED BY:", 110, currentY);
-
-    currentY += 12;
-    doc.setDrawColor(180, 180, 180);
-    doc.line(18, currentY, 80, currentY);
-    doc.line(110, currentY, 175, currentY);
-
-    if (prepBy || confBy) {
-      currentY += 4.5;
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(8);
-      doc.setTextColor(27, 29, 30);
-      if (prepBy) doc.text(prepBy, 18, currentY);
-      if (confBy) doc.text(confBy, 110, currentY);
-    }
-
-    if (prepDes || confDes) {
-      currentY += 4;
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(7.5);
-      doc.setTextColor(100, 100, 100);
-      if (prepDes) doc.text(prepDes, 18, currentY);
-      if (confDes) doc.text(confDes, 110, currentY);
     }
 
     const buffer = Buffer.from(doc.output("arraybuffer"));

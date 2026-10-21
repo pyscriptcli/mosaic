@@ -36,6 +36,7 @@ import {
   Archive
 } from "lucide-react";
 import { ArchivedMeeting, DiscussionItem } from "@/types/meeting";
+import { MeetingWorkspaceTabs, type MeetingWorkspaceTab } from "./MeetingWorkspaceTabs";
 import type { StudioSession } from "@/types/studio";
 import { getInterruptedSessions, downloadSession, clearSession, exportSessionAsFile } from "@/lib/studioStorage";
 import { exportWord, exportPdf, askEcho, discoverClickUpLists, getStoredApiKey } from "@/lib/api";
@@ -276,7 +277,7 @@ export function MeetingsView({
   const [saveSuccessMsg, setSaveSuccessMsg] = useState(false);
   const [showArchiveDetails, setShowArchiveDetails] = useState(false);
   const [showEmailModal, setShowEmailModal] = useState(false);
-  const [detailTab, setDetailTab] = useState<"discussion" | "notes" | "transcript">("discussion");
+  const [detailTab, setDetailTab] = useState<MeetingWorkspaceTab>("discussion");
   const [showDiscoverTopicsModal, setShowDiscoverTopicsModal] = useState(false);
   const [missedTopics, setMissedTopics] = useState<DiscoveredTopicItem[]>([]);
   const [topicQuery, setTopicQuery] = useState("");
@@ -843,7 +844,7 @@ export function MeetingsView({
         attendees_prime: activeMeeting.attendees_prime,
         attendees_external: activeMeeting.attendees_external
       };
-      await exportWord(metadata, activeMeeting.items, activeMeeting.summary);
+      await exportWord(metadata, activeMeeting.items, activeMeeting.summary, "");
     } catch (e: any) {
       alert("Failed to export Word: " + e.message);
     } finally {
@@ -864,7 +865,7 @@ export function MeetingsView({
         attendees_prime: activeMeeting.attendees_prime,
         attendees_external: activeMeeting.attendees_external
       };
-      await exportPdf(metadata, activeMeeting.items, activeMeeting.summary);
+      await exportPdf(metadata, activeMeeting.items, activeMeeting.summary, "");
     } catch (e: any) {
       alert("Failed to export PDF: " + e.message);
     } finally {
@@ -1586,42 +1587,7 @@ export function MeetingsView({
                 </div>
               </div>
 
-              {/* 3 TABS: Discussion Points vs Meeting Notes vs Transcript */}
-              <div className="flex border-b border-gray-200 bg-[#FFFCFB]">
-                <button
-                  type="button"
-                  onClick={() => setDetailTab("discussion")}
-                  className={`px-5 py-2.5 text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer border-b-2 ${
-                    detailTab === "discussion"
-                      ? "border-[#003366] text-[#003366] bg-white"
-                      : "border-transparent text-gray-400 hover:text-gray-700 hover:bg-gray-50"
-                  }`}
-                >
-                  Discussion Points
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDetailTab("notes")}
-                  className={`px-5 py-2.5 text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer border-b-2 ${
-                    detailTab === "notes"
-                      ? "border-[#003366] text-[#003366] bg-white"
-                      : "border-transparent text-gray-400 hover:text-gray-700 hover:bg-gray-50"
-                  }`}
-                >
-                  Meeting Notes
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDetailTab("transcript")}
-                  className={`px-5 py-2.5 text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer border-b-2 ${
-                    detailTab === "transcript"
-                      ? "border-[#003366] text-[#003366] bg-white"
-                      : "border-transparent text-gray-400 hover:text-gray-700 hover:bg-gray-50"
-                  }`}
-                >
-                  Transcript
-                </button>
-              </div>
+              <MeetingWorkspaceTabs value={detailTab} onChange={setDetailTab} compact />
 
               {detailTab === "transcript" ? (
                 /* Transcript Tab */
@@ -1694,19 +1660,9 @@ export function MeetingsView({
                       <div className="space-y-2 max-h-[460px] overflow-y-auto pr-1">
                         {lines.map((line, idx) => {
                           const match = line.match(/^(\[\d{2}:\d{2}(?::\d{2})?\])\s*(.*)$/);
-                          const timestamp = match ? match[1] : null;
                           const noteText = match ? match[2] : line;
                           return (
                             <div key={idx} className="flex items-start gap-2.5 border border-slate-200 bg-white p-3 shadow-2xs">
-                              {timestamp ? (
-                                <span className="text-[#003366] font-mono text-[11px] font-semibold shrink-0 border border-[#003366]/15 px-2 py-0.5 bg-slate-50">
-                                  {timestamp}
-                                </span>
-                              ) : (
-                                <span className="text-[#C9AB4C] font-mono text-[11px] font-semibold shrink-0 border border-[#C9AB4C]/20 px-2 py-0.5 bg-amber-50/50">
-                                  #{idx + 1}
-                                </span>
-                              )}
                               <span className="text-xs text-slate-700 flex-1 leading-relaxed break-words">
                                 {noteText}
                               </span>
@@ -1716,6 +1672,19 @@ export function MeetingsView({
                       </div>
                     );
                   })()}
+                </div>
+              ) : detailTab === "actions" ? (
+                <div className="bg-[#FFFCFB] border border-gray-200/90 rounded-none p-5 shadow-2xs space-y-3">
+                  <h3 className="font-serif font-bold text-lg text-[#003366] italic">Action Items</h3>
+                  {activeMeeting.items.filter((item) => item.action_plan?.trim() && !["none", "n/a", "tbd", "unassigned"].includes(item.action_plan.trim().toLowerCase())).length ? (
+                    activeMeeting.items.filter((item) => item.action_plan?.trim() && !["none", "n/a", "tbd", "unassigned"].includes(item.action_plan.trim().toLowerCase())).map((item, index) => (
+                      <div key={item.id ?? index} className="border border-slate-200 bg-white p-3 shadow-2xs">
+                        <p className="text-sm font-semibold text-[#003366]">{item.topic || `Action ${index + 1}`}</p>
+                        <p className="mt-1 text-xs text-slate-700">{item.action_plan}</p>
+                        {(item.person_in_charge || item.target_date) && <p className="mt-2 text-[11px] text-slate-500">{[item.person_in_charge, item.target_date].filter(Boolean).join(" · ")}</p>}
+                      </div>
+                    ))
+                  ) : <p className="text-sm text-slate-500">No action items recorded.</p>}
                 </div>
               ) : (
                 /* Discussion Points Matrix Tab */

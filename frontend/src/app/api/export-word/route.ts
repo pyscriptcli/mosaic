@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
   const denied = await requireFeature(req, "meetings-export");
   if (denied) return denied;
   try {
-    const { meeting_details, items, other_discussions } = await req.json();
+    const { meeting_details, items, summary, other_discussions } = await req.json();
 
     const clientName = cleanField(meeting_details?.client_name);
     const dateStr = cleanField(meeting_details?.date);
@@ -91,7 +91,13 @@ export async function POST(req: NextRequest) {
       ],
     });
 
-    // 2. Metadata Info Table (Identical 4 columns and styling to PDF)
+    // 2. Meeting details
+    const sectionHeading = (text: string) => new Paragraph({
+      children: [new TextRun({ text, bold: true, italics: true, size: 20, color: "003366" })],
+      spacing: { before: 100, after: 80 },
+    });
+
+    // Metadata Info Table
     const cellBorderLight = {
       style: BorderStyle.SINGLE,
       size: 1,
@@ -195,26 +201,10 @@ export async function POST(req: NextRequest) {
       ],
     });
 
-    // 3. Executive Summary Box (1-of-1 PDF Clone)
-    let summaryText = "";
-    if (items && items.length > 0) {
-      const pointSummaries = items
-        .map((it: any) => {
-          const disc = cleanField(it.discussion_point);
-          if (!disc) return "";
-          const firstSentence = disc.split(/\.\s+/)[0];
-          return firstSentence.endsWith(".") ? firstSentence : `${firstSentence}.`;
-        })
-        .filter(Boolean);
+    // 3. Summary
+    const summaryText = cleanField(summary);
 
-      if (pointSummaries.length > 0) {
-        summaryText = pointSummaries.slice(0, 3).join(" ");
-        if (!summaryText.endsWith(".")) summaryText += ".";
-      }
-    }
-
-    const summaryTable = summaryText
-      ? new Table({
+    const summaryTable = new Table({
           width: { size: 100, type: WidthType.PERCENTAGE },
           borders: {
             top: { style: BorderStyle.SINGLE, size: 4, color: "DCDFE3" },
@@ -233,7 +223,7 @@ export async function POST(req: NextRequest) {
                     new Paragraph({
                       children: [
                         new TextRun({
-                          text: "EXECUTIVE SUMMARY",
+                          text: "SUMMARY",
                           bold: true,
                           color: "003366",
                           size: 17,
@@ -244,7 +234,7 @@ export async function POST(req: NextRequest) {
                     new Paragraph({
                       children: [
                         new TextRun({
-                          text: summaryText,
+                          text: summaryText || "No summary provided.",
                           color: "374151",
                           size: 18,
                         }),
@@ -256,8 +246,7 @@ export async function POST(req: NextRequest) {
               ],
             }),
           ],
-        })
-      : null;
+        });
 
     // 4. Minutes Items Table: Columns [#, Discussion Point, Action Plan, Delivery Date, Person in Charge]
     const gridBorder = {
@@ -279,25 +268,7 @@ export async function POST(req: NextRequest) {
           shading: { type: ShadingType.CLEAR, fill: "003366" },
           borders: { top: gridBorder, bottom: gridBorder, left: gridBorder, right: gridBorder },
           children: [new Paragraph({ children: [new TextRun({ text: "Discussion Point", bold: true, color: "FFFFFF", size: 19 })] })],
-          width: { size: 45, type: WidthType.PERCENTAGE }
-        }),
-        new TableCell({
-          shading: { type: ShadingType.CLEAR, fill: "003366" },
-          borders: { top: gridBorder, bottom: gridBorder, left: gridBorder, right: gridBorder },
-          children: [new Paragraph({ children: [new TextRun({ text: "Action Plan", bold: true, color: "FFFFFF", size: 19 })] })],
-          width: { size: 24, type: WidthType.PERCENTAGE }
-        }),
-        new TableCell({
-          shading: { type: ShadingType.CLEAR, fill: "003366" },
-          borders: { top: gridBorder, bottom: gridBorder, left: gridBorder, right: gridBorder },
-          children: [new Paragraph({ children: [new TextRun({ text: "Delivery Date", bold: true, color: "FFFFFF", size: 19 })] })],
-          width: { size: 13, type: WidthType.PERCENTAGE }
-        }),
-        new TableCell({
-          shading: { type: ShadingType.CLEAR, fill: "003366" },
-          borders: { top: gridBorder, bottom: gridBorder, left: gridBorder, right: gridBorder },
-          children: [new Paragraph({ children: [new TextRun({ text: "Person in Charge", bold: true, color: "FFFFFF", size: 19 })] })],
-          width: { size: 13, type: WidthType.PERCENTAGE }
+          width: { size: 95, type: WidthType.PERCENTAGE }
         }),
       ]
     });
@@ -340,125 +311,53 @@ export async function POST(req: NextRequest) {
             borders: { top: gridBorder, bottom: gridBorder, left: gridBorder, right: gridBorder },
             children: topicParagraphs
           }),
-          new TableCell({
-            shading: { type: ShadingType.CLEAR, fill: rowFill },
-            borders: { top: gridBorder, bottom: gridBorder, left: gridBorder, right: gridBorder },
-            children: [new Paragraph({ children: [new TextRun({ text: cleanField(item.action_plan), size: 18, color: "333333" })] })],
-          }),
-          new TableCell({
-            shading: { type: ShadingType.CLEAR, fill: rowFill },
-            borders: { top: gridBorder, bottom: gridBorder, left: gridBorder, right: gridBorder },
-            children: [new Paragraph({ children: [new TextRun({ text: cleanField(item.indicative_delivery_date), size: 18, color: "333333" })] })],
-          }),
-          new TableCell({
-            shading: { type: ShadingType.CLEAR, fill: rowFill },
-            borders: { top: gridBorder, bottom: gridBorder, left: gridBorder, right: gridBorder },
-            children: [new Paragraph({ children: [new TextRun({ text: cleanField(item.person_in_charge), size: 18, color: "333333" })] })],
-          }),
         ]
       }));
     });
 
-    // 5. Signature Approval Table (with Gold Divider Line)
-    const prepBy = cleanField(meeting_details?.prepared_by);
-    const confBy = cleanField(meeting_details?.confirmed_by);
-    const prepDes = cleanField(meeting_details?.prep_designation);
-    const confDes = cleanField(meeting_details?.conf_designation);
-
-    const noBorder = { style: BorderStyle.NONE, size: 0, color: "auto" };
-
-    const signTable = new Table({
-      width: { size: 100, type: WidthType.PERCENTAGE },
-      borders: {
-        top: { style: BorderStyle.SINGLE, size: 8, color: "C9AB4C" },
-        bottom: noBorder,
-        left: noBorder,
-        right: noBorder,
-        insideHorizontal: noBorder,
-        insideVertical: noBorder,
-      },
-      rows: [
-        new TableRow({
-          children: [
-            new TableCell({
-              width: { size: 50, type: WidthType.PERCENTAGE },
-              borders: { top: noBorder, bottom: noBorder, left: noBorder, right: noBorder },
-              children: [
-                new Paragraph({ children: [new TextRun({ text: "PREPARED BY:", bold: true, size: 18, color: "003366" })], spacing: { before: 120 } }),
-                new Paragraph({ text: "", spacing: { after: 350 } }),
-                new Paragraph({ children: [new TextRun({ text: "____________________________________", color: "888888" })] }),
-                ...(prepBy ? [new Paragraph({ children: [new TextRun({ text: prepBy, bold: true, size: 18, color: "1B1D1E" })] })] : []),
-                ...(prepDes ? [new Paragraph({ children: [new TextRun({ text: prepDes, size: 17, color: "666666" })] })] : []),
-              ]
-            }),
-            new TableCell({
-              width: { size: 50, type: WidthType.PERCENTAGE },
-              borders: { top: noBorder, bottom: noBorder, left: noBorder, right: noBorder },
-              children: [
-                new Paragraph({ children: [new TextRun({ text: "CONFIRMED BY:", bold: true, size: 18, color: "003366" })], spacing: { before: 120 } }),
-                new Paragraph({ text: "", spacing: { after: 350 } }),
-                new Paragraph({ children: [new TextRun({ text: "____________________________________", color: "888888" })] }),
-                ...(confBy ? [new Paragraph({ children: [new TextRun({ text: confBy, bold: true, size: 18, color: "1B1D1E" })] })] : []),
-                ...(confDes ? [new Paragraph({ children: [new TextRun({ text: confDes, size: 17, color: "666666" })] })] : []),
-              ]
-            }),
-          ]
-        })
-      ]
+    const actionItems = (items || []).filter((item: any) => cleanField(item.action_plan));
+    const actionRows: TableRow[] = [new TableRow({
+      tableHeader: true,
+      children: ["Action Item", "Due Date", "Person in Charge", "Related Discussion"].map((label) => new TableCell({
+        shading: { type: ShadingType.CLEAR, fill: "003366" },
+        borders: { top: gridBorder, bottom: gridBorder, left: gridBorder, right: gridBorder },
+        children: [new Paragraph({ children: [new TextRun({ text: label, bold: true, color: "FFFFFF", size: 19 })] })],
+      })),
+    })];
+    actionItems.forEach((item: any, index: number) => {
+      const rowFill = index % 2 ? "FAF9F7" : "FFFFFF";
+      const cells = [cleanField(item.action_plan), cleanField(item.indicative_delivery_date), cleanField(item.person_in_charge), cleanField(item.topic_title || item.discussion_point)];
+      actionRows.push(new TableRow({
+        children: cells.map((value) => new TableCell({
+          shading: { type: ShadingType.CLEAR, fill: rowFill },
+          borders: { top: gridBorder, bottom: gridBorder, left: gridBorder, right: gridBorder },
+          children: [new Paragraph({ children: [new TextRun({ text: value, size: 18, color: "333333" })] })],
+        })),
+      }));
     });
-
-    // Build the full Document sections (1-of-1 PDF Clone order and margins)
     const docChildren: any[] = [
       headerTable,
       new Paragraph({ text: "", spacing: { after: 150 } }),
+      sectionHeading("MEETING DETAILS"),
       metaTable,
       new Paragraph({ text: "", spacing: { after: 150 } }),
+      sectionHeading("SUMMARY"),
+      summaryTable,
+      new Paragraph({ text: "", spacing: { after: 150 } }),
+      sectionHeading("DISCUSSION POINTS"),
+      new Table({ rows: tableRows, width: { size: 100, type: WidthType.PERCENTAGE } }),
+      new Paragraph({ text: "", spacing: { after: 200 } }),
+      ...(actionItems.length > 0 ? [
+        sectionHeading("ACTION ITEMS"),
+        new Table({ rows: actionRows, width: { size: 100, type: WidthType.PERCENTAGE } }),
+        new Paragraph({ text: "", spacing: { after: 200 } }),
+      ] : []),
+      sectionHeading("OTHER DISCUSSIONS"),
+      new Paragraph({
+        children: [new TextRun({ text: cleanField(other_discussions) || "None recorded.", size: 18, color: "333333" })],
+        spacing: { after: 250 },
+      }),
     ];
-
-    if (summaryTable) {
-      docChildren.push(summaryTable);
-      docChildren.push(new Paragraph({ text: "", spacing: { after: 150 } }));
-    }
-
-    docChildren.push(
-      new Table({
-        rows: tableRows,
-        width: { size: 100, type: WidthType.PERCENTAGE },
-      })
-    );
-    docChildren.push(new Paragraph({ text: "", spacing: { after: 200 } }));
-
-    if (cleanField(other_discussions)) {
-      docChildren.push(
-        new Paragraph({
-          children: [
-            new TextRun({
-              text: "Other Discussions & Administrative Notes",
-              bold: true,
-              italics: true,
-              size: 20,
-              color: "003366",
-            }),
-          ],
-          spacing: { before: 100, after: 80 }
-        })
-      );
-      docChildren.push(
-        new Paragraph({
-          children: [
-            new TextRun({
-              text: cleanField(other_discussions),
-              size: 18,
-              color: "333333"
-            })
-          ],
-          spacing: { after: 250 }
-        })
-      );
-    }
-
-    docChildren.push(signTable);
-
     const doc = new Document({
       sections: [{
         properties: {

@@ -38,7 +38,7 @@ export function EmailMeetingModal({ isOpen, meeting, fromEmail, onClose }: Email
     setError("");
     setIsPreparing(true);
     try {
-      const { blob, filename: generatedFilename } = await requestMeetingPdf(meeting.metadata, meeting.items, meeting.summary || "");
+      const { blob, filename: generatedFilename } = await requestMeetingPdf(meeting.metadata, meeting.items, meeting.summary || "", "");
       downloadBlob(blob, generatedFilename);
       setFilename(generatedFilename);
     } catch (cause) {
