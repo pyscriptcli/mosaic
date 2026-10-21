@@ -68,4 +68,17 @@ describe("MeetingActionItemsTable", () => {
     fireEvent.change(screen.getByDisplayValue("Mika Santos"), { target: { value: "Mika Ramos" } });
     expect(onChange).toHaveBeenCalledWith("dp-1", "personInCharge", "Mika Ramos");
   });
+
+  it("keeps task actions with their corresponding action row", () => {
+    const onAddTask = vi.fn();
+    render(
+      <MeetingActionItemsTable
+        items={[{ id: "dp-1", topicTitle: "Account renewal", discussionPoint: "Renewal reviewed.", actionPlan: "Send terms", targetDate: "", personInCharge: "" }]}
+        renderAction={() => <button type="button" onClick={onAddTask}>Add to Tasks</button>}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Add to Tasks" }));
+    expect(onAddTask).toHaveBeenCalledOnce();
+  });
 });

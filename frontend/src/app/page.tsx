@@ -2392,32 +2392,6 @@ export default function Home() {
                         <button type="button" onClick={() => moveRow(idx, -1)} disabled={idx === 0} title="Move topic up" className="border border-gray-200 p-1 text-gray-500 transition-colors hover:bg-[#003366] hover:text-white disabled:pointer-events-none disabled:opacity-30"><ChevronUp size={13} /></button>
                         <button type="button" onClick={() => moveRow(idx, 1)} disabled={idx === momItems.length - 1} title="Move topic down" className="border border-gray-200 p-1 text-gray-500 transition-colors hover:bg-[#003366] hover:text-white disabled:pointer-events-none disabled:opacity-30"><ChevronDown size={13} /></button>
                         <button type="button" onClick={() => removeRow(idx)} title="Remove topic" className="border border-gray-200 p-1 text-gray-400 transition-colors hover:border-red-500 hover:bg-red-500 hover:text-white"><X size={13} /></button>
-                        {item.clickUpTaskId ? (
-                          <button type="button" onClick={() => { setFocusedTaskId(item.clickUpTaskId); setCurrentView("tasks"); }} className="flex items-center gap-1.5 border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-800 hover:bg-emerald-100" title="Already added to ClickUp. Click to view or edit in Tasks portal">
-                            <CheckCircle2 size={13} className="text-emerald-600" /><span>Added to Tasks</span>
-                          </button>
-                        ) : (
-                          <button type="button" onClick={() => setQuickAddTaskData({
-                            isOpen: true,
-                            data: {
-                              name: item.action_plan && item.action_plan !== "None" ? item.action_plan : item.topic_title || `Action from Topic #${idx + 1}`,
-                              description: item.discussion_point || "",
-                              topic: item.topic_title || "",
-                              evidence: item.evidence_quote || "",
-                              meetingTitle: metadata.client_name || "Executive Meeting",
-                              meetingDate: metadata.date,
-                              dueDate: item.indicative_delivery_date || "",
-                              priority: "normal",
-                              assigneeName: item.person_in_charge || "",
-                              discussionPointId: item.id || `dp_${idx + 1}`,
-                              existingTaskId: item.clickUpTaskId,
-                              existingTaskUrl: item.clickUpUrl,
-                            },
-                            topicIndex: idx,
-                          })} className="flex items-center gap-1.5 border border-[#003366]/30 bg-[#FFFCFB] px-2.5 py-1 text-[11px] font-bold text-[#003366] transition-colors hover:border-[#003366] hover:bg-blue-50/50">
-                            <CheckSquare size={13} className="text-[#c9ab4c]" /><span>Add to Tasks</span>
-                          </button>
-                        )}
                       </div>
                     </div>
                   </MeetingDiscussionCard>

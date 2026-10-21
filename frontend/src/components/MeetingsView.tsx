@@ -1693,6 +1693,37 @@ export function MeetingsView({
                       const nextValue = field === "actionPlan" && !value.trim() ? "None" : value;
                       handleUpdateItem(index, fields[field], nextValue);
                     }}
+                    renderAction={(row) => {
+                      const index = activeMeeting.items.findIndex((item, itemIndex) => String(item.id ?? itemIndex) === row.id);
+                      const item = activeMeeting.items[index];
+                      if (!item) return null;
+                      return item.clickUpTaskId ? (
+                        <button type="button" onClick={() => onNavigateToTasks && onNavigateToTasks(item.clickUpTaskId!)} className="mt-2 flex items-center gap-1.5 border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-800 hover:bg-emerald-100" title="Already added to ClickUp. Click to view in Tasks portal">
+                          <CheckCircle size={13} className="text-emerald-600" /><span>Added to Tasks</span>
+                        </button>
+                      ) : (
+                        <button type="button" onClick={() => setQuickAddTaskData({
+                          isOpen: true,
+                          data: {
+                            name: item.action_plan && item.action_plan !== "None" ? item.action_plan : item.topic || `Action from Topic #${index + 1}`,
+                            description: item.discussion_point || "",
+                            topic: item.topic || "",
+                            evidence: item.evidence || "",
+                            meetingTitle: activeMeeting.title || "Meeting Archive",
+                            meetingDate: activeMeeting.date,
+                            dueDate: item.target_date || "",
+                            priority: "normal",
+                            assigneeName: item.person_in_charge || "",
+                            discussionPointId: String(item.id || `dp_${activeMeeting.id}_${index + 1}`),
+                            existingTaskId: item.clickUpTaskId,
+                            existingTaskUrl: item.clickUpUrl,
+                          },
+                          topicIndex: index,
+                        })} className="mt-2 flex items-center gap-1.5 border border-[#003366]/30 bg-[#FFFCFB] px-2.5 py-1 text-[11px] font-bold text-[#003366] transition-colors hover:border-[#003366] hover:bg-blue-50/50">
+                          <CheckSquare size={13} className="text-[#c9ab4c]" /><span>Add to Tasks</span>
+                        </button>
+                      );
+                    }}
                   />
                 </div>
               ) : (
@@ -1755,32 +1786,6 @@ export function MeetingsView({
                           <button type="button" onClick={() => handleRemoveItem(idx)} title="Remove Topic" className="border border-gray-200 p-1 text-gray-400 transition-colors hover:border-red-300 hover:text-red-500">
                             <Trash2 size={14} />
                           </button>
-                          {item.clickUpTaskId ? (
-                            <button type="button" onClick={() => onNavigateToTasks && onNavigateToTasks(item.clickUpTaskId!)} className="flex items-center gap-1.5 border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-800 hover:bg-emerald-100" title="Already added to ClickUp. Click to view in Tasks portal">
-                              <CheckCircle size={13} className="text-emerald-600" /><span>Added to Tasks</span>
-                            </button>
-                          ) : (
-                            <button type="button" onClick={() => setQuickAddTaskData({
-                              isOpen: true,
-                              data: {
-                                name: item.action_plan && item.action_plan !== "None" ? item.action_plan : item.topic || `Action from Topic #${idx + 1}`,
-                                description: item.discussion_point || "",
-                                topic: item.topic || "",
-                                evidence: item.evidence || "",
-                                meetingTitle: activeMeeting?.title || "Meeting Archive",
-                                meetingDate: activeMeeting?.date,
-                                dueDate: item.target_date || "",
-                                priority: "normal",
-                                assigneeName: item.person_in_charge || "",
-                                discussionPointId: String(item.id || `dp_${activeMeeting?.id}_${idx + 1}`),
-                                existingTaskId: item.clickUpTaskId,
-                                existingTaskUrl: item.clickUpUrl,
-                              },
-                              topicIndex: idx,
-                            })} className="flex items-center gap-1.5 border border-[#003366]/30 bg-[#FFFCFB] px-2.5 py-1 text-[11px] font-bold text-[#003366] transition-colors hover:border-[#003366] hover:bg-blue-50/50">
-                              <CheckSquare size={13} className="text-[#c9ab4c]" /><span>Add to Tasks</span>
-                            </button>
-                          )}
                         </div>
                       </div>
                     </MeetingDiscussionCard>
