@@ -78,13 +78,6 @@ function getAudioFormat(mimeType: string, fileName?: string): string {
   return "wav";
 }
 
-export {
-  GroqRateLimitError,
-  getGroqApiKeys,
-  groqKeyCooldowns,
-  resetGroqPool,
-  getGroqPoolStatus,
-} from "@/lib/groqPool";
 import {
   GroqRateLimitError,
   getGroqApiKeys,

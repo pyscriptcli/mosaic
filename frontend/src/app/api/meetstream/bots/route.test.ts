@@ -35,7 +35,7 @@ describe("MeetStream bot route", () => {
     const [, request] = fetchMock.mock.calls[0];
     const payload = JSON.parse(String(request?.body));
     expect(payload).toMatchObject({
-      bot_name: "Echo.ai",
+      bot_name: "Mosaic Notetaker",
       callback_url: "https://echo.example/api/meetstream/webhook",
       video_required: false,
     });

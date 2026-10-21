@@ -5,12 +5,12 @@ describe("meeting archive content", () => {
   it("stores discussions and explicit actions separately, linked by discussion ID", () => {
     const serialized = serializeMeetingContent(
       [{ id: "dp-1", topic: "Budget", evidence: "[00:10] Budget was reviewed", discussion_point: "The team reviewed the budget." }],
-      [{ id: "act-1", discussion_point_id: "dp-1", action_plan: "Send revised forecast", target_date: "2026-09-20", person_in_charge: "Dave", assignee_id: "42" }],
+      [{ id: "act-1", discussion_point_id: "dp-1", action_plan: "Send revised forecast", target_date: "2026-09-20", person_in_charge: "Dave, Bea", assignee_ids: ["42", "43"] }],
     );
 
     expect(parseMeetingContent(serialized)).toEqual({
       items: [{ id: "dp-1", topic: "Budget", evidence: "[00:10] Budget was reviewed", discussion_point: "The team reviewed the budget." }],
-      action_items: [{ id: "act-1", discussion_point_id: "dp-1", action_plan: "Send revised forecast", target_date: "2026-09-20", person_in_charge: "Dave", assignee_id: "42", clickUpTaskId: undefined, clickUpUrl: undefined }],
+      action_items: [{ id: "act-1", discussion_point_id: "dp-1", action_plan: "Send revised forecast", target_date: "2026-09-20", person_in_charge: "Dave, Bea", assignee_ids: ["42", "43"], assignee_id: "42", clickUpTaskId: undefined, clickUpUrl: undefined }],
     });
   });
 

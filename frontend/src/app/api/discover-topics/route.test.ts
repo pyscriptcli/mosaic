@@ -38,7 +38,7 @@ describe("POST /api/discover-topics", () => {
     expect(res.status).toBe(401);
   });
 
-  it("discovers topics and normalizes all discussion matrix fields", async () => {
+  it("discovers discussion points separately from optional action suggestions", async () => {
     const mockTopics = [
       {
         topic_title: "Signing Sequence Preference (Landlord Signs First)",
@@ -71,7 +71,8 @@ describe("POST /api/discover-topics", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        transcript: "Meeting transcript about landlord signing...",
+        transcript: "=== MEETING NOTES ===\nOutdated agenda\n\n=== TRANSCRIPT ===\nMeeting transcript about landlord signing...",
+        notes: "Agenda: Advisor account updates\nCorrect name: Melisa",
         existingTopics: ["Site Sourcing SLA"],
       }),
     });
@@ -90,8 +91,14 @@ describe("POST /api/discover-topics", () => {
       confidence: "High",
     });
     const requestBody = JSON.parse(String(fetchSpy.mock.calls[0][1]?.body));
-    expect(requestBody.messages[0].content).toContain("Keep each discussion point concise: begin with a short paragraph, then use bullets for distinct details, decisions, or outcomes when useful.");
-    expect(requestBody.messages[0].content).toContain("Do not include action plans, target dates, owners, or transcript evidence inside discussion_point.");
+    expect(requestBody.messages[0].content).toContain("Meeting notes are the primary source of truth");
+    expect(requestBody.messages[0].content).toContain("Return discussion points only; never treat every discussion point as an action item.");
+    expect(requestBody.messages[0].content).toContain('"action_plan": Optional suggestion only when the transcript contains an explicit commitment or assigned next step.');
+    expect(requestBody.messages[0].content).toContain("A short paragraph, with bullets for distinct details or outcomes when useful.");
+    expect(requestBody.messages[0].content).toContain("Do not include action plans, dates, owners, or transcript evidence inside discussion_point.");
+    expect(requestBody.messages[1].content).toContain("<meeting_notes>\nAgenda: Advisor account updates\nCorrect name: Melisa\n</meeting_notes>");
+    expect(requestBody.messages[1].content).toContain("<transcript>\nMeeting transcript about landlord signing...\n</transcript>");
+    expect(requestBody.messages[1].content).not.toContain("Outdated agenda");
   });
 
   it("normalizes legacy topic and quote keys and falls back gracefully", async () => {

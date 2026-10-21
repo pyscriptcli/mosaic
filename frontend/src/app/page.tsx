@@ -387,6 +387,7 @@ export default function Home() {
       priority?: string;
       assigneeName?: string;
       assigneeId?: string;
+      assigneeIds?: string[];
       topic?: string;
       evidence?: string;
       discussionPointId?: string;
@@ -802,7 +803,7 @@ export default function Home() {
 
       // Automatically synthesize minutes draft
       setLoadingText("Synthesizing structured Minutes of the Meeting...");
-      const topics = "1. Project Updates\n2. Key Decisions\n3. Action Items";
+      const topics = "Meeting discussions and decisions";
       const momRes = await generateMinutes(
         rawTranscript || pastedText,
         topics,
@@ -884,7 +885,7 @@ export default function Home() {
     setIsLoading(true);
     setLoadingText("Synthesizing structured minutes...");
     try {
-      const topics = "1. Project Updates\n2. Next Steps";
+      const topics = "Meeting discussions and decisions";
       const res = await generateMinutes(content, topics, additionalMeetingNotes);
       if (!metadata.end_time) setMetadata((current: any) => ({ ...current, end_time: new Date().toTimeString().slice(0, 5) }));
       setMomItems(
@@ -995,6 +996,7 @@ export default function Home() {
         },
         body: JSON.stringify({
           transcript,
+          notes: additionalMeetingNotes,
           query: activeQuery,
           existingTopics: momItems.map((item) => item.topic_title)
         })
@@ -2337,12 +2339,13 @@ export default function Home() {
                     targetDate: action.target_date,
                     personInCharge: action.person_in_charge,
                     assigneeId: action.assignee_id,
+                    assigneeIds: action.assignee_ids || (action.assignee_id ? [action.assignee_id] : []),
                     };
                   })}
                   members={meetingAssignees}
-                  onChange={(id, field, value, assigneeId) => {
+                  onChange={(id, field, value, assigneeIds) => {
                     const fields = { actionPlan: "action_plan", targetDate: "target_date", personInCharge: "person_in_charge" } as const;
-                    setActionItems((current) => current.map((action) => String(action.id) === id ? { ...action, [fields[field]]: value, ...(field === "personInCharge" ? { assignee_id: assigneeId || undefined } : {}) } : action));
+                    setActionItems((current) => current.map((action) => String(action.id) === id ? { ...action, [fields[field]]: value, ...(field === "personInCharge" ? { assignee_ids: assigneeIds || [], assignee_id: assigneeIds?.[0] } : {}) } : action));
                   }}
                   renderAction={(row) => {
                     const index = actionItems.findIndex((item) => String(item.id) === row.id);
@@ -2367,6 +2370,7 @@ export default function Home() {
                           priority: "normal",
                           assigneeName: item.person_in_charge || "",
                           assigneeId: item.assignee_id || "",
+                          assigneeIds: item.assignee_ids || (item.assignee_id ? [item.assignee_id] : []),
                           discussionPointId: String(item.discussion_point_id),
                           existingTaskId: item.clickUpTaskId,
                           existingTaskUrl: item.clickUpUrl,

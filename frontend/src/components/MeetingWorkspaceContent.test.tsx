@@ -61,17 +61,19 @@ describe("MeetingActionItemsTable", () => {
 
   it("updates action fields, supports free text, and offers searchable ClickUp members", () => {
     const onChange = vi.fn();
-    render(
+    const actionItem = {
+      id: "action-1",
+      discussionPointId: "dp-1",
+      discussionPointTitle: "Account renewal",
+      discussionPoint: "The team reviewed the renewal.",
+      actionPlan: "Send revised terms",
+      targetDate: "",
+      personInCharge: "",
+      assigneeIds: [] as string[],
+    };
+    const { rerender } = render(
       <MeetingActionItemsTable
-        items={[{
-          id: "action-1",
-          discussionPointId: "dp-1",
-          discussionPointTitle: "Account renewal",
-          discussionPoint: "The team reviewed the renewal.",
-          actionPlan: "Send revised terms",
-          targetDate: "",
-          personInCharge: "",
-        }]}
+        items={[actionItem]}
         members={members}
         onChange={onChange}
       />,
@@ -80,11 +82,15 @@ describe("MeetingActionItemsTable", () => {
     fireEvent.change(screen.getByLabelText("Action Plan"), { target: { value: "Send final terms" } });
     expect(onChange).toHaveBeenCalledWith("action-1", "actionPlan", "Send final terms");
     fireEvent.change(screen.getByLabelText("Person in Charge"), { target: { value: "External consultant" } });
-    expect(onChange).toHaveBeenCalledWith("action-1", "personInCharge", "External consultant", "");
+    expect(onChange).toHaveBeenCalledWith("action-1", "personInCharge", "External consultant", []);
 
-    fireEvent.click(screen.getByRole("button", { name: "Choose ClickUp member" }));
+    fireEvent.click(screen.getByRole("button", { name: "Choose ClickUp members" }));
     fireEvent.change(screen.getByPlaceholderText("Search ClickUp members..."), { target: { value: "Alex" } });
-    fireEvent.click(screen.getByRole("button", { name: /Alex Cruz/ }));
-    expect(onChange).toHaveBeenCalledWith("action-1", "personInCharge", "Alex Cruz", "11");
+    fireEvent.click(screen.getByRole("button", { name: "Toggle Alex Cruz" }));
+    expect(onChange).toHaveBeenCalledWith("action-1", "personInCharge", "Alex Cruz", ["11"]);
+    rerender(<MeetingActionItemsTable items={[{ ...actionItem, personInCharge: "Alex Cruz", assigneeIds: ["11"] }]} members={members} onChange={onChange} />);
+    fireEvent.change(screen.getByPlaceholderText("Search ClickUp members..."), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Toggle Bea Santos" }));
+    expect(onChange).toHaveBeenLastCalledWith("action-1", "personInCharge", "Alex Cruz, Bea Santos", ["11", "12"]);
   });
 });

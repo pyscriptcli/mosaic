@@ -40,7 +40,10 @@ function normalizeAction(item: any, index: number): MeetingActionItem {
     action_plan: emptyValue(item.action_plan),
     target_date: emptyValue(item.target_date || item.indicative_delivery_date),
     person_in_charge: emptyValue(item.person_in_charge),
-    assignee_id: item.assignee_id ? String(item.assignee_id) : undefined,
+    ...(Array.isArray(item.assignee_ids)
+      ? { assignee_ids: item.assignee_ids.map(String) }
+      : item.assignee_id ? { assignee_ids: [String(item.assignee_id)] } : {}),
+    assignee_id: item.assignee_ids?.[0] ? String(item.assignee_ids[0]) : item.assignee_id ? String(item.assignee_id) : undefined,
     clickUpTaskId: item.clickUpTaskId,
     clickUpUrl: item.clickUpUrl,
   };

@@ -75,16 +75,19 @@ describe("DiscoverTopicsModal component", () => {
 
     expect(screen.getByText("Signing Sequence Preference")).toBeDefined();
     expect(screen.getByText("Reclamation Projects")).toBeDefined();
-    expect(screen.getByText(/2 topics suggested/i)).toBeDefined();
+    expect(screen.getByText(/2 discussion points suggested/i)).toBeDefined();
 
-    // Click individual "Add to Matrix"
-    const addButtons = screen.getAllByRole("button", { name: /add to matrix/i });
+    expect(screen.getAllByText(/possible action suggestion/i)).toHaveLength(2);
+    expect(screen.getByText(/only explicit commitments appear as optional action suggestions/i)).toBeDefined();
+
+    // Adding a suggestion adds the discussion point, not an action item.
+    const addButtons = screen.getAllByRole("button", { name: /add discussion point/i });
     expect(addButtons.length).toBe(2);
     fireEvent.click(addButtons[0]);
     expect(onAddTopic).toHaveBeenCalledWith(0);
 
-    // Click "Add All (2) to Matrix"
-    const addAllBtn = screen.getByRole("button", { name: /add all \(2\) to matrix/i });
+    // Add all suggested discussion points.
+    const addAllBtn = screen.getByRole("button", { name: /add all \(2\) discussion points/i });
     fireEvent.click(addAllBtn);
     expect(onAddAllTopics).toHaveBeenCalledOnce();
 

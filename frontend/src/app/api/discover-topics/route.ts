@@ -10,30 +10,46 @@ export interface DiscoveredTopicItem {
   confidence: "High" | "Medium" | "Low";
 }
 
+function separateMeetingNotes(source: string, notes?: string) {
+  const labeledSource = source.match(/^=== MEETING NOTES ===\s*([\s\S]*?)\s*=== TRANSCRIPT ===\s*([\s\S]*)$/i);
+  return {
+    meetingNotes: String(notes || "").trim() || labeledSource?.[1].trim() || "",
+    transcript: labeledSource?.[2] ?? source,
+  };
+}
+
 export async function POST(req: NextRequest) {
   const apiKey = req.headers.get("x-api-key") || process.env.DEEPSEEK_API_KEY || "";
   if (!apiKey) return NextResponse.json({ error: "AI configuration is required." }, { status: 401 });
 
   try {
-    const { transcript, existingTopics, query } = await req.json();
+    const { transcript: transcriptInput, existingTopics, query, notes } = await req.json();
+    const source = String(transcriptInput || "");
+    const { meetingNotes, transcript } = separateMeetingNotes(source, notes);
     if (!transcript?.trim()) return NextResponse.json({ topics: [] });
 
     const isSearchQuery = Boolean(query && query.trim() && query.trim() !== "all important topics");
 
     const systemPrompt = `You are an elite corporate meeting intelligence engine for Mosaic.
-Analyze the transcript to ${isSearchQuery ? `search for and extract specific discussion topics matching the query "${query}"` : "discover critical discussion topics that are missing from the current minutes"}.
+${isSearchQuery ? `Search the meeting for discussion points related to "${query}".` : "Find important discussion points missing from the current minutes."}
 
-For EVERY discovered topic, you MUST extract complete, high-quality, professional details matching the executive Minutes of the Meeting (MoM) discussion matrix:
-1. "topic_title": Clear, concise, and professional topic title (e.g. "Signing Sequence Preference (Landlord Signs First)").
-2. "discussion_point": In-depth summary of discussions, context, arguments, decisions, or consensus reached. Never return generic placeholders like "Review this topic".
-3. "evidence_quote": Direct quotation from the transcript supporting this topic with approximate timestamp if available, e.g. "[00:10:09] ...".
-4. "action_plan": Actionable next step, directive, or deliverable. If purely informational, state "None".
-5. "indicative_delivery_date": Specific target deadline mentioned (e.g. "October 6, 2026", "EOD Today", "Next week"), or "TBD" if no date was discussed.
-6. "person_in_charge": Full name of the responsible owner/speaker assigned (e.g. "Rommel", "Dave", "Melisa"), or "Unassigned" if unassigned.
+Source authority:
+- Meeting notes are the primary source of truth for agendas, attendees, correct names, project or account details, jargon, and corrections. Use them to interpret and group transcript content, and follow them when they conflict with speech recognition.
+- Use the transcript to connect the dots and capture what was actually discussed. Do not invent a discussion, decision, or commitment from an agenda item alone.
+- Evidence quotes and timestamps must come from the transcript only. Never present meeting notes as spoken evidence.
+- Preserve the transcript's language, including Taglish. Do not translate or polish direct quotations.
+
+Return discussion points only; never treat every discussion point as an action item.
+For each topic:
+1. "topic_title": A clear, concise subject for one discussion card.
+2. "discussion_point": A short paragraph, with bullets for distinct details or outcomes when useful. Describe the topic, context, discussion, and supported decisions. Keep it separate from next steps.
+3. "evidence_quote": A short, direct transcript quotation supporting the discussion, with timestamp when available.
+4. "action_plan": Optional suggestion only when the transcript contains an explicit commitment or assigned next step. Otherwise use "None". Do not turn proposals, insights, or general discussion into an action.
+5. "indicative_delivery_date": A date only when explicitly stated for that action; otherwise "TBD".
+6. "person_in_charge": An owner only when explicitly assigned; otherwise "Unassigned". Do not infer an owner from who spoke.
 7. "confidence": "High" | "Medium" | "Low" based on relevance and evidence clarity.
 
-Keep each discussion point concise: begin with a short paragraph, then use bullets for distinct details, decisions, or outcomes when useful.
-Do not include action plans, target dates, owners, or transcript evidence inside discussion_point. Put those only in their separate fields.
+Do not include action plans, dates, owners, or transcript evidence inside discussion_point. Keep action suggestions in their separate fields; they are optional and are not action items until the user adds them.
 
 Output strictly valid JSON matching this schema:
 {
@@ -42,7 +58,7 @@ Output strictly valid JSON matching this schema:
       "topic_title": string,
       "discussion_point": string,
       "evidence_quote": string,
-      "action_plan": string,
+      "action_plan": string | "None",
       "indicative_delivery_date": string,
       "person_in_charge": string,
       "confidence": "High" | "Medium" | "Low"
@@ -50,7 +66,7 @@ Output strictly valid JSON matching this schema:
   ]
 }`;
 
-    const userPrompt = `${isSearchQuery ? `Search Query / Focus Area: ${query.trim()}\n` : "Goal: Uncover high-value, uncaptured discussion topics, commitments, decisions, or policy updates from the meeting.\n"}Already Captured Topics: ${(existingTopics || []).join(", ") || "None yet"}\n\nTranscript:\n${transcript}`;
+    const userPrompt = `${isSearchQuery ? `Search Query / Focus Area: ${query.trim()}\n` : "Goal: Uncover important, uncaptured discussion points and supported decisions.\n"}Already Captured Topics: ${(existingTopics || []).join(", ") || "None yet"}\n\n<meeting_notes>\n${meetingNotes || "No meeting notes provided."}\n</meeting_notes>\n\n<transcript>\n${transcript}\n</transcript>`;
 
     const response = await fetch("https://api.deepseek.com/chat/completions", {
       method: "POST",
@@ -75,19 +91,24 @@ Output strictly valid JSON matching this schema:
     const rawList = Array.isArray(parsed.topics) ? parsed.topics : [];
 
     // Normalize keys for 100% robustness (handling legacy topic/quote keys or missing fields)
-    const normalizedTopics: DiscoveredTopicItem[] = rawList.map((item: any) => ({
-      topic_title: String(item.topic_title || item.topic || "Discovered Topic").trim(),
-      discussion_point: String(item.discussion_point || item.summary || "Detailed discussion recorded in meeting transcript.").trim(),
-      evidence_quote: String(item.evidence_quote || item.quote || "").trim(),
-      action_plan: String(item.action_plan || item.action || "None").trim(),
-      indicative_delivery_date: String(item.indicative_delivery_date || item.target_date || item.date || "TBD").trim(),
-      person_in_charge: String(item.person_in_charge || item.pic || item.owner || "Unassigned").trim(),
-      confidence: ["High", "Medium", "Low"].includes(item.confidence) ? item.confidence : "High",
-    }));
+    const normalizedTopics: DiscoveredTopicItem[] = rawList.map((item: unknown) => {
+      const record = item && typeof item === "object" ? item as Record<string, unknown> : {};
+      const confidence = record.confidence;
+      return {
+        topic_title: String(record.topic_title || record.topic || "Discovered Topic").trim(),
+        discussion_point: String(record.discussion_point || record.summary || "Detailed discussion recorded in meeting transcript.").trim(),
+        evidence_quote: String(record.evidence_quote || record.quote || "").trim(),
+        action_plan: String(record.action_plan || record.action || "None").trim(),
+        indicative_delivery_date: String(record.indicative_delivery_date || record.target_date || record.date || "TBD").trim(),
+        person_in_charge: String(record.person_in_charge || record.pic || record.owner || "Unassigned").trim(),
+        confidence: confidence === "High" || confidence === "Medium" || confidence === "Low" ? confidence : "High",
+      };
+    });
 
     return NextResponse.json({ topics: normalizedTopics });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("[Topics] discovery failed", error);
-    return NextResponse.json({ error: error.message || "Unable to discover more topics right now." }, { status: 502 });
+    const message = error instanceof Error ? error.message : "Unable to discover more topics right now.";
+    return NextResponse.json({ error: message }, { status: 502 });
   }
 }

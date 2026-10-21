@@ -10,7 +10,6 @@ import {
   Calendar, 
   UserCheck, 
   Loader2,
-  CheckCircle2
 } from "lucide-react";
 import type { DiscoveredTopicItem } from "@/app/api/discover-topics/route";
 
@@ -76,7 +75,7 @@ export function DiscoverTopicsModal({
             <div className="flex items-center gap-2">
               <Sparkles size={16} className="text-[#c9ab4c]" />
               <h2 id="discover-topics-title" className="text-xs font-bold uppercase tracking-[0.2em]">
-                Discover & Search Topics
+                Discover & Search Discussion Points
               </h2>
             </div>
             <span className="text-[11px] text-gray-300 font-semibold tracking-wider">
@@ -86,7 +85,7 @@ export function DiscoverTopicsModal({
                 </span>
               ) : (
                 <span className="ml-1 text-gray-300">
-                  ({missedTopics.length} {missedTopics.length === 1 ? "topic" : "topics"} suggested)
+                  ({missedTopics.length} {missedTopics.length === 1 ? "discussion point" : "discussion points"} suggested)
                 </span>
               )}
             </span>
@@ -115,7 +114,7 @@ export function DiscoverTopicsModal({
                 onClick={onAddAllTopics}
                 className="bg-[#c9ab4c] text-[#003366] hover:bg-[#d8bc5e] px-3 py-1 text-[11px] font-bold uppercase tracking-wider rounded-none shadow-2xs inline-flex items-center gap-1 transition-colors"
               >
-                <Plus size={12} /> Add All ({missedTopics.length}) to Matrix
+                <Plus size={12} /> Add All ({missedTopics.length}) Discussion Points
               </button>
             )}
 
@@ -147,7 +146,7 @@ export function DiscoverTopicsModal({
               <input
                 value={topicQuery}
                 onChange={(e) => onTopicQueryChange(e.target.value)}
-                placeholder="Search or discover topic in transcript (e.g., 'reclamation', 'service agreement', 'penalties')..."
+                placeholder="Find a discussion point in the transcript (e.g., 'reclamation', 'service agreement')..."
                 className="w-full pl-9 pr-8 py-2 text-xs bg-[#FFFCFB] border border-gray-200 focus:outline-none focus:border-[#003366] transition-colors rounded-none placeholder:text-gray-400"
               />
               {topicQuery && (
@@ -174,7 +173,7 @@ export function DiscoverTopicsModal({
                 onClick={() => onDiscoverTopics("")}
                 disabled={isDiscoveringTopics || !transcript}
                 className="btn-outline !py-2 !px-3.5 !text-xs rounded-none inline-flex items-center justify-center gap-1.5 text-gray-700 hover:text-[#003366]"
-                title="Scan transcript for general uncaptured topics"
+                title="Scan transcript for important discussion points not already captured"
               >
                 <Sparkles size={13} className="text-[#c9ab4c]" />
                 Auto-Discover
@@ -188,9 +187,9 @@ export function DiscoverTopicsModal({
           {missedTopics.length === 0 ? (
             <div className="text-center py-12 px-4 bg-[#FFFCFB] border border-dashed border-gray-200">
               <Sparkles size={28} className="mx-auto text-[#c9ab4c] mb-2.5 opacity-80" />
-              <h3 className="text-xs font-bold uppercase tracking-wider text-[#003366]">No Uncaptured Topics Flagged</h3>
+              <h3 className="text-xs font-bold uppercase tracking-wider text-[#003366]">No Uncaptured Discussion Points</h3>
               <p className="text-[11px] text-gray-500 mt-1.5 max-w-md mx-auto leading-relaxed">
-                Ask Echo analyzes the meeting transcript for uncaptured action items and decisions. Type a keyword into <strong>Search Topic</strong> above or click <strong>Auto-Discover</strong> to find unminuted points.
+                Find discussion points that are missing from the minutes. Action suggestions appear separately and are never added as action items automatically. Search a keyword above or run <strong>Auto-Discover</strong>.
               </p>
               <div className="mt-4 flex items-center justify-center gap-2">
                 <button
@@ -204,7 +203,11 @@ export function DiscoverTopicsModal({
               </div>
             </div>
           ) : (
-            missedTopics.map((topic, idx) => (
+            <>
+              <p className="text-[11px] text-gray-500">
+                Discussion points capture what was discussed. Only explicit commitments appear as optional action suggestions.
+              </p>
+              {missedTopics.map((topic, idx) => (
               <div
                 key={idx}
                 className="p-4 bg-white border border-gray-200 shadow-2xs hover:border-[#003366]/40 transition-all rounded-none"
@@ -234,9 +237,9 @@ export function DiscoverTopicsModal({
                       type="button"
                       onClick={() => onAddTopic(idx)}
                       className="btn-outline !py-1.5 !px-3 !text-xs rounded-none shadow-2xs inline-flex items-center gap-1.5 text-[#003366] hover:bg-[#003366] hover:text-white"
-                      title="Add this topic into the Discussion Matrix"
+                      title="Add this discussion point to the Discussion Points tab"
                     >
-                      <Plus size={12} /> Add to Matrix
+                      <Plus size={12} /> Add Discussion Point
                     </button>
                     <button
                       type="button"
@@ -256,7 +259,7 @@ export function DiscoverTopicsModal({
                       Evidence Quote / Context Reference
                     </span>
                     <p className="text-[11px] text-gray-600 italic">
-                      "{topic.evidence_quote}"
+                      &ldquo;{topic.evidence_quote}&rdquo;
                     </p>
                   </div>
                 )}
@@ -273,40 +276,32 @@ export function DiscoverTopicsModal({
                   </div>
                 )}
 
-                {/* Metadata Chips: Action, Date, PIC */}
-                <div className="flex flex-wrap items-center gap-2 mt-3 pt-2.5 border-t border-gray-100 text-[11px]">
-                  <span className="inline-flex items-center gap-1 text-gray-600 bg-gray-50 px-2.5 py-1 border border-gray-200">
-                    <strong className="text-gray-500 font-semibold">Action:</strong> 
-                    <span className={topic.action_plan && topic.action_plan !== "None" ? "text-[#003366] font-medium" : "text-gray-400"}>
-                      {topic.action_plan || "None"}
+                {topic.action_plan && topic.action_plan !== "None" && (
+                  <div className="mt-3 pt-2.5 border-t border-gray-100">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-[#003366] block mb-1">
+                      Possible Action Suggestion <span className="font-medium normal-case text-gray-400">(optional)</span>
                     </span>
-                  </span>
-
-                  <span className="inline-flex items-center gap-1 text-gray-600 bg-gray-50 px-2.5 py-1 border border-gray-200">
-                    <Calendar size={12} className="text-[#c9ab4c]" />
-                    <strong className="text-gray-500 font-semibold">Target:</strong> 
-                    <span className={topic.indicative_delivery_date && topic.indicative_delivery_date !== "TBD" ? "text-gray-800 font-medium" : "text-gray-400"}>
-                      {topic.indicative_delivery_date || "TBD"}
-                    </span>
-                  </span>
-
-                  <span className="inline-flex items-center gap-1 text-gray-600 bg-gray-50 px-2.5 py-1 border border-gray-200">
-                    <UserCheck size={12} className="text-[#003366]" />
-                    <strong className="text-gray-500 font-semibold">PIC:</strong> 
-                    <span className={topic.person_in_charge && topic.person_in_charge !== "Unassigned" ? "text-[#003366] font-medium" : "text-gray-400"}>
-                      {topic.person_in_charge || "Unassigned"}
-                    </span>
-                  </span>
-                </div>
+                    <p className="text-xs text-gray-700 leading-relaxed">{topic.action_plan}</p>
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1.5 text-[10px] text-gray-500">
+                      {topic.indicative_delivery_date && topic.indicative_delivery_date !== "TBD" && (
+                        <span className="inline-flex items-center gap-1"><Calendar size={11} /> Target: {topic.indicative_delivery_date}</span>
+                      )}
+                      {topic.person_in_charge && topic.person_in_charge !== "Unassigned" && (
+                        <span className="inline-flex items-center gap-1"><UserCheck size={11} /> Suggested owner: {topic.person_in_charge}</span>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
-            ))
+              ))}
+            </>
           )}
         </div>
 
         {/* Modal Footer */}
         <div className="px-5 py-3 bg-gray-50 border-t border-gray-200 flex items-center justify-between shrink-0">
           <p className="text-[11px] text-gray-500">
-            Adding a topic will automatically insert all 5 attributes into your executive minutes.
+            Adding creates a discussion point only. Use Add as action item on its card to create a separate action.
           </p>
           <button
             type="button"

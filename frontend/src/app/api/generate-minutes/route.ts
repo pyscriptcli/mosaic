@@ -33,6 +33,7 @@ Source authority and use:
 - Preserve the language used in the transcript, including Taglish. Do not translate transcript quotes.
 - Keep each discussion point concise: begin with a short paragraph, then use bullets for distinct details, decisions, or outcomes when useful.
 - Do not include action plans, target dates, owners, or transcript evidence inside discussion_point. Put those only in their separate fields.
+- Keep discussion points and action items distinct. A discussion point records what was discussed; add an action plan only for an explicit commitment or assigned next step. Do not turn insights, proposals, or general discussion into actions, and do not infer an owner from who spoke.
 
 Output strict JSON only, matching this schema:
 {

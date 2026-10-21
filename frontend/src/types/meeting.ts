@@ -20,6 +20,8 @@ export interface MeetingActionItem {
   action_plan: string;
   target_date: string;
   person_in_charge: string;
+  assignee_ids?: string[];
+  /** Legacy single-assignee read/write compatibility. */
   assignee_id?: string;
   clickUpTaskId?: string;
   clickUpUrl?: string;

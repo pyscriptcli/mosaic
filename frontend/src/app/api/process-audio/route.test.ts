@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
+import { resetGroqPool } from "@/lib/groqPool";
 
 const requireFeature = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/access-control-server", () => ({ requireFeature }));
@@ -19,10 +20,7 @@ describe("botless transcription routing", () => {
   });
 
   afterEach(async () => {
-    try {
-      const { resetGroqPool } = await import("./route");
-      resetGroqPool();
-    } catch {}
+    resetGroqPool();
     vi.unstubAllEnvs();
     vi.restoreAllMocks();
     vi.resetModules();

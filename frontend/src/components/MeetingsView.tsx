@@ -535,6 +535,7 @@ export function MeetingsView({
       priority?: string;
       assigneeName?: string;
       assigneeId?: string;
+      assigneeIds?: string[];
       topic?: string;
       evidence?: string;
       discussionPointId?: string;
@@ -685,10 +686,10 @@ export function MeetingsView({
     setDetailTab("actions");
   };
 
-  const handleUpdateAction = (id: string, field: "actionPlan" | "targetDate" | "personInCharge", value: string, assigneeId?: string) => {
+  const handleUpdateAction = (id: string, field: "actionPlan" | "targetDate" | "personInCharge", value: string, assigneeIds?: string[]) => {
     if (!activeMeeting) return;
     const key = { actionPlan: "action_plan", targetDate: "target_date", personInCharge: "person_in_charge" }[field] as "action_plan" | "target_date" | "person_in_charge";
-    const updated = { ...activeMeeting, action_items: (activeMeeting.action_items || []).map((action) => String(action.id) === id ? { ...action, [key]: value, ...(field === "personInCharge" ? { assignee_id: assigneeId || undefined } : {}) } : action) };
+    const updated = { ...activeMeeting, action_items: (activeMeeting.action_items || []).map((action) => String(action.id) === id ? { ...action, [key]: value, ...(field === "personInCharge" ? { assignee_ids: assigneeIds || [], assignee_id: assigneeIds?.[0] } : {}) } : action) };
     setActiveMeeting(updated);
   };
 
@@ -756,6 +757,7 @@ export function MeetingsView({
         },
         body: JSON.stringify({
           transcript: activeMeeting.transcript,
+          notes: activeMeeting.meeting_notes || "",
           query: activeQuery,
           existingTopics: (activeMeeting.items || []).map((item) => item.topic),
         }),
@@ -1705,11 +1707,12 @@ export function MeetingsView({
                         targetDate: action.target_date,
                         personInCharge: action.person_in_charge,
                         assigneeId: action.assignee_id,
+                        assigneeIds: action.assignee_ids || (action.assignee_id ? [action.assignee_id] : []),
                       };
                     })}
                     members={meetingAssignees}
-                    onChange={(id, field, value, assigneeId) => {
-                      handleUpdateAction(id, field, value, assigneeId);
+                    onChange={(id, field, value, assigneeIds) => {
+                      handleUpdateAction(id, field, value, assigneeIds);
                     }}
                     renderAction={(row) => {
                       const index = (activeMeeting.action_items || []).findIndex((item) => String(item.id) === row.id);
@@ -1734,6 +1737,7 @@ export function MeetingsView({
                             priority: "normal",
                             assigneeName: item.person_in_charge || "",
                             assigneeId: item.assignee_id || "",
+                            assigneeIds: item.assignee_ids || (item.assignee_id ? [item.assignee_id] : []),
                             discussionPointId: String(item.discussion_point_id),
                             existingTaskId: item.clickUpTaskId,
                             existingTaskUrl: item.clickUpUrl,

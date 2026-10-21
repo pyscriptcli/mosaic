@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { SearchableMemberSelect, type ClickUpMember } from "./SearchableMemberSelect";
+import { SearchableMemberMultiSelect, type ClickUpMember } from "./SearchableMemberSelect";
 
 export function useMeetingAssignees(enabled: boolean) {
   const [members, setMembers] = useState<ClickUpMember[]>([]);
@@ -24,6 +24,7 @@ export interface MeetingActionItemRow {
   targetDate: string;
   personInCharge: string;
   assigneeId?: string;
+  assigneeIds?: string[];
 }
 
 type ActionItemField = "actionPlan" | "targetDate" | "personInCharge";
@@ -31,7 +32,7 @@ type ActionItemField = "actionPlan" | "targetDate" | "personInCharge";
 interface MeetingActionItemsTableProps {
   items: MeetingActionItemRow[];
   members?: ClickUpMember[];
-  onChange?: (itemId: string, field: ActionItemField, value: string, assigneeId?: string) => void;
+  onChange?: (itemId: string, field: ActionItemField, value: string, assigneeIds?: string[]) => void;
   renderAction?: (item: MeetingActionItemRow) => ReactNode;
 }
 
@@ -214,20 +215,31 @@ export function MeetingActionItemsTable({ items, members = [], onChange, renderA
                       <input
                         aria-label={label}
                         value={item.personInCharge}
-                        onChange={(event) => onChange(item.id, field, event.target.value, "")}
+                        onChange={(event) => {
+                          const names = event.target.value.split(/[,;\n]/).map((name) => name.trim().toLowerCase());
+                          const assigneeIds = (item.assigneeIds || (item.assigneeId ? [item.assigneeId] : [])).filter((id) => {
+                            const memberName = members.find((member) => String(member.id) === String(id))?.username;
+                            return !memberName || names.includes(memberName.toLowerCase());
+                          });
+                          onChange(item.id, field, event.target.value, assigneeIds);
+                        }}
                         placeholder="Enter a name or choose a ClickUp member"
                         className="mb-2 w-full border-b border-gray-300 bg-transparent px-1 py-2 text-sm font-medium text-[#003366] focus:border-[#C9AB4C] focus:outline-none"
                       />
                     ) : <p className="min-h-10 border-b border-gray-300 px-1 py-2 text-sm text-[#003366]">{item.personInCharge || "—"}</p>}
                     {onChange && (
-                      <SearchableMemberSelect
+                      <SearchableMemberMultiSelect
                         members={members}
-                        selectedMemberId={item.assigneeId || ""}
-                        onChange={(memberId) => {
-                          const member = members.find((candidate) => String(candidate.id) === memberId);
-                          onChange(item.id, field, member?.username || "", memberId);
+                        selectedMemberIds={item.assigneeIds || (item.assigneeId ? [item.assigneeId] : [])}
+                        onChange={(assigneeIds) => {
+                          const oldIds = item.assigneeIds || (item.assigneeId ? [item.assigneeId] : []);
+                          const oldNames = oldIds.map((id) => members.find((member) => String(member.id) === String(id))?.username).filter((name): name is string => Boolean(name));
+                          const freeTextNames = item.personInCharge.split(/[,;\n]/).map((name) => name.trim()).filter((name) => name && !oldNames.some((oldName) => oldName.toLowerCase() === name.toLowerCase()));
+                          const selectedNames = assigneeIds.map((id) => members.find((candidate) => String(candidate.id) === String(id))?.username).filter((name): name is string => Boolean(name));
+                          const names = [...freeTextNames, ...selectedNames];
+                          onChange(item.id, field, names.join(", "), assigneeIds);
                         }}
-                        placeholder="Choose ClickUp member"
+                        placeholder="Choose ClickUp members"
                         searchPlaceholder="Search ClickUp members..."
                       />
                     )}

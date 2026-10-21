@@ -26,7 +26,7 @@ import {
   discoverClickUpLists
 } from "@/lib/api";
 import { WORKSPACE_STATUS_CATEGORIES } from "@/lib/clickupStatuses";
-import { SearchableMemberSelect } from "./SearchableMemberSelect";
+import { SearchableMemberMultiSelect } from "./SearchableMemberSelect";
 import { formatEchoDate } from "@/lib/dateUtils";
 
 interface QuickAddTaskModalProps {
@@ -41,6 +41,7 @@ interface QuickAddTaskModalProps {
     priority?: string;
     assigneeName?: string;
     assigneeId?: string;
+    assigneeIds?: string[];
     topic?: string;
     evidence?: string;
     discussionPointId?: string;
@@ -65,7 +66,7 @@ export function QuickAddTaskModal({
   const [priority, setPriority] = useState("normal");
   const [status, setStatus] = useState("to do");
   const [dueDate, setDueDate] = useState("");
-  const [selectedAssigneeId, setSelectedAssigneeId] = useState<string>("");
+  const [selectedAssigneeIds, setSelectedAssigneeIds] = useState<string[]>([]);
   const [customAssigneeName, setCustomAssigneeName] = useState("");
 
   // Configurable ClickUp Space & List state
@@ -197,7 +198,7 @@ export function QuickAddTaskModal({
       setDueDate(initialData.dueDate || "");
       setPriority(initialData.priority || "normal");
       setCustomAssigneeName(initialData.assigneeName || "");
-      setSelectedAssigneeId(initialData.assigneeId || "");
+      setSelectedAssigneeIds(initialData.assigneeIds || (initialData.assigneeId ? [initialData.assigneeId] : []));
 
       if (initialData.existingTaskId) {
         setCreatedTaskId(initialData.existingTaskId);
@@ -214,17 +215,12 @@ export function QuickAddTaskModal({
 
   // Pre-match assignee if name matches
   useEffect(() => {
-    if (customAssigneeName && availableMembers.length > 0 && !selectedAssigneeId) {
-      const match = availableMembers.find(
-        m =>
-          m.username.toLowerCase().includes(customAssigneeName.toLowerCase()) ||
-          customAssigneeName.toLowerCase().includes(m.username.toLowerCase())
-      );
-      if (match) {
-        setSelectedAssigneeId(String(match.id));
-      }
+    if (customAssigneeName && availableMembers.length > 0 && selectedAssigneeIds.length === 0) {
+      const names = customAssigneeName.split(/[,;\n]/).map((name) => name.trim().toLowerCase()).filter(Boolean);
+      const matches = availableMembers.filter((member) => names.some((name) => name === member.username.toLowerCase()));
+      if (matches.length) setSelectedAssigneeIds(matches.map((member) => String(member.id)));
     }
-  }, [customAssigneeName, availableMembers, selectedAssigneeId]);
+  }, [customAssigneeName, availableMembers, selectedAssigneeIds.length]);
 
   if (!isOpen) return null;
 
@@ -237,10 +233,11 @@ export function QuickAddTaskModal({
 
     try {
       let fullDescription = description.trim();
-      const selectedMember = availableMembers.find(m => String(m.id) === selectedAssigneeId);
-      const assigneeLabel = selectedMember ? selectedMember.username : customAssigneeName.trim();
-
-      const assigneesPayload = selectedAssigneeId ? [Number(selectedAssigneeId)] : undefined;
+      const selectedMembers = availableMembers.filter((member) => selectedAssigneeIds.includes(String(member.id)));
+      const selectedNames = selectedMembers.map((member) => member.username);
+      const remainingNames = customAssigneeName.split(/[,;\n]/).map((name) => name.trim()).filter((name) => name && !selectedNames.some((selectedName) => selectedName.toLowerCase() === name.toLowerCase()));
+      const assigneeLabel = [...selectedNames, ...remainingNames].join(", ");
+      const assigneesPayload = selectedAssigneeIds.map(Number).filter(Number.isFinite);
 
       const res = await createClickUpTask({
         name: taskName.trim(),
@@ -552,11 +549,11 @@ export function QuickAddTaskModal({
                   )}
                 </div>
 
-                <SearchableMemberSelect
+                <SearchableMemberMultiSelect
                   members={availableMembers}
-                  selectedMemberId={selectedAssigneeId}
-                  onChange={setSelectedAssigneeId}
-                  placeholder="-- Assign to Space Member --"
+                  selectedMemberIds={selectedAssigneeIds}
+                  onChange={setSelectedAssigneeIds}
+                  placeholder="Choose ClickUp members"
                 />
               </div>
             </div>
