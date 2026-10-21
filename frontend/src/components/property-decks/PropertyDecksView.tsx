@@ -474,6 +474,12 @@ export function PropertyDecksView({
     setError(null);
     setCompiledResult(null);
     try {
+      const browserCompiled = await compilePptxInBrowser(activeProposalManifest);
+      const downloadUrl =
+        typeof URL !== "undefined" && typeof URL.createObjectURL === "function"
+          ? URL.createObjectURL(browserCompiled.blob)
+          : undefined;
+
       const isBrowserOnlyCatalog = allSlides.every((s) => s.thumbnailUrl.startsWith("data:"));
 
       if (!isBrowserOnlyCatalog) {
@@ -499,22 +505,20 @@ export function PropertyDecksView({
         });
         const payload = await res.json().catch(() => ({}));
         if (res.ok && payload.fileName) {
+          const isCloudTmp = String(payload.outputPath || "").startsWith("/tmp/");
+          if (isCloudTmp && downloadUrl) {
+            triggerBrowserDownload(downloadUrl, payload.fileName);
+          }
           setCompiledResult({
             outputPath: payload.outputPath,
             fileName: payload.fileName,
             slideCount: payload.slideCount,
             engine: payload.engine,
+            downloadUrl,
           });
           return;
         }
       }
-
-      // Client-side OpenXML compilation fallback (works on Vercel / PWA / Browser DB)
-      const browserCompiled = await compilePptxInBrowser(activeProposalManifest);
-      const downloadUrl =
-        typeof URL !== "undefined" && typeof URL.createObjectURL === "function"
-          ? URL.createObjectURL(browserCompiled.blob)
-          : undefined;
 
       if (downloadUrl) {
         triggerBrowserDownload(downloadUrl, browserCompiled.fileName);
@@ -1118,7 +1122,7 @@ export function PropertyDecksView({
                   : `Saved in ${outputFolder}`}
               </p>
               <div className="flex flex-wrap gap-2 pt-1">
-                {compiledResult.downloadUrl ? (
+                {compiledResult.downloadUrl && (
                   <button
                     type="button"
                     onClick={() =>
@@ -1129,12 +1133,13 @@ export function PropertyDecksView({
                     <Download className="h-3 w-3" />
                     Download PPTX
                   </button>
-                ) : (
+                )}
+                {!compiledResult.outputPath.startsWith("/tmp/") && (
                   <>
                     <button
                       type="button"
                       onClick={() => void triggerWindowsOpen(compiledResult.outputPath, "open-file")}
-                      className="inline-flex min-h-8 items-center gap-1 border border-[#003366] bg-[#003366] px-2.5 text-[11px] font-semibold text-white"
+                      className="inline-flex min-h-8 items-center gap-1 border border-slate-300 bg-white px-2.5 text-[11px] font-semibold text-[#003366]"
                     >
                       <ExternalLink className="h-3 w-3" />
                       Open in PowerPoint

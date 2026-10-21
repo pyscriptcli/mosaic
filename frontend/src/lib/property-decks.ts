@@ -133,6 +133,12 @@ const KNOWN_CITIES = [
   "Iloilo",
   "Bacolod",
   "Zamboanga",
+  "Hermosa",
+  "Dinalupihan",
+  "Bataan",
+  "Zabarte",
+  "Santulan",
+  "Sandoval",
 ];
 
 export function parseNumericGla(value: string | undefined | null): number | null {
@@ -149,7 +155,7 @@ export function extractSpecsFromSlideText(
 ): { slideRole: SlideRole; title: string; specs: PropertySlideSpecs } {
   const lines = rawText
     .split(/\r?\n/)
-    .map((line) => line.trim())
+    .map((line) => line.replace(/[\u200B-\u200D\uFEFF]/g, "").trim())
     .filter(Boolean);
 
   const joined = lines.join(" \n ");
@@ -157,16 +163,17 @@ export function extractSpecsFromSlideText(
 
   let slideRole: SlideRole = "property";
   if (
-    /thank\s+you|for\s+inquiries|contact\s+us|disclaimer\s+and\s+confidentiality/i.test(joined) &&
-    !/gross\s+leasable|floor\s+area|lot\s+area|ceiling\s+height/i.test(joined)
+    /thank\s+you|for\s+inquiries|schedule\s+a\s+viewing\s+contact\s+us|contact\s+us|disclaimer\s+and\s+confidentiality/i.test(
+      joined,
+    ) &&
+    !/gross\s+leasable|floor\s+area|lot\s+area|ceiling\s+height|rental\s+rate/i.test(joined)
   ) {
     slideRole = "closing";
   } else if (
-    /prepared\s+(?:exclusively\s+)?for|property\s+information\s+sheet|commercial\s+real\s+estate\s+proposal|exclusively\s+prepared/i.test(
+    (/prepared\s+(?:exclusively\s+)?for|property\s+information\s+sheet|property\s+deck\s+presentation|commercial\s+real\s+estate\s+proposal|exclusively\s+prepared|industrial\s+facility\s+proposal/i.test(
       joined,
     ) &&
-    lines.length <= 8 &&
-    !/sqm|sq\.?\s*m|lease\s+rate/i.test(joined)
+      !/sqm|sq\.?\s*m|lease\s+rate|rental\s+rate/i.test(joined))
   ) {
     slideRole = "cover";
   } else if (/about\s+prime\s+philippines|company\s+profile|our\s+services|track\s+record/i.test(joined)) {
@@ -177,21 +184,38 @@ export function extractSpecsFromSlideText(
     slideRole = "vicinity";
   }
 
-  const cleanDeckTitle = fallbackDeckName.replace(/\.pptx$/i, "").replace(/[_-]+/g, " ").trim();
+  const cleanDeckTitle = fallbackDeckName
+    .replace(/\.pptx$/i, "")
+    .replace(/PRIME_IW_/i, "")
+    .replace(/\s*-\s*UPDATED/i, "")
+    .replace(/[_-]+/g, " ")
+    .trim();
+
   const titleLine =
     lines.find(
       (line) =>
         line.length >= 4 &&
         line.length <= 90 &&
-        !/^(location|address|gla|gross leasable|floor area|lot area|ceiling|monthly|lease rate|rate|power|loading|prepared)/i.test(
+        !/^(location|address|gla|gross leasable|floor area|lot area|ceiling|monthly|lease rate|rental rate|rate|power|loading|prepared|lease terms|specifications)/i.test(
           line,
         ),
     ) ||
     lines[0] ||
     cleanDeckTitle;
 
-  const locationLabelMatch = joined.match(/(?:location|address|city\/municipality|municipality|site\s+location)\s*[:\-–]\s*([^\n|•]+)/i);
+  const locationLabelMatch = joined.match(
+    /(?:location|address|city\/municipality|municipality|site\s+location)\s*[:\-–\n]\s*([^\n|•]+)/i,
+  );
   let location = locationLabelMatch ? locationLabelMatch[1].trim() : "";
+  if (
+    !location &&
+    lines[1] &&
+    lines[1].length <= 60 &&
+    !/^(lease\s+terms|specifications|property\s+specifications|property\s+photos|prepared)/i.test(lines[1]) &&
+    /(?:city|park|road|ave|rd|bataan|laguna|cavite|bulacan|tarlac|pasig|caloocan|malabon)/i.test(lines[1])
+  ) {
+    location = lines[1].trim();
+  }
   if (!location) {
     const matchedCities = KNOWN_CITIES.filter((city) =>
       new RegExp(`\\b${city.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(joined + " " + cleanDeckTitle),
@@ -203,27 +227,34 @@ export function extractSpecsFromSlideText(
 
   const glaMatch =
     joined.match(
-      /(?:gross\s+leasable\s+area(?:\s*\(gla\))?|gla|floor\s+area|total\s+area|leasable\s+area|warehouse\s+area|lot\s+area)\s*[:\-–]?\s*([\d,]+(?:\.\d+)?\s*(?:sqm|sq\.?\s*m\.?|square\s+meters?))/i,
+      /(?:gross\s+leasable\s+area(?:\s*\(gla\))?|total\s+leasable|gla|covered\s+area|floor\s+area|total\s+area|leasable\s+area|warehouse\s+area|lot\s+area)\s*[:\-–\n]?\s*([\d,]+(?:\.\d+)?\s*(?:sqm|sq\.?\s*m\.?|square\s+meters?))/i,
     ) || joined.match(/\b([\d,]+(?:\.\d+)?\s*(?:sqm|sq\.?\s*m\.?))\b/i);
   const gla = glaMatch ? glaMatch[1].replace(/\s+/g, " ").trim() : "";
 
   const ceilingMatch =
-    joined.match(/(?:clear\s+ceiling\s+height|ceiling\s+height|clear\s+height|apex\s+height|apex|shoulder\s+height)\s*[:\-–]?\s*([^\n|•]+)/i) ||
+    joined.match(
+      /(?:clear\s+ceiling\s+height|ceiling\s+height(?:\s*\([^)]*\))?|clear\s+height|apex\s+height(?:\s*\([^)]*\))?|apex|shoulder\s+height(?:\s*\([^)]*\))?)\s*[:\-–\n]+\s*([^\n|•]+)/i,
+    ) ||
     joined.match(/\b(\d+(?:\.\d+)?\s*(?:m|meters?)\s*(?:\(\s*(?:apex|clear|shoulder)\s*\))?)\b/i);
-  const ceilingHeight = ceilingMatch ? ceilingMatch[1].trim() : "";
+  const ceilingHeight = ceilingMatch ? ceilingMatch[1].replace(/^approximately\s+/i, "Approx. ").trim() : "";
 
   const rateMatch =
-    joined.match(/(?:monthly\s+lease\s+rate|lease\s+rate|rental\s+rate|asking\s+rate|rate|price)\s*[:\-–]?\s*([^\n|•]+)/i) ||
-    joined.match(/((?:php|₱|p)\s*[\d,]+(?:\.\d+)?\s*(?:\/\s*sq\.?\s*m\.?|per\s*sqm)[^\n|•]*)/i);
+    joined.match(
+      /(?:monthly\s+lease\s+rate|lease\s+rate|rental\s+rate(?:\s*\(covered\))?|asking\s+rate)\s*[:\-–\n]+\s*((?:php|₱|p)\s*[\d,]+[^\n|•]*)/i,
+    ) ||
+    joined.match(
+      /(?:monthly\s+lease\s+rate|lease\s+rate|rental\s+rate|asking\s+rate|rate|price)\s*[:\-–]\s*([^\n|•]+)/i,
+    ) ||
+    joined.match(/((?:php|₱|p)\s*[\d,]+(?:\.\d+)?\s*(?:\/\s*(?:sq\.?\s*m\.?|month)|per\s*sqm)[^\n|•]*)/i);
   const leaseRate = rateMatch ? rateMatch[1].trim() : "";
 
   const powerMatch =
-    joined.match(/(?:power\s+supply|electrical|power)\s*[:\-–]\s*([^\n|•]+)/i) ||
-    joined.match(/\b([13]\s*-\s*phase[^\n|•]*|three\s+phase[^\n|•]*|single\s+phase[^\n|•]*)/i);
+    joined.match(/(?:power\s+supply|electrical\s+load|electrical|power)\s*[:\-–\n]+\s*([^\n|•]+)/i) ||
+    joined.match(/\b([13]\s*-\s*phase[^\n|•]*|three[\s-]+phase[^\n|•]*|single\s+phase[^\n|•]*)/i);
   const powerSupply = powerMatch ? powerMatch[1].trim() : "";
 
   const baysMatch =
-    joined.match(/(?:loading\s+bays?|loading\s+docks?|dock\s+bays?)\s*[:\-–]\s*([^\n|•]+)/i) ||
+    joined.match(/(?:elevated\s+loading\s+dock|loading\s+bays?|loading\s+docks?|loading\s+area|dock\s+bays?)\s*[:\-–\n]+\s*([^\n|•]+)/i) ||
     joined.match(/\b(\d+\s+(?:elevated\s+)?(?:loading\s+)?bays?[^\n|•]*)/i);
   const loadingBays = baysMatch ? baysMatch[1].trim() : "";
 
@@ -523,6 +554,149 @@ async function extractBrowserSlideThumbnailDataUrl(
   return `data:${mime};base64,${base64}`;
 }
 
+export async function getOrderedSlidePathsFromZip(zip: JSZip): Promise<string[]> {
+  const presFile = zip.file("ppt/presentation.xml");
+  const relsFile = zip.file("ppt/_rels/presentation.xml.rels");
+
+  if (presFile && relsFile) {
+    try {
+      const [presXml, relsXml] = await Promise.all([
+        presFile.async("string"),
+        relsFile.async("string"),
+      ]);
+      const rIdToTarget = new Map<string, string>();
+      for (const match of relsXml.matchAll(/<Relationship\b[^>]*\bId="([^"]+)"[^>]*\bTarget="([^"]+)"/gi)) {
+        rIdToTarget.set(match[1], match[2]);
+      }
+      for (const match of relsXml.matchAll(/<Relationship\b[^>]*\bTarget="([^"]+)"[^>]*\bId="([^"]+)"/gi)) {
+        if (!rIdToTarget.has(match[2])) {
+          rIdToTarget.set(match[2], match[1]);
+        }
+      }
+
+      const sldListMatch = presXml.match(/<p:sldIdLst>([\s\S]*?)<\/p:sldIdLst>/i);
+      if (sldListMatch) {
+        const orderedPaths: string[] = [];
+        for (const sldMatch of sldListMatch[1].matchAll(/r:id="([^"]+)"/gi)) {
+          const target = rIdToTarget.get(sldMatch[1]);
+          if (target) {
+            const normalized = target.startsWith("ppt/")
+              ? target
+              : `ppt/${target.replace(/^\.?\//, "")}`;
+            if (zip.file(normalized)) {
+              orderedPaths.push(normalized);
+            }
+          }
+        }
+        if (orderedPaths.length > 0) {
+          return orderedPaths;
+        }
+      }
+    } catch {
+      // Fallback to filename sorting
+    }
+  }
+
+  return Object.keys(zip.files)
+    .filter((name) => /^ppt\/slides\/slide\d+\.xml$/i.test(name))
+    .sort((a, b) => {
+      const numA = Number(a.match(/slide(\d+)\.xml/i)?.[1] || 0);
+      const numB = Number(b.match(/slide(\d+)\.xml/i)?.[1] || 0);
+      return numA - numB;
+    });
+}
+
+export function enrichDeckSlidesWithSharedWarehouseSpecs(
+  deckSlides: PropertySlideItem[],
+): PropertySlideItem[] {
+  let activeSpecs: PropertySlideSpecs | null = null;
+  let activeWarehouseName = "";
+
+  // First pass: group consecutive property slides belonging to the same warehouse
+  const enriched = deckSlides.map((slide) => ({
+    ...slide,
+    specs: { ...slide.specs },
+  }));
+
+  for (let i = 0; i < enriched.length; i += 1) {
+    const slide = enriched[i];
+    if (slide.slideRole !== "property") {
+      continue;
+    }
+
+    const isPhotoOrSiteSlide =
+      /^(property\s+photos|property\s+layout|site\s+development)/i.test(slide.title) ||
+      /^(property\s+photos|property\s+layout|site\s+development)/i.test(slide.specs.propertyName);
+
+    const isNewWarehouseHeader =
+      !isPhotoOrSiteSlide &&
+      (!activeWarehouseName ||
+        (slide.specs.propertyName.toLowerCase() !== activeWarehouseName.toLowerCase() &&
+          !/^property\s+details/i.test(slide.specs.propertyName)));
+
+    if (isNewWarehouseHeader) {
+      activeWarehouseName = slide.specs.propertyName;
+      activeSpecs = { ...slide.specs };
+      // Peek ahead at the next 1-2 slides of the same warehouse to merge Specifications + Lease Terms
+      for (let j = i + 1; j < Math.min(i + 3, enriched.length); j += 1) {
+        const nextSlide = enriched[j];
+        if (nextSlide.slideRole !== "property") break;
+        const nextIsSameOrSubSlide =
+          nextSlide.specs.propertyName.toLowerCase() === activeWarehouseName.toLowerCase() ||
+          /^(property\s+details|property\s+photos|property\s+layout|site\s+development)/i.test(
+            nextSlide.specs.propertyName,
+          );
+        if (!nextIsSameOrSubSlide) break;
+
+        if (activeSpecs.location === "Metro Manila / Luzon" && nextSlide.specs.location !== "Metro Manila / Luzon") {
+          activeSpecs.location = nextSlide.specs.location;
+        }
+        if (activeSpecs.gla === "Upon Request" && nextSlide.specs.gla !== "Upon Request") {
+          activeSpecs.gla = nextSlide.specs.gla;
+        }
+        if (activeSpecs.leaseRate === "Upon Request" && nextSlide.specs.leaseRate !== "Upon Request") {
+          activeSpecs.leaseRate = nextSlide.specs.leaseRate;
+        }
+        if (
+          activeSpecs.ceilingHeight === "Standard Industrial" &&
+          nextSlide.specs.ceilingHeight !== "Standard Industrial"
+        ) {
+          activeSpecs.ceilingHeight = nextSlide.specs.ceilingHeight;
+        }
+        if (activeSpecs.powerSupply === "Standard" && nextSlide.specs.powerSupply !== "Standard") {
+          activeSpecs.powerSupply = nextSlide.specs.powerSupply;
+        }
+        if (activeSpecs.loadingBays === "Available" && nextSlide.specs.loadingBays !== "Available") {
+          activeSpecs.loadingBays = nextSlide.specs.loadingBays;
+        }
+      }
+    }
+
+    if (activeSpecs) {
+      const subLabel = /lease\s+terms/i.test(slide.rawText)
+        ? "Lease Terms & Units"
+        : /specifications/i.test(slide.rawText)
+          ? "Specifications & Access"
+          : isPhotoOrSiteSlide
+            ? "Photos & Site Plan"
+            : "";
+
+      const displayTitle =
+        activeWarehouseName && subLabel
+          ? `${activeWarehouseName} — ${subLabel}`
+          : slide.title;
+
+      slide.title = displayTitle;
+      slide.specs = {
+        ...activeSpecs,
+        propertyName: activeWarehouseName || slide.specs.propertyName,
+      };
+    }
+  }
+
+  return enriched;
+}
+
 export interface BrowserPptxFileInput {
   name: string;
   relativePath?: string;
@@ -551,13 +725,7 @@ export async function indexPptxFilesInBrowser(
   for (const file of pptxFiles) {
     try {
       const zip = await JSZip.loadAsync(file.data);
-      const slideFileNames = Object.keys(zip.files)
-        .filter((name) => /^ppt\/slides\/slide\d+\.xml$/i.test(name))
-        .sort((a, b) => {
-          const numA = Number(a.match(/slide(\d+)\.xml/i)?.[1] || 0);
-          const numB = Number(b.match(/slide(\d+)\.xml/i)?.[1] || 0);
-          return numA - numB;
-        });
+      const slideFileNames = await getOrderedSlidePathsFromZip(zip);
 
       if (slideFileNames.length === 0) continue;
       indexedDecksCount += 1;
@@ -565,9 +733,12 @@ export async function indexPptxFilesInBrowser(
       const deckFileName = file.name;
       const deckFilePath = file.relativePath || `${sourceFolderLabel}\\${file.name}`;
       const deckId = `deck-${hashString(deckFilePath)}`;
+      const deckSlides: PropertySlideItem[] = [];
 
-      for (const slideXmlPath of slideFileNames) {
-        const slideNumber = Number(slideXmlPath.match(/slide(\d+)\.xml/i)?.[1] || 1);
+      for (let idx = 0; idx < slideFileNames.length; idx += 1) {
+        const slideXmlPath = slideFileNames[idx];
+        const xmlSlideNumber = Number(slideXmlPath.match(/slide(\d+)\.xml/i)?.[1] || idx + 1);
+        const slideNumber = idx + 1;
         const xmlFile = zip.file(slideXmlPath);
         if (!xmlFile) continue;
 
@@ -577,7 +748,7 @@ export async function indexPptxFilesInBrowser(
 
         const extracted = extractSpecsFromSlideText(rawText, deckFileName);
         const slideId = `${deckId}:slide:${slideNumber}`;
-        const embeddedDataUrl = await extractBrowserSlideThumbnailDataUrl(zip, slideNumber).catch(
+        const embeddedDataUrl = await extractBrowserSlideThumbnailDataUrl(zip, xmlSlideNumber).catch(
           () => null,
         );
         const thumbnailUrl =
@@ -592,7 +763,7 @@ export async function indexPptxFilesInBrowser(
             ceilingHeight: extracted.specs.ceilingHeight,
           });
 
-        slides.push({
+        deckSlides.push({
           id: slideId,
           deckId,
           deckFileName,
@@ -605,6 +776,8 @@ export async function indexPptxFilesInBrowser(
           specs: extracted.specs,
         });
       }
+
+      slides.push(...enrichDeckSlidesWithSharedWarehouseSpecs(deckSlides));
     } catch {
       // Skip unreadable PPTX files cleanly
     }

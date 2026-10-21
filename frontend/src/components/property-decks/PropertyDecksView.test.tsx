@@ -182,7 +182,7 @@ describe("PropertyDecksView component", () => {
       `<p:sld><a:p><a:t>PLARIDEL INDUSTRIAL PARK - WAREHOUSE A</a:t></a:p><a:p><a:t>Location: Plaridel, Bulacan</a:t></a:p><a:p><a:t>GLA: 6,000 sqm</a:t></a:p><a:p><a:t>Lease Rate: Php 280 / sqm</a:t></a:p></p:sld>`,
     );
     const pptxBytes = await zip.generateAsync({ type: "uint8array" });
-    const mockFile = new File([pptxBytes], "Bulacan_Warehouses.pptx", {
+    const mockFile = new File([pptxBytes as unknown as BlobPart], "Bulacan_Warehouses.pptx", {
       type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     });
     Object.defineProperty(mockFile, "webkitRelativePath", {

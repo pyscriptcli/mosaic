@@ -6,6 +6,7 @@ import {
   compilePptxInBrowser,
   extractSpecsFromSlideText,
   filterPropertySlides,
+  getOrderedSlidePathsFromZip,
   indexPptxFilesInBrowser,
   parseNumericGla,
   reorderSelectedSlides,
@@ -261,5 +262,23 @@ describe("Property Decks filtering, overrides, and cart sequencing", () => {
     const slide3Xml = await loadedZip.file("ppt/slides/slide3.xml")!.async("string");
     expect(slide3Xml).toContain("Cabuyao Cold Storage");
     expect(slide3Xml).toContain("345/sqm (Final)");
+  });
+
+  it("reads active slide order from presentation.xml and skips orphan deleted slides", async () => {
+    const zip = new JSZip();
+    zip.file(
+      "ppt/presentation.xml",
+      `<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:sldIdLst><p:sldId id="256" r:id="rId2"/><p:sldId id="273" r:id="rId10"/></p:sldIdLst></p:presentation>`,
+    );
+    zip.file(
+      "ppt/_rels/presentation.xml.rels",
+      `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId2" Target="slides/slide1.xml"/><Relationship Id="rId7" Target="slides/slide6.xml"/><Relationship Id="rId10" Target="slides/slide9.xml"/></Relationships>`,
+    );
+    zip.file("ppt/slides/slide1.xml", "<p:sld><a:t>Active Slide 1</a:t></p:sld>");
+    zip.file("ppt/slides/slide6.xml", "<p:sld><a:t>Orphan Deleted Slide 6</a:t></p:sld>");
+    zip.file("ppt/slides/slide9.xml", "<p:sld><a:t>Active Slide 9</a:t></p:sld>");
+
+    const ordered = await getOrderedSlidePathsFromZip(zip);
+    expect(ordered).toEqual(["ppt/slides/slide1.xml", "ppt/slides/slide9.xml"]);
   });
 });

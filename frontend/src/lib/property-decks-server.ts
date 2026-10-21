@@ -6,7 +6,10 @@ import path from "node:path";
 import { promisify } from "node:util";
 import JSZip from "jszip";
 import {
+  enrichDeckSlidesWithSharedWarehouseSpecs,
   extractSpecsFromSlideText,
+  extractTextFromSlideXml,
+  getOrderedSlidePathsFromZip,
   type CompilationManifest,
   type PropertyDeckCatalog,
   type PropertySlideItem,
@@ -19,39 +22,65 @@ const CACHE_ROOT = process.env.VITEST
   : path.join(process.cwd(), ".cache", "property-decks");
 const THUMBNAILS_DIR = path.join(CACHE_ROOT, "thumbnails");
 const CATALOG_CACHE_PATH = path.join(CACHE_ROOT, "catalog.json");
+const SEED_CATALOG_PATH = path.join(process.cwd(), "src", "data", "property-decks-seed.json");
 
-function decodeXmlEntities(text: string): string {
-  return text
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'")
-    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)));
-}
+function resolveExistingFolderFuzzy(rawInput: string): string | null {
+  const trimmed = rawInput.trim();
+  if (!trimmed) return null;
 
-function extractTextFromSlideXml(xml: string): string {
-  const hasParagraphTags = /<\/a:p>|<\/a:tr>/.test(xml);
-  const paragraphs = hasParagraphTags ? xml.split(/<\/a:p>|<\/a:tr>/) : xml.split(/<\/a:t>/);
-  const lines: string[] = [];
+  // Avoid treating Windows drive paths as relative paths on Linux containers
+  if (process.platform !== "win32" && /^[a-zA-Z]:[\\/]/.test(trimmed)) {
+    return null;
+  }
 
-  for (const para of paragraphs) {
-    const tokens: string[] = [];
-    const regex = hasParagraphTags
-      ? /<a:t(?:\s[^>]*)?>([\s\S]*?)<\/a:t>/g
-      : /<a:t(?:\s[^>]*)?>([\s\S]*?)$/g;
-    let match: RegExpExecArray | null = regex.exec(para);
-    while (match) {
-      const cleaned = decodeXmlEntities(match[1]).trim();
-      if (cleaned) tokens.push(cleaned);
-      match = regex.exec(para);
+  const direct = path.resolve(trimmed);
+  if (fs.existsSync(direct)) return direct;
+
+  // Walk segments and match collapsed whitespace (e.g., "CRD 2026 COMPILED" -> "CRD 2026  COMPILED")
+  const parsed = path.parse(direct);
+  if (!parsed.root || !fs.existsSync(parsed.root)) return null;
+
+  const relativePart = direct.slice(parsed.root.length);
+  const segments = relativePart.split(/[\\/]+/).filter(Boolean);
+  let current = parsed.root;
+
+  for (const seg of segments) {
+    const exactNext = path.join(current, seg);
+    if (fs.existsSync(exactNext)) {
+      current = exactNext;
+      continue;
     }
-    if (tokens.length > 0) {
-      lines.push(tokens.join(" "));
+    try {
+      const normSeg = seg.replace(/\s+/g, " ").toLowerCase();
+      const entries = fs.readdirSync(current, { withFileTypes: true });
+      const matched = entries.find(
+        (e) => e.isDirectory() && e.name.replace(/\s+/g, " ").toLowerCase() === normSeg,
+      );
+      if (!matched) return null;
+      current = path.join(current, matched.name);
+    } catch {
+      return null;
     }
   }
 
-  return lines.join("\n");
+  return fs.existsSync(current) ? current : null;
+}
+
+export function readSeedCatalog(
+  overrideSourceFolder?: string,
+  overrideOutputFolder?: string,
+): PropertyDeckCatalog | null {
+  try {
+    if (!fs.existsSync(SEED_CATALOG_PATH)) return null;
+    const parsed = JSON.parse(fs.readFileSync(SEED_CATALOG_PATH, "utf-8")) as PropertyDeckCatalog;
+    return {
+      ...parsed,
+      sourceFolder: overrideSourceFolder?.trim() || parsed.sourceFolder,
+      outputFolder: overrideOutputFolder?.trim() || parsed.outputFolder,
+    };
+  } catch {
+    return null;
+  }
 }
 
 async function findPptxFiles(rootDir: string, maxFiles = 35): Promise<string[]> {
@@ -129,13 +158,17 @@ export async function scanOneDriveFolder(
   outputFolder?: string,
   maxDecks = 35,
 ): Promise<PropertyDeckCatalog> {
-  const resolvedSource = path.resolve(sourceFolder.trim());
-  if (!fs.existsSync(resolvedSource)) {
-    throw new Error(`OneDrive source folder not found: ${resolvedSource}`);
+  const resolvedSource = resolveExistingFolderFuzzy(sourceFolder);
+  if (!resolvedSource) {
+    const seed = readSeedCatalog(sourceFolder, outputFolder);
+    if (seed) {
+      return seed;
+    }
+    throw new Error(`OneDrive source folder not found: ${sourceFolder.trim()}`);
   }
 
   const resolvedOutput = outputFolder?.trim()
-    ? path.resolve(outputFolder.trim())
+    ? resolveExistingFolderFuzzy(outputFolder) || path.resolve(outputFolder.trim())
     : path.join(resolvedSource, "Compiled Proposals");
 
   const pptxFiles = await findPptxFiles(resolvedSource, maxDecks);
@@ -147,22 +180,22 @@ export async function scanOneDriveFolder(
     try {
       const buffer = await fs.promises.readFile(filePath);
       const zip = await JSZip.loadAsync(buffer);
-      const slideFileNames = Object.keys(zip.files)
-        .filter((name) => /^ppt\/slides\/slide\d+\.xml$/i.test(name))
-        .sort((a, b) => {
-          const numA = Number(a.match(/slide(\d+)\.xml/i)?.[1] || 0);
-          const numB = Number(b.match(/slide(\d+)\.xml/i)?.[1] || 0);
-          return numA - numB;
-        });
+      const slideFileNames = await getOrderedSlidePathsFromZip(zip);
 
       if (slideFileNames.length === 0) continue;
       indexedDecksCount += 1;
 
       const deckFileName = path.basename(filePath);
-      const deckId = crypto.createHash("sha1").update(filePath).digest("hex").slice(0, 10);
+      const deckDir = path.dirname(filePath);
+      const deckFolderName = path.basename(deckDir);
+      const deckSlug = deckFolderName.toLowerCase().replace(/\s+/g, "_");
+      const deckId = crypto.createHash("sha1").update(deckFileName).digest("hex").slice(0, 10);
+      const deckSlides: PropertySlideItem[] = [];
 
-      for (const slideXmlPath of slideFileNames) {
-        const slideNumber = Number(slideXmlPath.match(/slide(\d+)\.xml/i)?.[1] || 1);
+      for (let idx = 0; idx < slideFileNames.length; idx += 1) {
+        const slideXmlPath = slideFileNames[idx];
+        const xmlSlideNumber = Number(slideXmlPath.match(/slide(\d+)\.xml/i)?.[1] || idx + 1);
+        const slideNumber = idx + 1;
         const xmlFile = zip.file(slideXmlPath);
         if (!xmlFile) continue;
 
@@ -174,9 +207,32 @@ export async function scanOneDriveFolder(
         const slideId = `${deckId}:slide:${slideNumber}`;
         const slideIdHash = `${deckId}_s${slideNumber}`;
 
-        await extractSlideMediaThumbnail(zip, slideNumber, slideIdHash).catch(() => null);
+        const publicPreviewRel = `/property-decks/previews/${deckSlug}_s${slideNumber}.jpg`;
+        const publicPreviewFile = path.join(
+          process.cwd(),
+          "public",
+          "property-decks",
+          "previews",
+          `${deckSlug}_s${slideNumber}.jpg`,
+        );
+        const localPreviewPng = path.join(
+          deckDir,
+          "previews",
+          `slide_${String(slideNumber).padStart(2, "0")}.png`,
+        );
 
-        slides.push({
+        let thumbnailUrl = `/api/property-decks/thumbnail?id=${encodeURIComponent(slideId)}`;
+        if (fs.existsSync(publicPreviewFile)) {
+          thumbnailUrl = publicPreviewRel;
+        } else if (fs.existsSync(localPreviewPng)) {
+          await fs.promises.mkdir(THUMBNAILS_DIR, { recursive: true });
+          const outPath = path.join(THUMBNAILS_DIR, `${slideIdHash}.png`);
+          await fs.promises.copyFile(localPreviewPng, outPath).catch(() => null);
+        } else {
+          await extractSlideMediaThumbnail(zip, xmlSlideNumber, slideIdHash).catch(() => null);
+        }
+
+        deckSlides.push({
           id: slideId,
           deckId,
           deckFileName,
@@ -185,10 +241,12 @@ export async function scanOneDriveFolder(
           slideRole: extracted.slideRole,
           title: extracted.title,
           rawText,
-          thumbnailUrl: `/api/property-decks/thumbnail?id=${encodeURIComponent(slideId)}`,
+          thumbnailUrl,
           specs: extracted.specs,
         });
       }
+
+      slides.push(...enrichDeckSlidesWithSharedWarehouseSpecs(deckSlides));
     } catch {
       // Skip unreadable or corrupted PPTX archives cleanly
     }
@@ -202,20 +260,25 @@ export async function scanOneDriveFolder(
     slides,
   };
 
-  await fs.promises.mkdir(CACHE_ROOT, { recursive: true });
-  await fs.promises.writeFile(CATALOG_CACHE_PATH, JSON.stringify(catalog, null, 2), "utf-8");
+  await fs.promises.mkdir(CACHE_ROOT, { recursive: true }).catch(() => null);
+  await fs.promises
+    .writeFile(CATALOG_CACHE_PATH, JSON.stringify(catalog, null, 2), "utf-8")
+    .catch(() => null);
 
   return catalog;
 }
 
 export async function readCachedCatalog(): Promise<PropertyDeckCatalog | null> {
   try {
-    if (!fs.existsSync(CATALOG_CACHE_PATH)) return null;
-    const content = await fs.promises.readFile(CATALOG_CACHE_PATH, "utf-8");
-    return JSON.parse(content) as PropertyDeckCatalog;
+    if (fs.existsSync(CATALOG_CACHE_PATH)) {
+      const content = await fs.promises.readFile(CATALOG_CACHE_PATH, "utf-8");
+      const parsed = JSON.parse(content) as PropertyDeckCatalog;
+      if (parsed?.slides?.length) return parsed;
+    }
   } catch {
-    return null;
+    // Fallback to seed catalog
   }
+  return readSeedCatalog();
 }
 
 export async function resolveSlideThumbnailFile(slideId: string): Promise<string | null> {
@@ -231,7 +294,19 @@ export async function compilePropertyDeck(params: {
   manifest: CompilationManifest;
   outputFolder: string;
 }): Promise<{ outputPath: string; fileName: string; slideCount: number; engine: string }> {
-  const resolvedOutputFolder = path.resolve(params.outputFolder.trim());
+  const rawOutput = params.outputFolder.trim();
+  const isCrossPlatformUnavailable =
+    process.platform !== "win32" && /^[a-zA-Z]:[\\/]/.test(rawOutput);
+
+  let resolvedOutputFolder: string;
+  if (isCrossPlatformUnavailable) {
+    resolvedOutputFolder = path.join(os.tmpdir(), "mosaic-compiled-proposals");
+  } else {
+    const parentResolved = resolveExistingFolderFuzzy(path.dirname(rawOutput));
+    resolvedOutputFolder = parentResolved
+      ? path.join(parentResolved, path.basename(rawOutput))
+      : path.resolve(rawOutput);
+  }
   await fs.promises.mkdir(resolvedOutputFolder, { recursive: true });
 
   const safeClient = (params.manifest.proposal.clientName || "Client")
