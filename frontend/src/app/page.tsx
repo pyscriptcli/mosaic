@@ -4,8 +4,8 @@ import { useState, useEffect, useRef } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { Stepper, Stage } from "@/components/Stepper";
-import { MeetingWorkspaceTabs } from "@/components/MeetingWorkspaceTabs";
-import { MeetingActionItemsTable, MeetingDiscussionCard, useMeetingAssignees } from "@/components/MeetingWorkspaceContent";
+import { MeetingWorkspaceTabs, type MeetingWorkspaceTab } from "@/components/MeetingWorkspaceTabs";
+import { MeetingActionItemsTable, MeetingDiscussionCard, MeetingSummaryEditor, useMeetingAssignees } from "@/components/MeetingWorkspaceContent";
 import { StudioRecoveryBanner } from "@/components/StudioRecoveryBanner";
 import { useStudioRecorderContext } from "@/components/StudioRecorderProvider";
 import type { StudioNote, StudioDisplayMode } from "@/types/studio";
@@ -317,7 +317,7 @@ export default function Home() {
   const [isDiscoveringTopics, setIsDiscoveringTopics] = useState(false);
   const [autoDiscoverEnabled, setAutoDiscoverEnabled] = useState(true);
   const [hasAutoDiscovered, setHasAutoDiscovered] = useState(false);
-  const [reviewTab, setReviewTab] = useState<"discussion" | "actions" | "notes" | "transcript">("discussion");
+  const [reviewTab, setReviewTab] = useState<MeetingWorkspaceTab>("summary");
   const meetingAssignees = useMeetingAssignees(reviewTab === "actions");
   const [copiedTranscript, setCopiedTranscript] = useState(false);
   const [isStudioOpen, setIsStudioOpen] = useState(false);
@@ -2300,29 +2300,15 @@ export default function Home() {
 
             <MeetingWorkspaceTabs value={reviewTab} onChange={setReviewTab} />
 
-            <section className="border border-gray-200 bg-[#FFFCFB] p-5 shadow-2xs" aria-label="Meeting summary">
-              <h3 className="mb-3 font-serif text-lg italic text-[#003366]">Meeting Summary</h3>
-              <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-500" htmlFor="meeting-summary-input">Summary</label>
-              <AutoResizeTextarea
-                id="meeting-summary-input"
-                rows={2}
-                className="mb-3 w-full border border-gray-200 bg-white p-3 text-sm leading-relaxed text-[#003366] focus:border-[#C9AB4C] focus:outline-none"
-                value={meetingSummary}
-                onChange={(event) => setMeetingSummary(event.target.value)}
-                placeholder="Briefly summarize the meeting purpose and main subjects."
+            {reviewTab === "summary" ? (
+              <MeetingSummaryEditor
+                summary={meetingSummary}
+                bottomLine={meetingBottomLine}
+                onChange={(summary, bottomLine) => { setMeetingSummary(summary); setMeetingBottomLine(bottomLine); }}
+                notes={additionalMeetingNotes}
+                transcript={transcript}
               />
-              <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-500" htmlFor="meeting-bottom-line-input">Bottom Line</label>
-              <AutoResizeTextarea
-                id="meeting-bottom-line-input"
-                rows={2}
-                className="w-full border border-gray-200 bg-white p-3 text-sm leading-relaxed text-[#003366] focus:border-[#C9AB4C] focus:outline-none"
-                value={meetingBottomLine}
-                onChange={(event) => setMeetingBottomLine(event.target.value)}
-                placeholder="State the overall outcome, decision, or what remains unresolved."
-              />
-            </section>
-
-            {reviewTab === "transcript" ? (
+            ) : reviewTab === "transcript" ? (
               /* TRANSCRIPT TAB */
               <div className="border border-gray-200 bg-[#FFFCFB] p-5 shadow-2xs rounded-none space-y-4">
                 <div className="flex items-center justify-between pb-3 border-b border-gray-100">

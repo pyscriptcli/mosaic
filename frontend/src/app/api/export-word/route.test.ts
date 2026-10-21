@@ -52,5 +52,7 @@ describe("POST /api/export-word MoM structure", () => {
     expect(actionHeaders.every((position) => position >= 0)).toBe(true);
     expect(actionHeaders).toEqual([...actionHeaders].sort((a, b) => a - b));
     expect(actionSection).toContain("Renewal timing was reviewed.");
+    expect(xml).toMatch(/<w:spacing[^>]*w:line="276"[^>]*w:lineRule="auto"/);
+    expect(xml).toContain('<w:jc w:val="both"');
   });
 });

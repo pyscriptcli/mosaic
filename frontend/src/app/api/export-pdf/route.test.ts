@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
-const pdfCapture = vi.hoisted(() => ({ text: [] as string[], tables: [] as unknown[] }));
+const pdfCapture = vi.hoisted(() => ({ text: [] as string[], tables: [] as unknown[], lineHeight: 0, alignedText: [] as unknown[] }));
 
 vi.mock("jspdf", () => ({
   jsPDF: class {
@@ -12,7 +12,11 @@ vi.mock("jspdf", () => ({
     setTextColor() {}
     setFont() {}
     setFontSize() {}
-    text(value: string | string[]) { pdfCapture.text.push(...(Array.isArray(value) ? value : [value])); }
+    setLineHeightFactor(value: number) { pdfCapture.lineHeight = value; }
+    text(value: string | string[], _x?: number, _y?: number, options?: unknown) {
+      pdfCapture.text.push(...(Array.isArray(value) ? value : [value]));
+      if (options) pdfCapture.alignedText.push(options);
+    }
     setDrawColor() {}
     setLineWidth() {}
     splitTextToSize(value: string) { return [value]; }
@@ -30,6 +34,8 @@ describe("POST /api/export-pdf MoM structure", () => {
   beforeEach(() => {
     pdfCapture.text = [];
     pdfCapture.tables = [];
+    pdfCapture.lineHeight = 0;
+    pdfCapture.alignedText = [];
   });
 
   it("uses the requested section order, separates action items, and omits signature fields", async () => {
@@ -74,5 +80,26 @@ describe("POST /api/export-pdf MoM structure", () => {
     expect(actionTable?.head?.[0]).toEqual(["Discussion Point", "Action Plan", "Target Date", "Person in Charge"]);
     expect(JSON.stringify(actionTable?.body)).toContain("Renewal timing was reviewed.");
     expect(JSON.stringify(actionTable?.body)).toContain("Send the proposal");
+  });
+
+  it("exports readable 1.15-spaced, justified paragraphs and real bullets without markdown escapes", async () => {
+    const { POST } = await import("./route");
+    const request = new NextRequest("http://localhost/api/export-pdf", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        meeting_details: { client_name: "Northstar" },
+        summary: "The meeting covered renewal status.",
+        discussion_points: [{ topic_title: "Account Update", discussion_point: "- Prime was founded in \\*\\*2013\\*\\*." }],
+      }),
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(200);
+    expect(pdfCapture.lineHeight).toBe(1.15);
+    expect(pdfCapture.alignedText).toContainEqual(expect.objectContaining({ align: "justify" }));
+    const renderedTables = JSON.stringify(pdfCapture.tables);
+    expect(renderedTables).toContain("• Prime was founded in 2013.");
+    expect(renderedTables).not.toContain("\\\\*\\\\*");
   });
 });

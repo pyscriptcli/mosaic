@@ -22,9 +22,11 @@ function cleanField(val: any): string {
 }
 
 function formatDiscussionText(val: any): string {
-  return cleanField(val).split(/\r?\n/).map((line) =>
-    line.replace(/\*\*([^*]+)\*\*/g, "$1").replace(/^(?:[-*•]|\d+[.)])\s+/, "• "),
-  ).join("\n");
+  return cleanField(val).replace(/\\+\*/g, "*").split(/\r?\n/).map((line) => {
+    const normalized = line.replace(/\\-/g, "-");
+    const bullet = normalized.match(/^(?:[-*•]|\d+[.)])\s+(.*)$/);
+    return `${bullet ? "• " : ""}${(bullet ? bullet[1] : normalized).replace(/\*\*([^*]+)\*\*/g, "$1")}`;
+  }).join("\n");
 }
 
 export async function POST(req: NextRequest) {
@@ -38,6 +40,7 @@ export async function POST(req: NextRequest) {
       unit: "mm",
       format: "a4",
     });
+    doc.setLineHeightFactor(1.15);
 
     const pageWidth = doc.internal.pageSize.getWidth();
 
@@ -143,7 +146,7 @@ export async function POST(req: NextRequest) {
       doc.setFont("helvetica", "normal");
       doc.setFontSize(7.8);
       doc.setTextColor(55, 65, 81);
-      doc.text(summaryLines, 19, summaryBoxStartY + 5);
+      doc.text(summaryLines, 19, summaryBoxStartY + 5, { align: "justify" });
       if (bottomLines.length) {
         const bottomY = summaryBoxStartY + 7 + summaryLines.length * 3.8;
         doc.setFont("helvetica", "bold");
@@ -151,7 +154,7 @@ export async function POST(req: NextRequest) {
         doc.text("Bottom line:", 19, bottomY);
         doc.setFont("helvetica", "normal");
         doc.setTextColor(55, 65, 81);
-        doc.text(bottomLines, 19, bottomY + 3.8);
+        doc.text(bottomLines, 19, bottomY + 3.8, { align: "justify" });
       }
 
       tableStartY = summaryBoxStartY + summaryBoxHeight + 5;
@@ -173,10 +176,10 @@ export async function POST(req: NextRequest) {
         body: discussionPoint.map((line: string) => [formatDiscussionText(line)]),
         theme: "grid",
         headStyles: { fillColor: [250, 249, 247], textColor: [0, 51, 102], fontStyle: "bold", fontSize: 9 },
-        bodyStyles: { fillColor: [255, 255, 255], textColor: [50, 50, 50], fontSize: 8, cellPadding: 3.5, overflow: "linebreak" },
+        bodyStyles: { fillColor: [255, 255, 255], textColor: [50, 50, 50], fontSize: 8, cellPadding: 3.5, overflow: "linebreak", halign: "justify" },
         styles: { lineColor: [220, 225, 230], lineWidth: 0.2 },
         didParseCell: (data: any) => {
-          if (data.section === "body" && sourceLines[data.row.index]?.includes("**")) data.cell.styles.fontStyle = "bold";
+          if (data.section === "body" && sourceLines[data.row.index]?.replace(/\\+\*/g, "*").includes("**")) data.cell.styles.fontStyle = "bold";
         },
       });
       // @ts-ignore
@@ -202,7 +205,7 @@ export async function POST(req: NextRequest) {
         theme: "grid",
         headStyles: { fillColor: [0, 51, 102], textColor: [255, 255, 255], fontStyle: "bold", fontSize: 8.5 },
         columnStyles: { 0: { cellWidth: 68 }, 1: { cellWidth: 55 }, 2: { cellWidth: 27 }, 3: { cellWidth: 32 } },
-        styles: { cellPadding: 3, overflow: "linebreak", lineColor: [220, 225, 230], lineWidth: 0.2 },
+        styles: { cellPadding: 3, overflow: "linebreak", lineColor: [220, 225, 230], lineWidth: 0.2, halign: "justify" },
       });
       // @ts-ignore
       currentY = (doc as any).lastAutoTable?.finalY || (currentY + 12);
@@ -230,7 +233,7 @@ export async function POST(req: NextRequest) {
       doc.setFontSize(8);
       doc.setTextColor(50, 50, 50);
       const splitOther = doc.splitTextToSize(otherDiscussionsText || "None recorded.", pageWidth - 28);
-      doc.text(splitOther, 14, currentY);
+      doc.text(splitOther, 14, currentY, { align: "justify" });
       currentY += (splitOther.length * 4) + 6;
     }
 

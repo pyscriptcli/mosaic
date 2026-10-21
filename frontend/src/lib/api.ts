@@ -257,6 +257,27 @@ export async function generateMinutes(transcript: string, user_topics: string, n
   return res.json();
 }
 
+export async function refineMeetingSummary(input: { summary: string; bottom_line: string; notes: string; transcript: string }) {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const storedKey = getStoredApiKey();
+  if (storedKey) headers["x-api-key"] = storedKey;
+
+  const res = await fetch("/api/refine-meeting-summary", {
+    method: "POST",
+    headers,
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    let message = "Could not refine the meeting summary.";
+    try {
+      const result = await res.json();
+      message = result.error || message;
+    } catch { /* Keep the request error message when no JSON body is available. */ }
+    throw new Error(message);
+  }
+  return res.json() as Promise<{ summary: string; bottom_line: string }>;
+}
+
 export async function askEcho(
   question: string,
   conversation: Array<{ role: "user" | "assistant"; content: string }> = [],

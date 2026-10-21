@@ -1,5 +1,7 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { Bold, List } from "lucide-react";
 import { SearchableMemberMultiSelect, type ClickUpMember } from "./SearchableMemberSelect";
+import { refineMeetingSummary } from "@/lib/api";
 
 export function useMeetingAssignees(enabled: boolean) {
   const [members, setMembers] = useState<ClickUpMember[]>([]);
@@ -55,16 +57,20 @@ const actionFields: { label: string; field: ActionItemField }[] = [
 
 function AutoResizeTextarea({
   label,
+  id,
   value,
   onChange,
   placeholder,
   className = "",
+  rows = 2,
 }: {
   label: string;
+  id?: string;
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
   className?: string;
+  rows?: number;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -78,11 +84,12 @@ function AutoResizeTextarea({
   return (
     <textarea
       ref={textareaRef}
+      id={id}
       aria-label={label}
       value={value}
       onChange={(event) => onChange(event.target.value)}
       placeholder={placeholder}
-      rows={2}
+      rows={rows}
       className={`w-full resize-none overflow-hidden border border-gray-200 bg-white p-2.5 text-sm leading-relaxed text-[#003366] focus:border-[#C9AB4C] focus:outline-none ${className}`}
     />
   );
@@ -91,8 +98,8 @@ function AutoResizeTextarea({
 function renderDiscussionPoint(value: string) {
   const blocks: { type: "paragraph" | "list"; lines: string[] }[] = [];
 
-  value.split(/\r?\n/).forEach((rawLine) => {
-    const line = rawLine.trim();
+  value.replace(/\\+\*/g, "*").split(/\r?\n/).forEach((rawLine) => {
+    const line = rawLine.trim().replace(/^\\([-*•])\s+/, "$1 ");
     if (!line) return;
     const bullet = line.match(/^(?:[-*•]|\d+[.)])\s+(.*)$/);
     if (bullet) {
@@ -124,6 +131,49 @@ function renderDiscussionPoint(value: string) {
   ));
 }
 
+function escapeHtml(value: string) {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+function inlineMarkup(value: string) {
+  return escapeHtml(value.replace(/\\+\*/g, "*")).replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+}
+
+function discussionHtml(value: string) {
+  const lines = value.replace(/\\+\*/g, "*").split(/\r?\n/);
+  const parts: string[] = [];
+  let bullets: string[] = [];
+  const flushBullets = () => {
+    if (bullets.length) parts.push(`<ul>${bullets.map((line) => `<li>${inlineMarkup(line)}</li>`).join("")}</ul>`);
+    bullets = [];
+  };
+  for (const rawLine of lines) {
+    const line = rawLine.trim().replace(/^\\([-*•])\s+/, "$1 ");
+    if (!line) { flushBullets(); continue; }
+    const bullet = line.match(/^(?:[-*•]|\d+[.)])\s+(.*)$/);
+    if (bullet) bullets.push(bullet[1]);
+    else { flushBullets(); parts.push(`<p>${inlineMarkup(line)}</p>`); }
+  }
+  flushBullets();
+  return parts.join("") || "<p><br></p>";
+}
+
+function discussionMarkdown(root: HTMLElement) {
+  return Array.from(root.children).map((block) => {
+    if (block.tagName === "UL" || block.tagName === "OL") {
+      return Array.from(block.children).map((item) => `- ${Array.from(item.childNodes).map(markdownNode).join("").trim()}`).join("\n");
+    }
+    return Array.from(block.childNodes).map(markdownNode).join("").trim();
+  }).filter(Boolean).join("\n");
+}
+
+function markdownNode(node: ChildNode): string {
+  if (node.nodeType === Node.TEXT_NODE) return node.textContent || "";
+  if (node instanceof HTMLElement && node.tagName === "BR") return "\n";
+  const content = Array.from(node.childNodes).map(markdownNode).join("");
+  return node instanceof HTMLElement && ["STRONG", "B"].includes(node.tagName) ? `**${content}**` : content;
+}
+
 export function MeetingDiscussionCard({
   title,
   discussionPoint,
@@ -134,7 +184,21 @@ export function MeetingDiscussionCard({
   onAddAction,
   children,
 }: MeetingDiscussionCardProps) {
-  const [editingDiscussion, setEditingDiscussion] = useState(!discussionPoint.trim());
+  const editorRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    const current = discussionMarkdown(editor).replace(/\\+\*/g, "*").trim();
+    const expected = discussionPoint.replace(/\\+\*/g, "*").trim();
+    if (current !== expected) editor.innerHTML = discussionHtml(discussionPoint);
+  }, [discussionPoint]);
+
+  const applyEditorCommand = (command: "bold" | "insertUnorderedList") => {
+    editorRef.current?.focus();
+    document.execCommand(command);
+    if (editorRef.current) onDiscussionPointChange?.(discussionMarkdown(editorRef.current));
+  };
 
   return (
     <article className="space-y-3 border border-gray-200/90 bg-[#FFFCFB] p-5 shadow-2xs">
@@ -157,24 +221,27 @@ export function MeetingDiscussionCard({
         </section>
       )}
 
-      {onDiscussionPointChange && editingDiscussion ? (
-        <AutoResizeTextarea
-          label="Discussion point"
-          value={discussionPoint}
-          onChange={onDiscussionPointChange}
-          placeholder="Add a short paragraph and bullets for key details or decisions."
-        />
+      {onDiscussionPointChange ? (
+        <div className="border border-gray-200 bg-white focus-within:border-[#C9AB4C]">
+          <div className="flex items-center gap-1 border-b border-gray-100 px-2 py-1.5" aria-label="Discussion formatting">
+            <button type="button" aria-label="Bold selected text" title="Bold selected text" onMouseDown={(event) => event.preventDefault()} onClick={() => applyEditorCommand("bold")} className="inline-flex items-center gap-1 border border-transparent px-2 py-1 text-[11px] font-semibold text-[#003366] hover:border-gray-200"><Bold size={13} />Bold</button>
+            <button type="button" aria-label="Make bulleted list" title="Make bulleted list" onMouseDown={(event) => event.preventDefault()} onClick={() => applyEditorCommand("insertUnorderedList")} className="inline-flex items-center gap-1 border border-transparent px-2 py-1 text-[11px] font-semibold text-[#003366] hover:border-gray-200"><List size={13} />Bullets</button>
+            <span className="ml-auto text-[10px] text-slate-400">Edited here</span>
+          </div>
+          <div
+            ref={editorRef}
+            role="textbox"
+            aria-label="Discussion point"
+            aria-multiline="true"
+            contentEditable
+            suppressContentEditableWarning
+            onInput={(event) => onDiscussionPointChange(discussionMarkdown(event.currentTarget))}
+            className="min-h-24 space-y-2 p-3 text-sm leading-relaxed text-slate-700 focus:outline-none [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_strong]:font-bold [&_strong]:text-[#003366]"
+            data-placeholder="Add a short intro followed by concise bullets. Select text and use Bold to emphasize key details."
+          />
+        </div>
       ) : (
         <div className="space-y-2">{renderDiscussionPoint(discussionPoint)}</div>
-      )}
-
-      {onDiscussionPointChange && (
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-[11px] text-slate-400">Use a short intro followed by concise bullets. Wrap important details in **bold**.</p>
-          <button type="button" onClick={() => setEditingDiscussion((editing) => !editing)} className="shrink-0 text-xs font-semibold text-[#003366] underline underline-offset-2">
-            {editingDiscussion ? "Done editing" : "Edit discussion"}
-          </button>
-        </div>
       )}
       {onAddAction && (
         <div className="flex justify-end border-t border-gray-100 pt-3">
@@ -185,6 +252,56 @@ export function MeetingDiscussionCard({
       )}
       {children}
     </article>
+  );
+}
+
+export function MeetingSummaryEditor({
+  summary,
+  bottomLine,
+  onChange,
+  notes,
+  transcript,
+}: {
+  summary: string;
+  bottomLine: string;
+  onChange: (summary: string, bottomLine: string) => void;
+  notes: string;
+  transcript: string;
+}) {
+  const [refining, setRefining] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleRefine = async () => {
+    setRefining(true);
+    setError("");
+    try {
+      const refined = await refineMeetingSummary({ summary, bottom_line: bottomLine, notes, transcript });
+      onChange(String(refined.summary || ""), String(refined.bottom_line || ""));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not refine the meeting summary.");
+    } finally {
+      setRefining(false);
+    }
+  };
+
+  return (
+    <section className="space-y-4 border border-gray-200 bg-[#FFFCFB] p-5 shadow-2xs" aria-label="Meeting summary">
+      <header className="flex flex-wrap items-start justify-between gap-3 border-b border-gray-100 pb-3">
+        <div>
+          <h3 className="font-serif text-lg italic text-[#003366]">Meeting Summary</h3>
+          <p className="mt-1 text-xs text-slate-500">Meeting notes guide the summary; transcript details support them.</p>
+        </div>
+        <button type="button" onClick={() => void handleRefine()} disabled={refining || (!notes.trim() && !transcript.trim())} aria-busy={refining} className="inline-flex min-h-9 items-center gap-2 border border-[#003366]/30 px-3 py-2 text-xs font-semibold text-[#003366] transition-colors hover:border-[#003366] hover:bg-blue-50/50 disabled:cursor-not-allowed disabled:opacity-50">
+          {refining ? "Refining summary…" : "Refine with AI"}
+        </button>
+      </header>
+      {!notes.trim() && !transcript.trim() && <p className="text-xs text-slate-500">Add meeting notes or a transcript to enable AI refinement.</p>}
+      {error && <p role="alert" className="border-l-2 border-red-500 bg-red-50 px-3 py-2 text-xs text-red-800">{error}</p>}
+      <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500" htmlFor="meeting-summary-input">Summary</label>
+      <AutoResizeTextarea label="Summary" id="meeting-summary-input" rows={3} className="w-full border border-gray-200 bg-white p-3 text-sm leading-relaxed text-[#003366] focus:border-[#C9AB4C] focus:outline-none" value={summary} onChange={(value) => onChange(value, bottomLine)} placeholder="Briefly summarize the meeting purpose and main subjects." />
+      <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500" htmlFor="meeting-bottom-line-input">Bottom line</label>
+      <AutoResizeTextarea label="Bottom line" id="meeting-bottom-line-input" rows={2} className="w-full border border-gray-200 bg-white p-3 text-sm leading-relaxed text-[#003366] focus:border-[#C9AB4C] focus:outline-none" value={bottomLine} onChange={(value) => onChange(summary, value)} placeholder="State the overall outcome, decision, or what remains unresolved." />
+    </section>
   );
 }
 

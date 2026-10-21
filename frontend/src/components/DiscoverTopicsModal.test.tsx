@@ -77,8 +77,7 @@ describe("DiscoverTopicsModal component", () => {
     expect(screen.getByText("Reclamation Projects")).toBeDefined();
     expect(screen.getByText(/2 discussion points suggested/i)).toBeDefined();
 
-    expect(screen.getAllByText(/possible action suggestion/i)).toHaveLength(2);
-    expect(screen.getByText(/only explicit commitments appear as optional action suggestions/i)).toBeDefined();
+    expect(screen.getByText(/adding creates a discussion point only/i)).toBeDefined();
 
     // Adding a suggestion adds the discussion point, not an action item.
     const addButtons = screen.getAllByRole("button", { name: /add discussion point/i });
@@ -95,5 +94,19 @@ describe("DiscoverTopicsModal component", () => {
     const closeBtn = screen.getByRole("button", { name: /close dialog/i });
     fireEvent.click(closeBtn);
     expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("renders escaped bold markers as real emphasis in discovered discussion points", () => {
+    render(
+      <DiscoverTopicsModal
+        isOpen onClose={vi.fn()} missedTopics={[{ ...mockTopics[0], discussion_point: "- Prime was founded in \\*\\*2013\\*\\*." }]}
+        isDiscoveringTopics={false} autoDiscoverEnabled={false} onToggleAutoDiscover={vi.fn()}
+        topicQuery="" onTopicQueryChange={vi.fn()} onDiscoverTopics={vi.fn()} onAddTopic={vi.fn()}
+        onAddAllTopics={vi.fn()} onDismissTopic={vi.fn()} transcript="transcript"
+      />,
+    );
+    const emphasized = screen.getByText("2013");
+    expect(emphasized.tagName).toBe("STRONG");
+    expect(emphasized.closest("p")?.textContent).toBe("Prime was founded in 2013.");
   });
 });

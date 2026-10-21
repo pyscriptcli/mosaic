@@ -34,9 +34,30 @@ function cleanField(val: any): string {
 }
 
 function formattedRuns(value: string, size = 18, color = "333333") {
-  return value.split(/(\*\*[^*]+\*\*)/g).filter(Boolean).map((part) => {
+  return value.replace(/\\+\*/g, "*").split(/(\*\*[^*]+\*\*)/g).filter(Boolean).map((part) => {
     const bold = part.startsWith("**") && part.endsWith("**");
     return new TextRun({ text: bold ? part.slice(2, -2) : part, bold, size, color });
+  });
+}
+
+function bodyContentParagraphs(value: string, size = 18, color = "333333") {
+  return value.split(/\r?\n/).map((rawLine) => rawLine.trim()).filter(Boolean).map((line) => {
+    const normalized = line.replace(/\\-/g, "-").replace(/\\+\*/g, "*");
+    const bullet = normalized.match(/^(?:[-*•]|\d+[.)])\s+(.*)$/);
+    return new Paragraph({
+      ...(bullet ? { bullet: { level: 0 } } : {}),
+      alignment: AlignmentType.JUSTIFIED,
+      children: formattedRuns(bullet ? bullet[1] : normalized, size, color),
+      spacing: { line: 276, lineRule: "auto", after: 80 },
+    });
+  });
+}
+
+function bodyParagraph(children: TextRun[], after = 100) {
+  return new Paragraph({
+    alignment: AlignmentType.JUSTIFIED,
+    children,
+    spacing: { line: 276, lineRule: "auto", after },
   });
 }
 
@@ -238,8 +259,8 @@ export async function POST(req: NextRequest) {
                       ],
                       spacing: { before: 100, after: 60 },
                     }),
-                    new Paragraph({ children: formattedRuns(summaryParagraphs[0] || "No summary provided.", 18, "374151"), spacing: { after: 100 } }),
-                    ...(summaryParagraphs[1] ? [new Paragraph({ children: [new TextRun({ text: "Bottom line: ", bold: true, color: "003366", size: 18 }), ...formattedRuns(summaryParagraphs[1], 18, "374151")], spacing: { after: 100 } })] : []),
+                    ...bodyContentParagraphs(summaryParagraphs[0] || "No summary provided.", 18, "374151"),
+                    ...(summaryParagraphs[1] ? [bodyParagraph([new TextRun({ text: "Bottom line: ", bold: true, color: "003366", size: 18 }), ...formattedRuns(summaryParagraphs[1], 18, "374151")])] : []),
                   ],
                 }),
               ],
@@ -256,21 +277,7 @@ export async function POST(req: NextRequest) {
     const discussionCards: Table[] = (discussion_points || []).map((item: any, index: number) => {
       const title = cleanField(item.topic_title) || `Discussion ${index + 1}`;
       const discussion = cleanField(item.discussion_point) || "No discussion details recorded.";
-      const discussionParagraphs = discussion.split(/\r?\n/).filter((line: string) => line.trim()).map((line: string) => {
-        const content = line.trim();
-        const bullet = content.match(/^(?:[-*•]|\d+[.)])\s+(.*)$/);
-        if (bullet) {
-          return new Paragraph({
-            bullet: { level: 0 },
-            children: formattedRuns(bullet[1], 18, "333333"),
-            spacing: { after: 60 },
-          });
-        }
-        return new Paragraph({
-          children: formattedRuns(content, 18, "333333"),
-          spacing: { after: 80 },
-        });
-      });
+      const discussionParagraphs = bodyContentParagraphs(discussion);
       const contentParagraphs = discussionParagraphs.length > 0 ? discussionParagraphs : [new Paragraph({ text: "" })];
 
       return new Table({
@@ -309,12 +316,7 @@ export async function POST(req: NextRequest) {
       const topic = cleanField(item.discussion_point_title || item.topic_title);
       const discussion = cleanField(item.discussion_point);
       if (topic) discussionCell.push(new Paragraph({ children: [new TextRun({ text: topic, bold: true, color: "003366", size: 18 })], spacing: { after: 60 } }));
-      if (discussion) discussionCell.push(...discussion.split(/\r?\n/).map((line: string) => {
-        const bullet = line.trim().match(/^(?:[-*•]|\d+[.)])\s+(.*)$/);
-        return bullet
-          ? new Paragraph({ bullet: { level: 0 }, children: formattedRuns(bullet[1], 18, "333333"), spacing: { after: 60 } })
-          : new Paragraph({ children: formattedRuns(line.trim(), 18, "333333"), spacing: { after: 60 } });
-      }));
+      if (discussion) discussionCell.push(...bodyContentParagraphs(discussion));
       if (discussionCell.length === 0) discussionCell.push(new Paragraph({ text: "" }));
       const cells = [cleanField(item.action_plan), cleanField(item.target_date || item.indicative_delivery_date), cleanField(item.person_in_charge)];
       actionRows.push(new TableRow({
@@ -325,7 +327,7 @@ export async function POST(req: NextRequest) {
         }), ...cells.map((value) => new TableCell({
           shading: { type: ShadingType.CLEAR, fill: rowFill },
           borders: { top: gridBorder, bottom: gridBorder, left: gridBorder, right: gridBorder },
-          children: [new Paragraph({ children: [new TextRun({ text: value, size: 18, color: "333333" })] })],
+          children: [bodyParagraph([new TextRun({ text: value, size: 18, color: "333333" })])],
         }))],
       }));
     });
@@ -349,10 +351,7 @@ export async function POST(req: NextRequest) {
         new Paragraph({ text: "", spacing: { after: 200 } }),
       ] : []),
       sectionHeading("OTHER DISCUSSIONS"),
-      new Paragraph({
-        children: [new TextRun({ text: cleanField(other_discussions) || "None recorded.", size: 18, color: "333333" })],
-        spacing: { after: 250 },
-      }),
+      ...bodyContentParagraphs(cleanField(other_discussions) || "None recorded.", 18, "333333"),
     ];
     const doc = new Document({
       sections: [{

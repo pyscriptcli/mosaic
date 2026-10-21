@@ -42,7 +42,7 @@ Source authority:
 Return discussion points only; never treat every discussion point as an action item.
 For each topic:
 1. "topic_title": A clear, concise subject for one discussion card.
-2. "discussion_point": A short paragraph, with bullets for distinct details or outcomes when useful. Describe the topic, context, discussion, and supported decisions. Keep it separate from next steps.
+2. "discussion_point": A short paragraph followed by literal hyphen-space bullets for distinct details or outcomes when useful. Use unescaped Markdown **bold** around key source-supported facts. Do not put literal backslashes before bullet or bold markers. Describe the topic, context, discussion, and supported decisions. Keep it separate from next steps.
 3. "evidence_quote": A short, direct transcript quotation supporting the discussion, with timestamp when available.
 4. "action_plan": Optional suggestion only when the transcript contains an explicit commitment or assigned next step. Otherwise use "None". Do not turn proposals, insights, or general discussion into an action.
 5. "indicative_delivery_date": A date only when explicitly stated for that action; otherwise "TBD".

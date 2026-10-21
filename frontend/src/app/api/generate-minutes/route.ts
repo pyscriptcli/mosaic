@@ -31,8 +31,8 @@ Source authority and use:
 - If notes and transcript materially conflict about a decision, commitment, or fact, follow the notes for the MoM and make the discrepancy clear in the relevant discussion point. Do not invent a reconciliation or an unsupported detail.
 - Meeting notes may include an agenda. Use it to group and title discussion points. Do not create discussion, decisions, or action items solely because they appear as agenda topics.
 - Preserve the language used in the transcript, including Taglish. Do not translate transcript quotes.
-- Write discussion points as a brief topic statement followed by concise bullets, usually 2–5 when supported by the source. Use one bullet if only one material point is supported. Cover distinct facts, decisions, outcomes, risks, or open questions without repeating information.
-- Use Markdown **bold** sparingly to highlight material names, amounts, dates, decisions, risks, and outcomes within discussion bullets. Do not bold whole paragraphs or invent emphasis unsupported by the source.
+- Write discussion points as a brief topic statement followed by concise bullets, usually 2–5 when supported by the source. Use one bullet if only one material point is supported. Cover distinct facts, decisions, outcomes, risks, or open questions without repeating information. Start each bullet with a literal hyphen and a space.
+- Use unescaped Markdown **bold** sparingly to highlight material names, amounts, dates, decisions, risks, and outcomes within discussion bullets. Do not include literal backslashes before bullet or bold markers, do not bold whole paragraphs, and do not invent emphasis unsupported by the source.
 - Distinguish confirmed decisions from proposals, opinions, and unresolved questions. Label unresolved or unconfirmed matters as open questions; never present them as decisions.
 - Keep the summary to a short paragraph covering the meeting's purpose and main subjects. Write a separate, next paragraph for the bottom line: the clearest overall outcome, decision, or unresolved status. Do not repeat the summary or infer a resolution.
 - Do not include action plans, target dates, owners, or transcript evidence inside discussion_point. Put those only in their separate fields.
@@ -45,7 +45,7 @@ Output strict JSON only, matching this schema:
   "matched_items": [
     {
       "topic_title": "Clear concise topic title",
-      "discussion_point": "Brief topic statement followed by concise Markdown bullets; use **bold** sparingly for source-supported important details",
+      "discussion_point": "Brief topic statement followed by literal hyphen bullets; use unescaped **bold** markers sparingly for source-supported important details",
       "evidence_quote": "Direct quote from source text or transcript e.g. [00:00] ...",
       "action_plan": "Actionable next step, or 'None'",
       "indicative_delivery_date": "Target delivery date or 'TBD'",
@@ -56,7 +56,7 @@ Output strict JSON only, matching this schema:
   "recommended_missed_points": [
     {
       "topic_title": "Important topic not yet captured",
-      "discussion_point": "Brief topic statement followed by concise Markdown bullets; use **bold** sparingly for source-supported important details",
+      "discussion_point": "Brief topic statement followed by literal hyphen bullets; use unescaped **bold** markers sparingly for source-supported important details",
       "evidence_quote": "Direct quote from source text or transcript e.g. [00:00] ...",
       "action_plan": "Actionable next step, or 'None'",
       "indicative_delivery_date": "Target delivery date or 'TBD'",

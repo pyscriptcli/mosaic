@@ -12,7 +12,8 @@ import {
 import type { DiscoveredTopicItem } from "@/app/api/discover-topics/route";
 
 function renderDiscussionText(text: string) {
-  return <div className="space-y-1">{text.split(/\r?\n/).filter(Boolean).map((line, lineIndex) => {
+  return <div className="space-y-1">{text.replace(/\\+\*/g, "*").split(/\r?\n/).filter(Boolean).map((rawLine, lineIndex) => {
+    const line = rawLine.trim().replace(/\\-/g, "-");
     const bullet = line.trim().match(/^(?:[-*•]|\d+[.)])\s+(.*)$/);
     const value = bullet?.[1] || line.trim();
     const parts = value.split(/(\*\*[^*]+\*\*)/g).filter(Boolean).map((part, partIndex) => part.startsWith("**") && part.endsWith("**") ? <strong key={partIndex} className="font-bold text-[#003366]">{part.slice(2, -2)}</strong> : <React.Fragment key={partIndex}>{part}</React.Fragment>);

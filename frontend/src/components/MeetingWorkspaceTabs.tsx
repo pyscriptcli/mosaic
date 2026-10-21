@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-export type MeetingWorkspaceTab = "discussion" | "actions" | "notes" | "transcript";
+export type MeetingWorkspaceTab = "summary" | "discussion" | "actions" | "notes" | "transcript";
 
 interface MeetingWorkspaceTabsProps {
   value: MeetingWorkspaceTab;
@@ -10,6 +10,7 @@ interface MeetingWorkspaceTabsProps {
 }
 
 const tabs: { id: MeetingWorkspaceTab; label: string }[] = [
+  { id: "summary", label: "Summary" },
   { id: "discussion", label: "Discussion Points" },
   { id: "actions", label: "Action Items" },
   { id: "notes", label: "Meeting Notes" },

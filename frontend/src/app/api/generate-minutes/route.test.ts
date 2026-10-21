@@ -49,7 +49,8 @@ describe("POST /api/generate-minutes", () => {
     expect(response.status).toBe(200);
     expect(systemPrompt).toContain("Meeting notes are the primary source of truth");
     expect(systemPrompt).toContain("Do not create discussion, decisions, or action items solely because they appear as agenda topics.");
-    expect(systemPrompt).toContain("Keep each discussion point concise: begin with a short paragraph, then use bullets for distinct details, decisions, or outcomes when useful.");
+    expect(systemPrompt).toContain("Start each bullet with a literal hyphen and a space.");
+    expect(systemPrompt).toContain("Do not include literal backslashes before bullet or bold markers");
     expect(systemPrompt).toContain("Do not include action plans, target dates, owners, or transcript evidence inside discussion_point.");
     expect(systemPrompt).toContain("Keep discussion points and action items distinct.");
     expect(userPrompt).toContain("<meeting_notes>\nAgenda: Advisor account updates\nCorrect project name: Project Alon\n</meeting_notes>");

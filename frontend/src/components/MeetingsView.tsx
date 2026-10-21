@@ -37,7 +37,7 @@ import {
 } from "lucide-react";
 import { ArchivedMeeting, DiscussionItem, MeetingActionItem } from "@/types/meeting";
 import { MeetingWorkspaceTabs, type MeetingWorkspaceTab } from "./MeetingWorkspaceTabs";
-import { MeetingActionItemsTable, MeetingDiscussionCard, useMeetingAssignees } from "./MeetingWorkspaceContent";
+import { MeetingActionItemsTable, MeetingDiscussionCard, MeetingSummaryEditor, useMeetingAssignees } from "./MeetingWorkspaceContent";
 import { createActionFromDiscussion } from "@/lib/meetingArchive";
 import type { StudioSession } from "@/types/studio";
 import { getInterruptedSessions, downloadSession, clearSession, exportSessionAsFile } from "@/lib/studioStorage";
@@ -279,7 +279,7 @@ export function MeetingsView({
   const [saveSuccessMsg, setSaveSuccessMsg] = useState(false);
   const [showArchiveDetails, setShowArchiveDetails] = useState(false);
   const [showEmailModal, setShowEmailModal] = useState(false);
-  const [detailTab, setDetailTab] = useState<MeetingWorkspaceTab>("discussion");
+  const [detailTab, setDetailTab] = useState<MeetingWorkspaceTab>("summary");
   const meetingAssignees = useMeetingAssignees(detailTab === "actions");
   const [showDiscoverTopicsModal, setShowDiscoverTopicsModal] = useState(false);
   const [missedTopics, setMissedTopics] = useState<DiscoveredTopicItem[]>([]);
@@ -891,6 +891,8 @@ export function MeetingsView({
       setIsExporting(false);
     }
   };
+
+  const archivedSummaryParts = (activeMeeting?.summary || "").split(/\r?\n\s*\r?\n/);
 
   return (
     <div className="space-y-4">
@@ -1592,23 +1594,19 @@ export function MeetingsView({
                   </div>
                 </div>
 
-                {/* Executive Summary */}
-                <div className="pt-2 border-t border-gray-100">
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">
-                    Executive Summary
-                  </label>
-                  <AutoResizeTextarea
-                    value={activeMeeting.summary}
-                    onChange={(e) => setActiveMeeting({ ...activeMeeting, summary: e.target.value })}
-                    placeholder="Enter short summary based on discussion points..."
-                    className="w-full text-xs text-gray-700 bg-[#FFFCFB]/60 border border-gray-200 rounded-none p-2.5 focus:outline-none focus:border-[#C9AB4C] leading-relaxed"
-                  />
-                </div>
               </div>
 
               <MeetingWorkspaceTabs value={detailTab} onChange={setDetailTab} compact />
 
-              {detailTab === "transcript" ? (
+              {detailTab === "summary" ? (
+                <MeetingSummaryEditor
+                  summary={archivedSummaryParts[0] || ""}
+                  bottomLine={archivedSummaryParts.slice(1).join("\n\n")}
+                  onChange={(summary, bottomLine) => setActiveMeeting({ ...activeMeeting, summary: [summary.trim(), bottomLine.trim()].filter(Boolean).join("\n\n") })}
+                  notes={activeMeeting.meeting_notes || ""}
+                  transcript={activeMeeting.transcript || ""}
+                />
+              ) : detailTab === "transcript" ? (
                 /* Transcript Tab */
                 <div className="bg-[#FFFCFB] border border-gray-200/90 rounded-none p-5 shadow-2xs space-y-4">
                   <div className="flex items-center justify-between pb-3 border-b border-gray-100">

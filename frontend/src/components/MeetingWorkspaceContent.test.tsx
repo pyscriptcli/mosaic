@@ -11,13 +11,15 @@ const members = [
 ];
 
 describe("MeetingDiscussionCard", () => {
-  it("keeps discussion content separate and offers an explicit add-as-action control", () => {
+  it("keeps discussion content separate, editable in place, and offers an add-as-action control", () => {
     const onAddAction = vi.fn();
+    const onDiscussionPointChange = vi.fn();
     render(
       <MeetingDiscussionCard
         title="Advisor account update"
         discussionPoint="The team reviewed the renewal."
         evidenceQuote="[00:18] The client asked about renewal timing."
+        onDiscussionPointChange={onDiscussionPointChange}
         onAddAction={onAddAction}
       />,
     );
@@ -25,8 +27,21 @@ describe("MeetingDiscussionCard", () => {
     expect(screen.getByRole("heading", { name: "Advisor account update" })).toBeTruthy();
     expect(screen.getByText("[00:18] The client asked about renewal timing.")).toBeTruthy();
     expect(screen.queryByText("Send revised terms")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Edit discussion" })).toBeNull();
+    const editor = screen.getByRole("textbox", { name: "Discussion point" });
+    editor.innerHTML = "<ul><li>Renewal timing was reviewed.</li></ul>";
+    fireEvent.input(editor);
+    expect(onDiscussionPointChange).toHaveBeenCalledWith("- Renewal timing was reviewed.");
     fireEvent.click(screen.getByRole("button", { name: "Add as action item" }));
     expect(onAddAction).toHaveBeenCalledOnce();
+  });
+
+  it("renders escaped markdown bullets as real bullets and emphasized text", () => {
+    render(<MeetingDiscussionCard title="Account update" discussionPoint="- Prime was founded in \\*\\*2013\\*\\*." />);
+    const bold = screen.getByText("2013");
+    expect(bold.closest("li")?.textContent).toBe("Prime was founded in 2013.");
+    expect(bold.tagName).toBe("STRONG");
+    expect(screen.queryByText(/\\\*\\\*/)).toBeNull();
   });
 });
 
