@@ -6,6 +6,9 @@ type PdfTableConfig = {
   body?: unknown[][];
   headStyles?: Record<string, unknown>;
   bodyStyles?: Record<string, unknown>;
+  styles?: Record<string, unknown>;
+  columnStyles?: Record<number, Record<string, unknown>>;
+  theme?: string;
 };
 
 const pdfCapture = vi.hoisted(() => ({ text: [] as string[], events: [] as string[], tables: [] as PdfTableConfig[], fontStyle: "normal", fontSizes: [] as number[], runs: [] as { style: string; text: string }[] }));
@@ -89,9 +92,15 @@ describe("POST /api/export-pdf MoM structure", () => {
     expect(renderedText).not.toContain("PRIVATE EVIDENCE QUOTE");
     expect(renderedText).not.toContain("Should not appear");
 
-    expect(pdfCapture.tables).toHaveLength(1);
-    const actionTable = pdfCapture.tables[0];
-    expect(actionTable.head?.[0]).toEqual(["Discussion Point", "Action Plan", "Target Date", "Person in Charge"]);
+    expect(pdfCapture.tables).toHaveLength(2);
+    const detailsTable = pdfCapture.tables[0];
+    expect(detailsTable.body?.map((row) => row[0])).toContain("PROJECT / CLIENT");
+    expect(detailsTable.body?.map((row) => row[1])).toContain("Northstar");
+    expect(detailsTable.theme).toBe("plain");
+    expect(detailsTable.styles).toMatchObject({ fillColor: [255, 252, 251], halign: "left" });
+    expect(detailsTable.columnStyles?.[0]).toMatchObject({ fontStyle: "bold", textColor: [0, 51, 102] });
+    const actionTable = pdfCapture.tables[1];
+    expect(actionTable.head?.[0]).toEqual(["DISCUSSION POINT", "ACTION PLAN", "TARGET DATE", "PERSON IN CHARGE"]);
     expect(actionTable.body?.[0]).toEqual(["Account Renewal", "Send the proposal", "Oct 30", "Mika, Dino"]);
     expect(JSON.stringify(actionTable.body?.[0])).not.toContain("Renewal timing was reviewed.");
     expect(actionTable.bodyStyles).toMatchObject({ halign: "left", fontSize: 9.5 });
@@ -101,12 +110,13 @@ describe("POST /api/export-pdf MoM structure", () => {
   it("keeps paragraphs left aligned, renders bold inline text, and omits an empty action section", async () => {
     const { POST } = await import("./route");
     const response = await POST(request({
+      meeting_details: { client_name: "Northstar" },
       summary: "A short summary.\n\nBottom line: **Keep the current site plan.**",
       discussion_points: [{ topic_title: "Fee review", discussion_point: "The fee is **PHP 250,000**.\n- The subsidy remains subject to approval." }],
     }));
 
     expect(response.status).toBe(200);
-    expect(pdfCapture.tables).toHaveLength(0);
+    expect(pdfCapture.tables).toHaveLength(1);
     expect(pdfCapture.events.join(" ")).not.toContain("ACTION PLAN");
     expect(pdfCapture.text).toContain("PHP 250,000");
     expect(pdfCapture.runs).toContainEqual({ style: "bold", text: "PHP 250,000" });

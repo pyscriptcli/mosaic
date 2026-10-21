@@ -13,7 +13,7 @@ import {
   type MeetingExportRequest,
 } from "@/lib/meetingExport";
 
-const { blueRgb: BLUE, goldRgb: GOLD, grayRgb: GRAY, pdfBodyFont: BODY_FONT, pdfHeadingFont: HEADING_FONT } = MEETING_EXPORT_STYLE;
+const { blueRgb: BLUE, goldRgb: GOLD, grayRgb: GRAY, warmWhiteRgb: WARM_WHITE, pdfBodyFont: BODY_FONT, pdfHeadingFont: HEADING_FONT } = MEETING_EXPORT_STYLE;
 const LEFT = MEETING_EXPORT_STYLE.pageMarginMm;
 const RIGHT = LEFT;
 const TOP = LEFT;
@@ -121,22 +121,38 @@ export async function POST(req: NextRequest) {
 
     writeHeading("Minutes of the Meeting", true);
     writeHeading("MEETING DETAILS");
-    meetingExportDetails(meeting_details).forEach(([label, value]) => {
-      const labelRun = { text: `${label}: `, bold: true, color: BLUE };
-      const valueRun = { text: value, bold: false, color: GRAY };
-      const lines = wrapRuns([labelRun, valueRun], contentWidth);
-      lines.forEach((line) => {
-        nextPageIfNeeded(LINE_HEIGHT);
-        writeLine(line, LEFT, y);
-        y += LINE_HEIGHT;
+    const details = meetingExportDetails(meeting_details);
+    if (details.length) {
+      autoTable(doc, {
+        startY: y,
+        margin: { left: LEFT, right: RIGHT, top: TOP, bottom: BOTTOM },
+        body: details,
+        theme: "plain",
+        columnStyles: {
+          0: { cellWidth: 42, fontStyle: "bold", textColor: BLUE },
+          1: { cellWidth: contentWidth - 42, textColor: GRAY },
+        },
+        styles: {
+          font: BODY_FONT,
+          fontSize: MEETING_EXPORT_STYLE.actionPt,
+          fillColor: WARM_WHITE,
+          cellPadding: { top: 2, right: 1, bottom: 2, left: 1 },
+          lineColor: GRAY,
+          lineWidth: { bottom: 0.1 },
+          overflow: "linebreak",
+          halign: "left",
+          valign: "top",
+        },
       });
-    });
+      const detailsFinalY = (doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY;
+      y = (detailsFinalY || y + 12) + 2;
+    }
 
     writeHeading("SUMMARY");
     const summaryContent = meetingExportSummary(summary);
     if (summaryContent.summary) writeContent(summaryContent.summary);
     if (summaryContent.outcome) {
-      writeContent(`**Bottom line:** ${summaryContent.outcome}`);
+      writeContent(`**BOTTOM LINE:** ${summaryContent.outcome}`);
     }
 
     writeHeading("DISCUSSION POINTS");
@@ -163,13 +179,13 @@ export async function POST(req: NextRequest) {
       autoTable(doc, {
         startY: y,
         margin: { left: LEFT, right: RIGHT, top: TOP, bottom: BOTTOM },
-        head: [["Discussion Point", "Action Plan", "Target Date", "Person in Charge"]],
-        body: actions.map(meetingExportActionFields),
+        head: [["DISCUSSION POINT", "ACTION PLAN", "TARGET DATE", "PERSON IN CHARGE"]],
+        body: actions.map((item) => meetingExportActionFields(item).map((value) => meetingExportInlineRuns(value).map((run) => run.text).join(""))),
         theme: "plain",
         showHead: "everyPage",
         rowPageBreak: "auto",
-        headStyles: { fillColor: [255, 252, 251], textColor: BLUE, font: "helvetica", fontStyle: "bold", fontSize: 9.5, halign: "left", valign: "top", lineColor: BLUE, lineWidth: { bottom: 0.35 }, cellPadding: { top: 2, right: 2, bottom: 2, left: 1 } },
-        bodyStyles: { fillColor: [255, 252, 251], textColor: GRAY, font: "helvetica", fontSize: 9.5, halign: "left", valign: "top", cellPadding: { top: 2, right: 2, bottom: 2.5, left: 1 }, lineColor: [216, 221, 227], lineWidth: { bottom: 0.2 } },
+        headStyles: { fillColor: WARM_WHITE, textColor: BLUE, font: BODY_FONT, fontStyle: "bold", fontSize: MEETING_EXPORT_STYLE.actionPt, halign: "left", valign: "top", lineColor: GRAY, lineWidth: { bottom: 0.25 }, cellPadding: { top: 2, right: 2, bottom: 2, left: 1 } },
+        bodyStyles: { fillColor: WARM_WHITE, textColor: GRAY, font: BODY_FONT, fontSize: MEETING_EXPORT_STYLE.actionPt, halign: "left", valign: "top", cellPadding: { top: 2, right: 2, bottom: 2.5, left: 1 }, lineColor: GRAY, lineWidth: { bottom: 0.1 } },
         columnStyles: { 0: { cellWidth: 42.5 }, 1: { cellWidth: 68 }, 2: { cellWidth: 25.5 }, 3: { cellWidth: 34 } },
         styles: { overflow: "linebreak", halign: "left", valign: "top" },
       });

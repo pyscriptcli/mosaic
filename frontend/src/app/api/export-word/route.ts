@@ -59,18 +59,6 @@ function sectionHeading(text: string) {
   });
 }
 
-function detailLine(label: string, value: string) {
-  if (!value) return null;
-  return new Paragraph({
-    alignment: AlignmentType.LEFT,
-    children: [
-      new TextRun({ text: `${label}: `, bold: true, size: MEETING_EXPORT_STYLE.actionPt * 2, color: BLUE, font: BODY_FONT }),
-      ...formatRuns(value, { size: MEETING_EXPORT_STYLE.bodyPt * 2 }),
-    ],
-    spacing: { line: MEETING_EXPORT_STYLE.lineSpacingTwips, lineRule: "auto", after: 65 },
-  });
-}
-
 function summaryParagraphs(summary: unknown): Paragraph[] {
   const paragraphs = meetingExportSummary(summary);
   const result: Paragraph[] = [];
@@ -79,13 +67,51 @@ function summaryParagraphs(summary: unknown): Paragraph[] {
     result.push(new Paragraph({
       alignment: AlignmentType.LEFT,
       children: [
-        new TextRun({ text: "Bottom line: ", bold: true, color: BLUE, size: MEETING_EXPORT_STYLE.bodyPt * 2, font: BODY_FONT }),
+        new TextRun({ text: "BOTTOM LINE: ", bold: true, color: BLUE, size: MEETING_EXPORT_STYLE.bodyPt * 2, font: BODY_FONT }),
         ...formatRuns(paragraphs.outcome),
       ],
       spacing: { line: MEETING_EXPORT_STYLE.lineSpacingTwips, lineRule: "auto", before: 90, after: 90 },
     }));
   }
   return result;
+}
+
+function meetingDetailsTable(rows: [string, string][]) {
+  const rowRule = { style: BorderStyle.SINGLE, size: 2, color: GRAY };
+  return new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    columnWidths: [2700, 7300],
+    borders: {
+      top: { style: BorderStyle.NONE },
+      bottom: { style: BorderStyle.NONE },
+      left: { style: BorderStyle.NONE },
+      right: { style: BorderStyle.NONE },
+      insideHorizontal: rowRule,
+      insideVertical: { style: BorderStyle.NONE },
+    },
+    rows: rows.map(([label, value]) => new TableRow({
+      cantSplit: true,
+      children: [
+        new TableCell({
+          width: { size: 27, type: WidthType.PERCENTAGE },
+          borders: { top: { style: BorderStyle.NONE }, bottom: rowRule, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } },
+          children: [new Paragraph({
+            children: [new TextRun({ text: label, bold: true, size: MEETING_EXPORT_STYLE.actionPt * 2, color: BLUE, font: BODY_FONT })],
+            spacing: { after: 35 },
+          })],
+        }),
+        new TableCell({
+          width: { size: 73, type: WidthType.PERCENTAGE },
+          borders: { top: { style: BorderStyle.NONE }, bottom: rowRule, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } },
+          children: [new Paragraph({
+            alignment: AlignmentType.LEFT,
+            children: formatRuns(value),
+            spacing: { line: MEETING_EXPORT_STYLE.lineSpacingTwips, lineRule: "auto", after: 35 },
+          })],
+        }),
+      ],
+    })),
+  });
 }
 
 function actionTable(items: MeetingExportAction[]) {
@@ -98,7 +124,7 @@ function actionTable(items: MeetingExportAction[]) {
   };
   const header = new TableRow({
     tableHeader: true,
-    children: ["Discussion Point", "Action Plan", "Target Date", "Person in Charge"].map((label) => new TableCell({
+    children: ["DISCUSSION POINT", "ACTION PLAN", "TARGET DATE", "PERSON IN CHARGE"].map((label) => new TableCell({
       width: { size: label === "Discussion Point" ? 25 : label === "Action Plan" ? 40 : label === "Target Date" ? 15 : 20, type: WidthType.PERCENTAGE },
       borders: { ...cellBorders, bottom: { style: BorderStyle.SINGLE, size: 6, color: BLUE } },
       children: [new Paragraph({ children: [new TextRun({ text: label, bold: true, size: MEETING_EXPORT_STYLE.actionPt * 2, color: BLUE, font: BODY_FONT })], spacing: { after: 40 } })],
@@ -139,6 +165,7 @@ export async function POST(req: NextRequest) {
     const input = await req.json() as MeetingExportRequest;
     const { meeting_details, discussion_points = [], action_items = [], summary, other_discussions } = input;
     const clientName = cleanMeetingExportField(meeting_details?.client_name);
+    const meetingDetails = meetingExportDetails(meeting_details);
 
     const children: (Paragraph | Table)[] = [
       new Paragraph({
@@ -149,7 +176,7 @@ export async function POST(req: NextRequest) {
         spacing: { after: 100 },
       }),
       sectionHeading("MEETING DETAILS"),
-      ...meetingExportDetails(meeting_details).map(([label, value]) => detailLine(label, value)!).filter(Boolean),
+      ...(meetingDetails.length ? [meetingDetailsTable(meetingDetails)] : []),
       sectionHeading("SUMMARY"),
       ...summaryParagraphs(summary),
       sectionHeading("DISCUSSION POINTS"),

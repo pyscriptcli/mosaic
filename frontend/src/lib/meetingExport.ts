@@ -40,6 +40,7 @@ export const MEETING_EXPORT_STYLE = {
   gold: "C9A84C",
   goldRgb: [201, 168, 76] as [number, number, number],
   warmWhite: "FFFCFB",
+  warmWhiteRgb: [255, 252, 251] as [number, number, number],
   gray: "181D1E",
   grayRgb: [24, 29, 30] as [number, number, number],
   wordBodyFont: "Arial",
@@ -69,12 +70,12 @@ export function meetingExportDetails(details?: MeetingExportDetails) {
   const dateTime = date && time ? `${date} (${time})` : date || time;
 
   return [
-    ["Project / Client", cleanMeetingExportField(details?.client_name)],
-    ["Date & Time", dateTime],
-    ["Venue / Location", cleanMeetingExportField(details?.location)],
-    ["Meeting Type", cleanMeetingExportField(details?.meeting_type)],
-    ["Team Attendees", cleanMeetingExportField(details?.team_attendees || details?.prime_attendees)],
-    ["External Attendees", cleanMeetingExportField(details?.external_attendees)],
+    ["PROJECT / CLIENT", cleanMeetingExportField(details?.client_name)],
+    ["DATE & TIME", dateTime],
+    ["VENUE / LOCATION", cleanMeetingExportField(details?.location)],
+    ["MEETING TYPE", cleanMeetingExportField(details?.meeting_type)],
+    ["TEAM ATTENDEES", cleanMeetingExportField(details?.team_attendees || details?.prime_attendees)],
+    ["EXTERNAL ATTENDEES", cleanMeetingExportField(details?.external_attendees)],
   ].filter(([, value]) => value) as [string, string][];
 }
 

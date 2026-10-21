@@ -18,7 +18,7 @@ describe("POST /api/export-word MoM structure", () => {
           { id: "dp-2", topic_title: "Market Update", discussion_point: "Vacancy trends were discussed." },
         ],
         action_items: [
-          { id: "act-1", discussion_point_title: "Account Renewal", discussion_point: "Renewal timing was reviewed.", action_plan: "Send the proposal", target_date: "Oct 30", person_in_charge: "Mika" },
+          { id: "act-1", discussion_point_title: "Account Renewal", discussion_point: "Renewal timing was reviewed.", action_plan: "Send the proposal", target_date: "Oct 30", person_in_charge: ["Mika", "Dino"] },
         ],
         other_discussions: "Team outing was mentioned.",
       }),
@@ -41,13 +41,16 @@ describe("POST /api/export-word MoM structure", () => {
     expect(content).not.toContain("CONFIRMED BY");
 
     const tables = xml.match(/<w:tbl>[\s\S]*?<\/w:tbl>/g) || [];
-    expect(tables).toHaveLength(1);
-    expect(tables[0]).toContain("Send the proposal");
-    expect(tables[0]).toContain("Account Renewal");
-    expect(tables[0]).not.toContain("Renewal timing was reviewed.");
+    expect(tables).toHaveLength(2);
+    expect(tables[0]).toContain("PROJECT / CLIENT");
+    expect(tables[0]).toContain("Northstar");
+    expect(tables[1]).toContain("Send the proposal");
+    expect(tables[1]).toContain("Account Renewal");
+    expect(tables[1]).toContain("Mika, Dino");
+    expect(tables[1]).not.toContain("Renewal timing was reviewed.");
 
-    const actionSection = content.slice(content.indexOf("ACTION PLAN"), content.indexOf("OTHER DISCUSSIONS"));
-    const actionHeaders = ["Discussion Point", "Action Plan", "Target Date", "Person in Charge"]
+    const actionSection = content.slice(content.indexOf("ACTION PLAN") + "ACTION PLAN".length, content.indexOf("OTHER DISCUSSIONS"));
+    const actionHeaders = ["DISCUSSION POINT", "ACTION PLAN", "TARGET DATE", "PERSON IN CHARGE"]
       .map((header) => actionSection.indexOf(header));
     expect(actionHeaders.every((position) => position >= 0)).toBe(true);
     expect(actionHeaders).toEqual([...actionHeaders].sort((a, b) => a - b));
@@ -84,7 +87,7 @@ describe("POST /api/export-word MoM structure", () => {
 
     expect(response.status).toBe(200);
     expect(content).toContain("The team reviewed the proposal.");
-    expect(content).toContain("Bottom line: Prime will proceed after site approval.");
+    expect(content).toContain("BOTTOM LINE: Prime will proceed after site approval.");
     expect(content).toContain("The team reviewed the renewal.");
     expect(content).toContain("PHP 250,000 fee remains unchanged.");
     expect(xml).toContain("<w:b");
@@ -97,6 +100,7 @@ describe("POST /api/export-word MoM structure", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        meeting_details: { client_name: "Northstar" },
         discussion_points: [{ topic_title: "Site review", discussion_point: "A candidate site was reviewed." }],
         action_items: [{ discussion_point_title: "Site review", action_plan: "Share the inspection report", target_date: "TBD", person_in_charge: "Unassigned" }],
       }),
@@ -110,7 +114,7 @@ describe("POST /api/export-word MoM structure", () => {
     expect(content).toContain("ACTION PLAN");
     expect(content).not.toContain("TBD");
     expect(content).not.toContain("Unassigned");
-    expect((xml.match(/<w:tbl>/g) || [])).toHaveLength(1);
+    expect((xml.match(/<w:tbl>/g) || [])).toHaveLength(2);
   });
 
   it("omits the action plan heading and table when no action exists", async () => {
@@ -118,7 +122,7 @@ describe("POST /api/export-word MoM structure", () => {
     const response = await POST(new NextRequest("http://localhost/api/export-word", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ discussion_points: [{ topic_title: "Site review", discussion_point: "The candidate site was reviewed." }] }),
+      body: JSON.stringify({ meeting_details: { client_name: "Northstar" }, discussion_points: [{ topic_title: "Site review", discussion_point: "The candidate site was reviewed." }] }),
     }));
     const zip = await JSZip.loadAsync(await response.arrayBuffer());
     const xml = await zip.file("word/document.xml")!.async("text");
@@ -126,6 +130,6 @@ describe("POST /api/export-word MoM structure", () => {
 
     expect(response.status).toBe(200);
     expect(content).not.toContain("ACTION PLAN");
-    expect((xml.match(/<w:tbl>/g) || [])).toHaveLength(0);
+    expect((xml.match(/<w:tbl>/g) || [])).toHaveLength(1);
   });
 });
