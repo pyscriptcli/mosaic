@@ -24,9 +24,10 @@ import {
   FileSpreadsheet,
   BookOpenText,
   Megaphone,
+  Presentation,
 } from "lucide-react";
 
-export type NavView = "dashboard" | "project" | "tasks" | "notebook" | "reports" | "market-insights" | "demands" | "meetings" | "minutes" | "maps" | "bsc" | "forms" | "delta" | "business-analysis" | "forms-admin" | "performance-marketing" | "google-ads";
+export type NavView = "dashboard" | "project" | "tasks" | "notebook" | "reports" | "market-insights" | "demands" | "meetings" | "minutes" | "maps" | "bsc" | "property-decks" | "forms" | "delta" | "business-analysis" | "forms-admin" | "performance-marketing" | "google-ads";
 
 interface SidebarProps {
   currentView: NavView;
@@ -159,6 +160,7 @@ export function Sidebar({
     },
     { id: "maps" as NavView, label: "Maps", icon: MapIcon, badge: null },
     { id: "bsc" as NavView, label: "BSC", icon: FileSpreadsheet, badge: null },
+    { id: "property-decks" as NavView, label: "Property Decks", icon: Presentation, badge: null },
     {
       id: "notebook" as NavView,
       label: "Notebook",
@@ -181,6 +183,7 @@ export function Sidebar({
   }).filter((item) => Boolean(
     item.id === "maps" ||
     item.id === "bsc" ||
+    item.id === "property-decks" ||
     allowedPages?.includes(item.id) ||
     (item.id === "notebook" && allowedPages?.includes("tasks")) ||
     (item.id === "project" && allowedPages?.includes("tasks")) ||
@@ -203,8 +206,9 @@ export function Sidebar({
   const meetingsItem = navById.get("meetings");
   const mapsItem = navById.get("maps");
   const bscItem = navById.get("bsc");
-  const hasToolsItems = Boolean(meetingsItem || mapsItem || bscItem);
-  const toolsItems = [meetingsItem, mapsItem, bscItem]
+  const propertyDecksItem = navById.get("property-decks");
+  const hasToolsItems = Boolean(meetingsItem || mapsItem || bscItem || propertyDecksItem);
+  const toolsItems = [meetingsItem, mapsItem, bscItem, propertyDecksItem]
     .filter((item): item is (typeof navItems)[number] => Boolean(item))
     .sort((a, b) => (orderIndex.get(a.id) ?? allNavItems.length) - (orderIndex.get(b.id) ?? allNavItems.length));
   const collapsedGroups = [
@@ -402,6 +406,7 @@ export function Sidebar({
                         {meetingsItem && renderNavItem(meetingsItem)}
                         {mapsItem && renderNavItem(mapsItem)}
                         {bscItem && renderNavItem(bscItem)}
+                        {propertyDecksItem && renderNavItem(propertyDecksItem)}
                       </div>
                     )}
                   </section>

@@ -40,7 +40,7 @@ import { ALL_FEATURES, FEATURE_CATALOG, type FeatureId } from "@/lib/access-cont
 export type PortalTab = "create" | "track" | "approvals" | "admin";
 export type Role = "owner" | "admin" | "approver" | "requestor";
 export type FormType = "rfp" | "po" | "pcv";
-export type AppPage = "dashboard" | "project" | "tasks" | "notebook" | "reports" | "market-insights" | "demands" | "meetings" | "minutes" | "forms" | "delta" | "business-analysis" | "bsc" | "performance-marketing" | "google-ads";
+export type AppPage = "dashboard" | "project" | "tasks" | "notebook" | "reports" | "market-insights" | "demands" | "meetings" | "minutes" | "forms" | "delta" | "business-analysis" | "bsc" | "property-decks" | "performance-marketing" | "google-ads";
 
 export const APP_PAGE_LIST: Array<{ id: AppPage; label: string; desc: string }> = [
   { id: "dashboard", label: "Dashboard", desc: "Executive overview & meeting metrics" },
@@ -52,6 +52,7 @@ export const APP_PAGE_LIST: Array<{ id: AppPage; label: string; desc: string }> 
   { id: "demands", label: "Demands", desc: "Demand pipeline, table & coverage" },
   { id: "meetings", label: "Meetings", desc: "Archived meetings & transcripts" },
   { id: "minutes", label: "Notetaker", desc: "Studio, live recording & minutes synthesis" },
+  { id: "property-decks", label: "Property Decks", desc: "OneDrive slide gallery & proposal deck compiler" },
   { id: "forms", label: "Forms", desc: "Submit, track & approve company requests" },
   { id: "delta", label: "Contract Review", desc: "Compare lease drafts and export a local review register" },
   { id: "business-analysis", label: "Business Analysis", desc: "Personal IT requirements, notes, and delivery planning" },

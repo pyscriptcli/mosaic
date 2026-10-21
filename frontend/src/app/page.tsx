@@ -104,6 +104,7 @@ const BusinessAnalysisView = dynamic(() => import("@/components/business-analysi
 const FormsPortal = dynamic(() => import("@/components/forms/FormsPortal"), { loading: PanelLoading });
 const ProjectAtlasMapsPage = dynamic(() => import("@/components/ProjectAtlasMapsPage"), { loading: PanelLoading });
 const BscPortal = dynamic(() => import("@/components/BscPortal").then((module) => module.BscPortal), { loading: PanelLoading });
+const PropertyDecksView = dynamic(() => import("@/components/property-decks/PropertyDecksView").then((module) => module.PropertyDecksView), { loading: PanelLoading });
 const GoogleAdsKnowledgeCenter = dynamic(() => import("@/components/GoogleAdsKnowledgeCenter").then((module) => module.GoogleAdsKnowledgeCenter), { loading: PanelLoading });
 
 const VENUE_OPTIONS = [
@@ -460,7 +461,7 @@ export default function Home() {
   const [allowedPages, setAllowedPages] = useState<NavView[]>(warmGovernance?.allowedPages || []);
   const [governanceStatus, setGovernanceStatus] = useState<"loading" | "ready" | "error">(warmGovernance ? "ready" : "loading");
   const [sidebarOrder, setSidebarOrder] = useState<NavView[]>([
-    "dashboard", "business-analysis", "project", "notebook", "reports", "market-insights", "demands", "meetings", "minutes", "bsc", "forms", "delta",
+    "dashboard", "business-analysis", "project", "notebook", "reports", "market-insights", "demands", "meetings", "minutes", "bsc", "property-decks", "forms", "delta",
   ]);
   const [isAdminUser, setIsAdminUser] = useState(warmGovernance?.isAdmin || false);
   const [askEchoEnabled, setAskEchoEnabled] = useState(warmGovernance?.askEchoEnabled || false);
@@ -546,7 +547,7 @@ export default function Home() {
         setAllowedFeatures(Array.isArray(data.allowedFeatures) ? data.allowedFeatures : []);
         setAllowedPages(pages);
         setCurrentView((prev) => {
-          if (prev === "forms-admin" || prev === "maps" || hasFullPageAccess) return prev;
+          if (prev === "forms-admin" || prev === "maps" || prev === "bsc" || prev === "property-decks" || hasFullPageAccess) return prev;
           if (prev === "project" && pages.includes("tasks")) return prev;
           if (prev === "delta" && (pages.includes("project") || pages.includes("tasks"))) return prev;
           if (!pages.includes(prev)) return pages[0] || "forms";
@@ -572,6 +573,7 @@ export default function Home() {
     if (view === "forms-admin") return false;
     if (view === "maps") return true;
     if (view === "bsc") return true;
+    if (view === "property-decks") return true;
     if (isAdminUser || authUser?.email?.toLowerCase().trim() === "admin@primephilippines.com") return true;
     if (view === "project") return allowedPages.includes("project") || allowedPages.includes("tasks");
     if (view === "delta") return allowedPages.includes("delta") || allowedPages.includes("project") || allowedPages.includes("tasks");
@@ -1441,12 +1443,12 @@ export default function Home() {
 
         {/* Scrollable View Content (Maximized full width without big margin borders) */}
         <main className={`flex-1 min-h-0 ${isMeetingWorkspace || isMapsWorkspace ? "h-full overflow-hidden flex flex-col p-0" : currentView === "minutes" ? "overflow-y-auto p-0" : "overflow-y-auto px-4 py-5 md:px-8"}`}>
-          {governanceStatus === "loading" ? (
+          {governanceStatus === "loading" && currentView !== "property-decks" ? (
             <div role="status" className="flex min-h-[400px] items-center justify-center p-8 text-sm text-slate-600">
               <Loader2 aria-hidden="true" className="mr-2 h-4 w-4 animate-spin text-[#C9AB4C]" />
               Checking page access…
             </div>
-          ) : governanceStatus === "error" ? (
+          ) : governanceStatus === "error" && currentView !== "property-decks" ? (
             <div className="flex min-h-[400px] items-center justify-center p-8">
               <div className="max-w-md border border-slate-200 bg-[#FFFCFB] p-8 text-center shadow-sm">
                 <h2 className="text-lg font-semibold text-slate-800">Page access is unavailable</h2>
@@ -1502,6 +1504,7 @@ export default function Home() {
             {currentView === "project" && <ProjectWorkspace userId={authUser?.id ? String(authUser.id) : undefined} />}
             {currentView === "maps" && <ProjectAtlasMapsPage />}
             {currentView === "bsc" && <BscPortal />}
+            {currentView === "property-decks" && <PropertyDecksView userId={authUser?.id ? String(authUser.id) : undefined} userName={authUser?.username} userEmail={authUser?.email} />}
             {currentView === "delta" && <ContractsWorkspace />}
             {(currentView === "performance-marketing" || currentView === "google-ads") && <GoogleAdsKnowledgeCenter pathname={pathname || ""} userId={authUser?.id ? String(authUser.id) : undefined} />}
 

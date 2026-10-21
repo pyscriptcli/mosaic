@@ -1,4 +1,4 @@
-export type AppPage = "dashboard" | "project" | "tasks" | "notebook" | "reports" | "market-insights" | "demands" | "meetings" | "minutes" | "forms" | "delta" | "business-analysis" | "bsc" | "performance-marketing" | "google-ads";
+export type AppPage = "dashboard" | "project" | "tasks" | "notebook" | "reports" | "market-insights" | "demands" | "meetings" | "minutes" | "forms" | "delta" | "business-analysis" | "bsc" | "property-decks" | "performance-marketing" | "google-ads";
 export type FeatureId = "ask-echo" | "notetaker-record" | "notetaker-upload" | "meetings-export" | "forms-rfp-autofill" | "forms-pdf-preview" | "forms-submit";
 
 export type FeatureAccessRule = { email: string; allowedFeatures?: string[]; allowedPages?: string[] };
@@ -10,7 +10,7 @@ export type AccessConfig = {
   formFeatures?: { rfpAutofill?: boolean; pdfPreview?: boolean };
 };
 
-export const ALL_APP_PAGES: AppPage[] = ["dashboard", "project", "tasks", "notebook", "reports", "market-insights", "demands", "meetings", "minutes", "forms", "delta", "business-analysis", "bsc", "performance-marketing", "google-ads"];
+export const ALL_APP_PAGES: AppPage[] = ["dashboard", "project", "tasks", "notebook", "reports", "market-insights", "demands", "meetings", "minutes", "forms", "delta", "business-analysis", "bsc", "property-decks", "performance-marketing", "google-ads"];
 export const ALL_FEATURES: FeatureId[] = ["ask-echo", "notetaker-record", "notetaker-upload", "meetings-export", "forms-rfp-autofill", "forms-pdf-preview", "forms-submit"];
 export const FEATURE_CATALOG: Record<FeatureId, { label: string; requiredPage?: AppPage; global?: "askEchoEnabled" | "rfpAutofill" | "pdfPreview" }> = {
   "ask-echo": { label: "Ask Echo", global: "askEchoEnabled" },
