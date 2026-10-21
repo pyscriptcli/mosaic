@@ -30,6 +30,16 @@ export interface PropertySlideItem {
   hasOverrides?: boolean;
 }
 
+export interface PropertySlideGroup {
+  groupId: string;
+  title: string;
+  deckId: string;
+  deckFileName: string;
+  deckFilePath: string;
+  leadSlide: PropertySlideItem;
+  slides: PropertySlideItem[];
+}
+
 export interface PitchProposalDetails {
   clientName: string;
   projectTitle: string;
@@ -368,6 +378,50 @@ export function filterPropertySlides(
       }
       return true;
     });
+}
+
+export function groupPropertySlidesByTitle(slides: PropertySlideItem[]): PropertySlideGroup[] {
+  const groups: PropertySlideGroup[] = [];
+  const groupMap = new Map<string, PropertySlideGroup>();
+
+  for (const slide of slides) {
+    if (slide.slideRole === "property") {
+      const rawTitle = (slide.specs.propertyName || slide.title || "Warehouse Property")
+        .replace(/[\u200B-\u200D\uFEFF]/g, "")
+        .replace(/\s*[-–—]\s*(?:lease terms|specifications|photos|property photos|site development|site plan|available units).*$/i, "")
+        .trim();
+
+      const key = `${slide.deckId}:::${rawTitle.toLowerCase()}`;
+      let group = groupMap.get(key);
+      if (!group) {
+        group = {
+          groupId: `group-${hashString(key)}`,
+          title: rawTitle,
+          deckId: slide.deckId,
+          deckFileName: slide.deckFileName,
+          deckFilePath: slide.deckFilePath,
+          leadSlide: slide,
+          slides: [],
+        };
+        groupMap.set(key, group);
+        groups.push(group);
+      }
+      group.slides.push(slide);
+    } else {
+      // Standalone slide (Cover, Section Divider, Closing)
+      groups.push({
+        groupId: `group-slide-${slide.id}`,
+        title: slide.title,
+        deckId: slide.deckId,
+        deckFileName: slide.deckFileName,
+        deckFilePath: slide.deckFilePath,
+        leadSlide: slide,
+        slides: [slide],
+      });
+    }
+  }
+
+  return groups;
 }
 
 export function reorderSelectedSlides(slideIds: string[], fromIndex: number, toIndex: number): string[] {

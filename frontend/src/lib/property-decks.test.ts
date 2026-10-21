@@ -7,6 +7,7 @@ import {
   extractSpecsFromSlideText,
   filterPropertySlides,
   getOrderedSlidePathsFromZip,
+  groupPropertySlidesByTitle,
   indexPptxFilesInBrowser,
   parseNumericGla,
   reorderSelectedSlides,
@@ -280,5 +281,79 @@ describe("Property Decks filtering, overrides, and cart sequencing", () => {
 
     const ordered = await getOrderedSlidePathsFromZip(zip);
     expect(ordered).toEqual(["ppt/slides/slide1.xml", "ppt/slides/slide9.xml"]);
+  });
+
+  it("groups slides sharing the same warehouse title into a single collapsed group", () => {
+    const multiSlides: PropertySlideItem[] = [
+      {
+        id: "deck-bataan:slide:3",
+        deckId: "deck-bataan",
+        deckFileName: "PRIME_IW_Bataan - UPDATED.pptx",
+        deckFilePath: "C:/OneDrive/PRIME_IW_Bataan - UPDATED.pptx",
+        slideNumber: 3,
+        slideRole: "property",
+        title: "Bataan Warehouse Space — Lease Terms & Units",
+        rawText: "Hermosa Ecozone Industrial Park Php 250/sqm 5,856 sqm",
+        thumbnailUrl: "/property-decks/previews/prime_iw_bataan_s3.jpg",
+        specs: {
+          propertyName: "Bataan Warehouse Space",
+          location: "Hermosa, Bataan",
+          gla: "5,856 sqm",
+          ceilingHeight: "9m",
+          leaseRate: "Php 250.00/sqm",
+          powerSupply: "Three-Phase",
+          loadingBays: "Yes",
+          notes: "",
+        },
+      },
+      {
+        id: "deck-bataan:slide:4",
+        deckId: "deck-bataan",
+        deckFileName: "PRIME_IW_Bataan - UPDATED.pptx",
+        deckFilePath: "C:/OneDrive/PRIME_IW_Bataan - UPDATED.pptx",
+        slideNumber: 4,
+        slideRole: "property",
+        title: "Bataan Warehouse Space — Specifications & Access",
+        rawText: "Shoulder Height 9m Apex 10m Loading Bay Yes",
+        thumbnailUrl: "/property-decks/previews/prime_iw_bataan_s4.jpg",
+        specs: {
+          propertyName: "Bataan Warehouse Space",
+          location: "Hermosa, Bataan",
+          gla: "5,856 sqm",
+          ceilingHeight: "9m",
+          leaseRate: "Php 250.00/sqm",
+          powerSupply: "Three-Phase",
+          loadingBays: "Yes",
+          notes: "",
+        },
+      },
+      {
+        id: "deck-bataan:slide:5",
+        deckId: "deck-bataan",
+        deckFileName: "PRIME_IW_Bataan - UPDATED.pptx",
+        deckFilePath: "C:/OneDrive/PRIME_IW_Bataan - UPDATED.pptx",
+        slideNumber: 5,
+        slideRole: "property",
+        title: "Bataan Warehouse Space — Photos & Site Plan",
+        rawText: "Property Photos",
+        thumbnailUrl: "/property-decks/previews/prime_iw_bataan_s5.jpg",
+        specs: {
+          propertyName: "Bataan Warehouse Space",
+          location: "Hermosa, Bataan",
+          gla: "5,856 sqm",
+          ceilingHeight: "9m",
+          leaseRate: "Php 250.00/sqm",
+          powerSupply: "Three-Phase",
+          loadingBays: "Yes",
+          notes: "",
+        },
+      },
+    ];
+
+    const groups = groupPropertySlidesByTitle(multiSlides);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].title).toBe("Bataan Warehouse Space");
+    expect(groups[0].slides).toHaveLength(3);
+    expect(groups[0].leadSlide.id).toBe("deck-bataan:slide:3");
   });
 });

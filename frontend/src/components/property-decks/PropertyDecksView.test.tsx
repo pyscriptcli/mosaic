@@ -214,4 +214,115 @@ describe("PropertyDecksView component", () => {
       ).toBeDefined();
     });
   });
+
+  it("simplifies filter tabs and groups same-title warehouse slides into collapsed cards with partial and full selection", async () => {
+    const multiSlideCatalog = {
+      sourceFolder: "C:\\OneDrive\\Converted",
+      outputFolder: "C:\\OneDrive\\Proposals",
+      indexedAt: "2026-10-21T07:00:00.000Z",
+      decksCount: 1,
+      slides: [
+        {
+          id: "deck-bataan:slide:3",
+          deckId: "deck-bataan",
+          deckFileName: "PRIME_IW_Bataan.pptx",
+          deckFilePath: "C:\\OneDrive\\PRIME_IW_Bataan.pptx",
+          slideNumber: 3,
+          slideRole: "property" as const,
+          title: "Bataan Warehouse Space — Lease Terms & Units",
+          rawText: "Hermosa, Bataan 5,000 sqm Php 250/sqm",
+          thumbnailUrl: "/property-decks/previews/bataan_s3.jpg",
+          specs: {
+            propertyName: "Bataan Warehouse Space",
+            location: "Hermosa, Bataan",
+            gla: "5,000 sqm",
+            ceilingHeight: "10m",
+            leaseRate: "₱250/sqm",
+            powerSupply: "3-Phase",
+            loadingBays: "4 Bays",
+            notes: "",
+          },
+        },
+        {
+          id: "deck-bataan:slide:4",
+          deckId: "deck-bataan",
+          deckFileName: "PRIME_IW_Bataan.pptx",
+          deckFilePath: "C:\\OneDrive\\PRIME_IW_Bataan.pptx",
+          slideNumber: 4,
+          slideRole: "property" as const,
+          title: "Bataan Warehouse Space — Specifications & Access",
+          rawText: "Hermosa, Bataan 10m clear height 3-Phase power",
+          thumbnailUrl: "/property-decks/previews/bataan_s4.jpg",
+          specs: {
+            propertyName: "Bataan Warehouse Space",
+            location: "Hermosa, Bataan",
+            gla: "5,000 sqm",
+            ceilingHeight: "10m",
+            leaseRate: "₱250/sqm",
+            powerSupply: "3-Phase",
+            loadingBays: "4 Bays",
+            notes: "",
+          },
+        },
+      ],
+    };
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/property-decks") {
+        return new Response(JSON.stringify({ catalog: multiSlideCatalog }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<PropertyDecksView userName="Dave P." userEmail="dave@primephilippines.com" />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Bataan Warehouse Space")).toBeDefined();
+    });
+
+    // 1. Verify Vicinity / Maps and Summary Matrices tabs are absent
+    expect(screen.queryByRole("tab", { name: /vicinity/i })).toBeNull();
+    expect(screen.queryByRole("tab", { name: /summary/i })).toBeNull();
+    expect(screen.getByRole("tab", { name: /warehouse options/i })).toBeDefined();
+    expect(screen.getByRole("tab", { name: /all slides/i })).toBeDefined();
+
+    // 2. Verify warehouse is grouped into 1 card showing slide range
+    expect(screen.getByText(/Slides #3–#4/i)).toBeDefined();
+    expect(screen.getAllByText(/\(2 slides\)/i).length).toBeGreaterThan(0);
+
+    // 3. Sub-slides should be collapsed by default
+    expect(screen.queryByText(/Warehouse Slides \(2\)/i)).toBeNull();
+
+    // 4. Click Expand / Parts (2) button
+    const expandButton = screen.getByRole("button", { name: /parts \(2\)/i });
+    fireEvent.click(expandButton);
+
+    // Now sub-slides are visible
+    expect(screen.getByText(/Warehouse Slides \(2\)/i)).toBeDefined();
+    expect(screen.getByText(/Specifications & Access/i)).toBeDefined();
+
+    // 5. Select only ONE part of the group (Slide #3)
+    const addPartButtons = screen.getAllByRole("button", { name: /add part/i });
+    fireEvent.click(addPartButtons[0]);
+
+    // Group header now indicates partial selection (1/2 Selected)
+    expect(screen.getByText(/1\/2 Selected/i)).toBeDefined();
+
+    // 6. Click Add All (2)
+    const addAllButton = screen.getByRole("button", { name: /add all \(2\)/i });
+    fireEvent.click(addAllButton);
+
+    // Group header now indicates all selected
+    expect(screen.getByText(/All 2 Selected/i)).toBeDefined();
+
+    // 7. Click Remove All (2) to deselect the entire warehouse
+    const removeAllButton = screen.getByRole("button", { name: /remove all \(2\)/i });
+    fireEvent.click(removeAllButton);
+
+    expect(screen.queryByText(/All 2 Selected/i)).toBeNull();
+    expect(screen.queryByText(/1\/2 Selected/i)).toBeNull();
+  });
 });

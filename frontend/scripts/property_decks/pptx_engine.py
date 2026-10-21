@@ -1,6 +1,9 @@
 import json
 import os
+import re
 import sys
+import xml.etree.ElementTree as ET
+import zipfile
 from pathlib import Path
 
 from pptx import Presentation
@@ -388,16 +391,193 @@ def add_closing_slide(prs, proposal):
     p2.space_before = Pt(36)
 
 
+def clone_slides_from_source(slides, output_path):
+    base_deck_path = None
+    for item in slides:
+        src = item.get("deckFilePath")
+        if src and os.path.isfile(src):
+            base_deck_path = src
+            break
+
+    if not base_deck_path:
+        return False
+
+    with zipfile.ZipFile(base_deck_path, "r") as bz:
+        files = {name: bz.read(name) for name in bz.namelist()}
+
+    for k in list(files.keys()):
+        if (
+            k.startswith("ppt/slides/")
+            or k.startswith("ppt/notesSlides/")
+            or k.startswith("ppt/comments/")
+        ):
+            del files[k]
+
+    new_sld_id_lst_elements = []
+    content_type_overrides = []
+
+    pres_xml = files["ppt/presentation.xml"].decode("utf-8")
+    pres_rels_xml = files["ppt/_rels/presentation.xml.rels"].decode("utf-8")
+
+    pres_rels_root = ET.fromstring(pres_rels_xml)
+    for rel in list(pres_rels_root):
+        rel_type = rel.attrib.get("Type", "")
+        if "relationships/slide" in rel_type:
+            pres_rels_root.remove(rel)
+
+    for new_idx, item in enumerate(slides, start=1):
+        src_path = item.get("deckFilePath")
+        src_slide_num = int(item.get("slideNumber", 1))
+
+        if not src_path or not os.path.isfile(src_path):
+            src_path = base_deck_path
+
+        with zipfile.ZipFile(src_path, "r") as src_zip:
+            p_xml = src_zip.read("ppt/presentation.xml").decode("utf-8")
+            p_rels_xml = src_zip.read("ppt/_rels/presentation.xml.rels").decode("utf-8")
+            p_rels_root = ET.fromstring(p_rels_xml)
+            p_rel_map = {r.attrib.get("Id"): r.attrib.get("Target") for r in p_rels_root}
+            p_root = ET.fromstring(p_xml)
+            ordered_targets = []
+            for elem in p_root.iter(
+                "{http://schemas.openxmlformats.org/presentationml/2006/main}sldId"
+            ):
+                r_id = elem.attrib.get(
+                    "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id"
+                )
+                target = p_rel_map.get(r_id)
+                if target:
+                    if not target.startswith("ppt/"):
+                        target = "ppt/" + target.lstrip("/")
+                    ordered_targets.append(target)
+
+            if not ordered_targets:
+                continue
+
+            slide_idx = max(0, min(src_slide_num - 1, len(ordered_targets) - 1))
+            src_slide_xml_path = ordered_targets[slide_idx]
+            slide_xml_content = src_zip.read(src_slide_xml_path).decode("utf-8")
+
+            dir_name, base_name = os.path.split(src_slide_xml_path)
+            src_rels_path = f"{dir_name}/_rels/{base_name}.rels"
+
+            new_slide_rels_xml = ""
+            if src_rels_path in src_zip.namelist():
+                rels_content = src_zip.read(src_rels_path).decode("utf-8")
+                rels_root = ET.fromstring(rels_content)
+                for rel in list(rels_root):
+                    target = rel.attrib.get("Target", "")
+                    rel_type = rel.attrib.get("Type", "")
+                    if "comments" in rel_type or "notesSlide" in rel_type:
+                        rels_root.remove(rel)
+                        continue
+                    if target.startswith("../media/"):
+                        media_name = os.path.basename(target)
+                        new_media_name = f"s{new_idx}_{media_name}"
+                        rel.attrib["Target"] = f"../media/{new_media_name}"
+                        src_media_key = f"ppt/media/{media_name}"
+                        if src_media_key in src_zip.namelist():
+                            files[f"ppt/media/{new_media_name}"] = src_zip.read(src_media_key)
+                new_slide_rels_xml = ET.tostring(
+                    rels_root, encoding="utf-8", xml_declaration=True
+                ).decode("utf-8")
+
+            target_slide_path = f"ppt/slides/slide{new_idx}.xml"
+            target_rels_path = f"ppt/slides/_rels/slide{new_idx}.xml.rels"
+            files[target_slide_path] = slide_xml_content.encode("utf-8")
+            if new_slide_rels_xml:
+                files[target_rels_path] = new_slide_rels_xml.encode("utf-8")
+
+            r_id = f"rIdSlide{new_idx}"
+            rel_elem = ET.Element(
+                "{http://schemas.openxmlformats.org/package/2006/relationships}Relationship",
+                {
+                    "Id": r_id,
+                    "Type": "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide",
+                    "Target": f"slides/slide{new_idx}.xml",
+                },
+            )
+            pres_rels_root.append(rel_elem)
+
+            new_sld_id_elements_str = f'<p:sldId id="{256 + new_idx}" r:id="{r_id}"/>'
+            new_sld_id_lst_elements.append(new_sld_id_elements_str)
+            content_type_overrides.append(
+                f'<Override PartName="/ppt/slides/slide{new_idx}.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>'
+            )
+
+    if not new_sld_id_lst_elements:
+        return False
+
+    new_sld_id_lst_xml = (
+        '<p:sldIdLst xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        + "".join(new_sld_id_lst_elements)
+        + "</p:sldIdLst>"
+    )
+    pres_xml = re.sub(
+        r"<p:sldIdLst>.*?</p:sldIdLst>", new_sld_id_lst_xml, pres_xml, flags=re.DOTALL
+    )
+    if "<p:sldIdLst" not in pres_xml:
+        pres_xml = pres_xml.replace(
+            "</p:presentation>", f"{new_sld_id_lst_xml}</p:presentation>"
+        )
+    files["ppt/presentation.xml"] = pres_xml.encode("utf-8")
+    files["ppt/_rels/presentation.xml.rels"] = ET.tostring(
+        pres_rels_root, encoding="utf-8", xml_declaration=True
+    )
+
+    ct_xml = files["[Content_Types].xml"].decode("utf-8")
+    ct_xml = re.sub(r'<Override PartName="/ppt/slides/slide\d+\.xml"[^>]*/>', "", ct_xml)
+    ct_xml = re.sub(r'<Override PartName="/ppt/notesSlides/[^>]*/>', "", ct_xml)
+    ct_xml = re.sub(r'<Override PartName="/ppt/comments/[^>]*/>', "", ct_xml)
+    media_defaults = [
+        '<Default Extension="wdp" ContentType="image/vnd.ms-photo"/>',
+        '<Default Extension="png" ContentType="image/png"/>',
+        '<Default Extension="jpeg" ContentType="image/jpeg"/>',
+        '<Default Extension="jpg" ContentType="image/jpeg"/>',
+        '<Default Extension="svg" ContentType="image/svg+xml"/>',
+        '<Default Extension="emf" ContentType="image/x-emf"/>',
+        '<Default Extension="wmf" ContentType="image/x-wmf"/>',
+    ]
+    for md in media_defaults:
+        ext_check = md.split('"')[1]
+        if f'Extension="{ext_check}"' not in ct_xml:
+            ct_xml = ct_xml.replace("</Types>", f"{md}</Types>")
+    ct_xml = ct_xml.replace("</Types>", "".join(content_type_overrides) + "</Types>")
+    files["[Content_Types].xml"] = ct_xml.encode("utf-8")
+
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+    with zipfile.ZipFile(output_path, "w", compression=zipfile.ZIP_DEFLATED) as out_zip:
+        for k, v in files.items():
+            out_zip.writestr(k, v)
+
+    return True
+
+
 def compile_manifest(manifest_path, output_path):
     with open(manifest_path, "r", encoding="utf-8") as f:
         manifest = json.load(f)
 
+    slides = manifest.get("slides") or []
+
+    # Priority 1: Direct root source slide copying when source .pptx files exist
+    has_root_files = any(
+        s.get("deckFilePath") and os.path.isfile(s.get("deckFilePath")) for s in slides
+    )
+    if has_root_files and slides:
+        success = clone_slides_from_source(slides, output_path)
+        if success:
+            return {
+                "outputPath": output_path,
+                "slideCount": len(slides),
+                "engine": "openxml-root-clone",
+            }
+
+    # Priority 2: Standard presentation assembly
     prs = Presentation()
     prs.slide_width = Inches(13.333)
     prs.slide_height = Inches(7.5)
 
     proposal = manifest.get("proposal") or {}
-    slides = manifest.get("slides") or []
     comparison_rows = manifest.get("comparisonRows") or []
 
     add_cover_slide(prs, proposal)
