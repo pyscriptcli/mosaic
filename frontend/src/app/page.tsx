@@ -137,12 +137,14 @@ function formatMeetingTime(value?: string) {
 }
 
 function AutoResizeTextarea({
+  id,
   value,
   onChange,
   placeholder,
   className = "",
   rows = 1,
 }: {
+  id?: string;
   value: string;
   onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
   placeholder?: string;
@@ -166,6 +168,7 @@ function AutoResizeTextarea({
   return (
     <textarea
       ref={textareaRef}
+      id={id}
       rows={rows}
       value={value}
       onChange={(e) => {
@@ -654,6 +657,8 @@ export default function Home() {
   // Review state
   const [momItems, setMomItems] = useState<any[]>([]);
   const [actionItems, setActionItems] = useState<MeetingActionItem[]>([]);
+  const [meetingSummary, setMeetingSummary] = useState("");
+  const [meetingBottomLine, setMeetingBottomLine] = useState("");
   const [otherDiscussions, setOtherDiscussions] = useState("");
   const [showReviewAssist, setShowReviewAssist] = useState(true);
 
@@ -825,6 +830,8 @@ export default function Home() {
           },
         }))
       );
+      setMeetingSummary(String(momRes.summary || "").trim());
+      setMeetingBottomLine(String(momRes.bottom_line || "").trim());
       setActionItems([]);
       setMissedTopics(
         Array.isArray(momRes.recommended_missed_points)
@@ -901,6 +908,8 @@ export default function Home() {
           },
         }))
       );
+      setMeetingSummary(String(res.summary || "").trim());
+      setMeetingBottomLine(String(res.bottom_line || "").trim());
       setActionItems([]);
       setOtherDiscussions(res.other_discussions || "");
       setStage("Review");
@@ -979,6 +988,58 @@ export default function Home() {
     setMissedTopics([]);
   };
 
+  const addMissedAction = (index: number) => {
+    const suggestion = missedTopics[index];
+    if (!suggestion?.action_plan || suggestion.action_plan === "None") return;
+    const existingDiscussion = momItems.find((item) =>
+      String(item.topic_title || item.topic || "").trim().toLowerCase() === suggestion.topic_title.trim().toLowerCase()
+    );
+    const discussionId = existingDiscussion?.id || `dp_${Date.now()}_${momItems.length}`;
+    if (!existingDiscussion) {
+      setMomItems((items) => [...items, {
+        id: discussionId,
+        topic_title: suggestion.topic_title,
+        discussion_point: suggestion.discussion_point || "",
+        evidence_quote: suggestion.evidence_quote || "",
+      }]);
+    }
+    setActionItems((items) => [...items, {
+      id: `action-${Date.now()}-${items.length}`,
+      discussion_point_id: discussionId,
+      action_plan: suggestion.action_plan,
+      target_date: suggestion.indicative_delivery_date === "TBD" ? "" : suggestion.indicative_delivery_date || "",
+      person_in_charge: suggestion.person_in_charge === "Unassigned" ? "" : suggestion.person_in_charge || "",
+      assignee_ids: [],
+    }]);
+    setMissedTopics((topics) => topics.filter((_, currentIndex) => currentIndex !== index));
+  };
+
+  const addAllMissedActions = () => {
+    const candidates = missedTopics.filter((topic) => topic.action_plan && topic.action_plan !== "None");
+    if (!candidates.length) return;
+    const now = Date.now();
+    const newDiscussions: any[] = [];
+    const newActions: MeetingActionItem[] = [];
+    candidates.forEach((suggestion, index) => {
+      const existing = momItems.find((item) => String(item.topic_title || item.topic || "").trim().toLowerCase() === suggestion.topic_title.trim().toLowerCase())
+        || newDiscussions.find((item) => String(item.topic_title).trim().toLowerCase() === suggestion.topic_title.trim().toLowerCase());
+      const discussionId = existing?.id || `dp_${now}_${index}`;
+      if (!existing) newDiscussions.push({ id: discussionId, topic_title: suggestion.topic_title, discussion_point: suggestion.discussion_point || "", evidence_quote: suggestion.evidence_quote || "" });
+      newActions.push({
+        id: `action-${now}-${index}`,
+        discussion_point_id: discussionId,
+        action_plan: suggestion.action_plan,
+        target_date: suggestion.indicative_delivery_date === "TBD" ? "" : suggestion.indicative_delivery_date || "",
+        person_in_charge: suggestion.person_in_charge === "Unassigned" ? "" : suggestion.person_in_charge || "",
+        assignee_ids: [],
+      });
+    });
+    setMomItems((items) => [...items, ...newDiscussions]);
+    setActionItems((items) => [...items, ...newActions]);
+    const candidateTitles = new Set(candidates.map((topic) => topic.topic_title));
+    setMissedTopics((topics) => topics.filter((topic) => !candidateTitles.has(topic.topic_title)));
+  };
+
   const dismissMissedTopic = (index: number) => {
     setMissedTopics((topics) => topics.filter((_, i) => i !== index));
   };
@@ -1029,11 +1090,9 @@ export default function Home() {
   }, [stage, autoDiscoverEnabled, hasAutoDiscovered, transcript, missedTopics.length, isDiscoveringTopics]);
 
   // Export handlers with effective metadata
-  const meetingSummary = momItems
-    .map((item) => String(item.discussion_point || "").trim())
+  const combinedMeetingSummary = [meetingSummary.trim(), meetingBottomLine.trim()]
     .filter(Boolean)
-    .slice(0, 3)
-    .join(" ");
+    .join("\n\n");
 
   const handleExportWord = async () => {
     const effectiveMeta = getEffectiveMetadata();
@@ -1047,7 +1106,7 @@ export default function Home() {
       await exportWord(effectiveMeta, momItems, actionItems.map((action) => {
         const source = momItems.find((item) => String(item.id) === String(action.discussion_point_id));
         return { ...action, discussion_point_title: source?.topic_title || source?.topic || "", discussion_point: source?.discussion_point || "" };
-      }), meetingSummary, otherDiscussions);
+      }), combinedMeetingSummary, otherDiscussions);
       setShowFinalizeModal(false);
       setShowExportModal(false);
     } catch (err: any) {
@@ -1069,7 +1128,7 @@ export default function Home() {
       await exportPdf(effectiveMeta, momItems, actionItems.map((action) => {
         const source = momItems.find((item) => String(item.id) === String(action.discussion_point_id));
         return { ...action, discussion_point_title: source?.topic_title || source?.topic || "", discussion_point: source?.discussion_point || "" };
-      }), meetingSummary, otherDiscussions);
+      }), combinedMeetingSummary, otherDiscussions);
       setShowFinalizeModal(false);
       setShowExportModal(false);
     } catch (err: any) {
@@ -1136,7 +1195,7 @@ export default function Home() {
         ...(targetListId ? { list_id: targetListId } : {}),
         is_confidential: isConfidential,
       };
-      const res = await saveMeeting(payloadMeta, momItems, actionItems, otherDiscussions, transcript, additionalMeetingNotes);
+      const res = await saveMeeting(payloadMeta, momItems, actionItems, combinedMeetingSummary, otherDiscussions, transcript, additionalMeetingNotes);
       const newMeetingId = res.meeting_id || `MOM-${Date.now()}`;
       const newRecord: ArchivedMeeting = {
         id: newMeetingId,
@@ -1151,7 +1210,7 @@ export default function Home() {
         location: effectiveMeta.location || "",
         attendees_prime: primeAttendees,
         attendees_external: externalAttendees,
-        summary: otherDiscussions,
+        summary: combinedMeetingSummary,
         meeting_notes: additionalMeetingNotes,
         items: momItems.map((item, idx) => ({
           id: item.id || `item-${idx}`,
@@ -1285,7 +1344,7 @@ export default function Home() {
           metadata: getEffectiveMetadata(),
           items: momItems,
           action_items: actionItems,
-          summary: otherDiscussions,
+          summary: combinedMeetingSummary,
         }}
       />
 
@@ -2241,6 +2300,28 @@ export default function Home() {
 
             <MeetingWorkspaceTabs value={reviewTab} onChange={setReviewTab} />
 
+            <section className="border border-gray-200 bg-[#FFFCFB] p-5 shadow-2xs" aria-label="Meeting summary">
+              <h3 className="mb-3 font-serif text-lg italic text-[#003366]">Meeting Summary</h3>
+              <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-500" htmlFor="meeting-summary-input">Summary</label>
+              <AutoResizeTextarea
+                id="meeting-summary-input"
+                rows={2}
+                className="mb-3 w-full border border-gray-200 bg-white p-3 text-sm leading-relaxed text-[#003366] focus:border-[#C9AB4C] focus:outline-none"
+                value={meetingSummary}
+                onChange={(event) => setMeetingSummary(event.target.value)}
+                placeholder="Briefly summarize the meeting purpose and main subjects."
+              />
+              <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-500" htmlFor="meeting-bottom-line-input">Bottom Line</label>
+              <AutoResizeTextarea
+                id="meeting-bottom-line-input"
+                rows={2}
+                className="w-full border border-gray-200 bg-white p-3 text-sm leading-relaxed text-[#003366] focus:border-[#C9AB4C] focus:outline-none"
+                value={meetingBottomLine}
+                onChange={(event) => setMeetingBottomLine(event.target.value)}
+                placeholder="State the overall outcome, decision, or what remains unresolved."
+              />
+            </section>
+
             {reviewTab === "transcript" ? (
               /* TRANSCRIPT TAB */
               <div className="border border-gray-200 bg-[#FFFCFB] p-5 shadow-2xs rounded-none space-y-4">
@@ -2509,6 +2590,8 @@ export default function Home() {
         onTopicQueryChange={setTopicQuery}
         onDiscoverTopics={discoverTopics}
         onAddTopic={addMissedTopic}
+        onAddAction={addMissedAction}
+        onAddAllActions={addAllMissedActions}
         onAddAllTopics={addAllMissedTopics}
         onDismissTopic={dismissMissedTopic}
         transcript={transcript}

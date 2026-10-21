@@ -23,7 +23,7 @@ function cleanField(val: any): string {
 
 function formatDiscussionText(val: any): string {
   return cleanField(val).split(/\r?\n/).map((line) =>
-    line.replace(/^(?:[-*•]|\d+[.)])\s+/, "• "),
+    line.replace(/\*\*([^*]+)\*\*/g, "$1").replace(/^(?:[-*•]|\d+[.)])\s+/, "• "),
   ).join("\n");
 }
 
@@ -114,7 +114,7 @@ export async function POST(req: NextRequest) {
     doc.setLineWidth(0.3);
     doc.rect(14, metaStartY, pageWidth - 28, metaFinalY - metaStartY, "S");
 
-    const summaryText = cleanField(summary);
+    const summaryParagraphs = cleanField(summary).split(/\r?\n\s*\r?\n/).filter(Boolean);
 
     const summaryStartY = metaFinalY + 4;
     doc.setFont("times", "bolditalic");
@@ -126,9 +126,10 @@ export async function POST(req: NextRequest) {
     {
       doc.setFont("helvetica", "normal");
       doc.setFontSize(7.8);
-      const summaryLines = doc.splitTextToSize(summaryText || "No summary provided.", pageWidth - 38);
+      const summaryLines = doc.splitTextToSize(summaryParagraphs[0] || "No summary provided.", pageWidth - 38);
+      const bottomLines = summaryParagraphs[1] ? doc.splitTextToSize(summaryParagraphs[1], pageWidth - 38) : [];
       const summaryBoxStartY = summaryStartY + 6;
-      const summaryBoxHeight = Math.max(12, (summaryLines.length * 3.8) + 8);
+      const summaryBoxHeight = Math.max(12, (summaryLines.length * 3.8) + (bottomLines.length ? bottomLines.length * 3.8 + 12 : 8));
 
       doc.setFillColor(250, 249, 247);
       doc.rect(14, summaryBoxStartY, pageWidth - 28, summaryBoxHeight, "F");
@@ -143,6 +144,15 @@ export async function POST(req: NextRequest) {
       doc.setFontSize(7.8);
       doc.setTextColor(55, 65, 81);
       doc.text(summaryLines, 19, summaryBoxStartY + 5);
+      if (bottomLines.length) {
+        const bottomY = summaryBoxStartY + 7 + summaryLines.length * 3.8;
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(0, 51, 102);
+        doc.text("Bottom line:", 19, bottomY);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(55, 65, 81);
+        doc.text(bottomLines, 19, bottomY + 3.8);
+      }
 
       tableStartY = summaryBoxStartY + summaryBoxHeight + 5;
     }
@@ -155,15 +165,19 @@ export async function POST(req: NextRequest) {
 
     (discussion_points || []).forEach((item: any, index: number) => {
       const topic = cleanField(item.topic_title) || `Discussion ${index + 1}`;
-      const discussionPoint = formatDiscussionText(item.discussion_point) || "No discussion details recorded.";
+      const sourceLines = cleanField(item.discussion_point).split(/\r?\n/).filter(Boolean);
+      const discussionPoint = sourceLines.length ? sourceLines : ["No discussion details recorded."];
       autoTable(doc, {
         startY: tableStartY,
         head: [[topic]],
-        body: [[discussionPoint]],
+        body: discussionPoint.map((line: string) => [formatDiscussionText(line)]),
         theme: "grid",
         headStyles: { fillColor: [250, 249, 247], textColor: [0, 51, 102], fontStyle: "bold", fontSize: 9 },
         bodyStyles: { fillColor: [255, 255, 255], textColor: [50, 50, 50], fontSize: 8, cellPadding: 3.5, overflow: "linebreak" },
         styles: { lineColor: [220, 225, 230], lineWidth: 0.2 },
+        didParseCell: (data: any) => {
+          if (data.section === "body" && sourceLines[data.row.index]?.includes("**")) data.cell.styles.fontStyle = "bold";
+        },
       });
       // @ts-ignore
       tableStartY = ((doc as any).lastAutoTable?.finalY || (tableStartY + 18)) + 3;

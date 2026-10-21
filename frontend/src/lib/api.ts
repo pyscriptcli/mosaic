@@ -287,7 +287,7 @@ export async function askEcho(
   return res.json();
 }
 
-export async function saveMeeting(metadata: any, items: any[], action_items: any[], other_discussions: string, transcript: string, meeting_notes?: string) {
+export async function saveMeeting(metadata: any, items: any[], action_items: any[], summary: string, other_discussions: string, transcript: string, meeting_notes?: string) {
   const res = await fetch("/api/save-meeting", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -295,6 +295,7 @@ export async function saveMeeting(metadata: any, items: any[], action_items: any
       meeting_details: metadata,
       items,
       action_items,
+      summary,
       other_discussions,
       transcript,
       meeting_notes,

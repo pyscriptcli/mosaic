@@ -33,6 +33,13 @@ function cleanField(val: any): string {
   return s;
 }
 
+function formattedRuns(value: string, size = 18, color = "333333") {
+  return value.split(/(\*\*[^*]+\*\*)/g).filter(Boolean).map((part) => {
+    const bold = part.startsWith("**") && part.endsWith("**");
+    return new TextRun({ text: bold ? part.slice(2, -2) : part, bold, size, color });
+  });
+}
+
 export async function POST(req: NextRequest) {
   const denied = await requireFeature(req, "meetings-export");
   if (denied) return denied;
@@ -202,7 +209,7 @@ export async function POST(req: NextRequest) {
     });
 
     // 3. Summary
-    const summaryText = cleanField(summary);
+    const summaryParagraphs = cleanField(summary).split(/\r?\n\s*\r?\n/).filter(Boolean);
 
     const summaryTable = new Table({
           width: { size: 100, type: WidthType.PERCENTAGE },
@@ -231,16 +238,8 @@ export async function POST(req: NextRequest) {
                       ],
                       spacing: { before: 100, after: 60 },
                     }),
-                    new Paragraph({
-                      children: [
-                        new TextRun({
-                          text: summaryText || "No summary provided.",
-                          color: "374151",
-                          size: 18,
-                        }),
-                      ],
-                      spacing: { after: 100 },
-                    }),
+                    new Paragraph({ children: formattedRuns(summaryParagraphs[0] || "No summary provided.", 18, "374151"), spacing: { after: 100 } }),
+                    ...(summaryParagraphs[1] ? [new Paragraph({ children: [new TextRun({ text: "Bottom line: ", bold: true, color: "003366", size: 18 }), ...formattedRuns(summaryParagraphs[1], 18, "374151")], spacing: { after: 100 } })] : []),
                   ],
                 }),
               ],
@@ -263,12 +262,12 @@ export async function POST(req: NextRequest) {
         if (bullet) {
           return new Paragraph({
             bullet: { level: 0 },
-            children: [new TextRun({ text: bullet[1], size: 18, color: "333333" })],
+            children: formattedRuns(bullet[1], 18, "333333"),
             spacing: { after: 60 },
           });
         }
         return new Paragraph({
-          children: [new TextRun({ text: content, size: 18, color: "333333" })],
+          children: formattedRuns(content, 18, "333333"),
           spacing: { after: 80 },
         });
       });
@@ -313,8 +312,8 @@ export async function POST(req: NextRequest) {
       if (discussion) discussionCell.push(...discussion.split(/\r?\n/).map((line: string) => {
         const bullet = line.trim().match(/^(?:[-*•]|\d+[.)])\s+(.*)$/);
         return bullet
-          ? new Paragraph({ bullet: { level: 0 }, children: [new TextRun({ text: bullet[1], size: 18, color: "333333" })], spacing: { after: 60 } })
-          : new Paragraph({ children: [new TextRun({ text: line.trim(), size: 18, color: "333333" })], spacing: { after: 60 } });
+          ? new Paragraph({ bullet: { level: 0 }, children: formattedRuns(bullet[1], 18, "333333"), spacing: { after: 60 } })
+          : new Paragraph({ children: formattedRuns(line.trim(), 18, "333333"), spacing: { after: 60 } });
       }));
       if (discussionCell.length === 0) discussionCell.push(new Paragraph({ text: "" }));
       const cells = [cleanField(item.action_plan), cleanField(item.target_date || item.indicative_delivery_date), cleanField(item.person_in_charge)];

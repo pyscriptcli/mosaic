@@ -24,6 +24,7 @@ function meetingDescription(meeting: any) {
     "\n# Executive Summary",
     meeting.summary || "—",
     ...(meeting.meeting_notes ? ["\n# Meeting Notes", meeting.meeting_notes] : []),
+    ...(meeting.other_discussions ? ["\n# Other Discussions", meeting.other_discussions] : []),
     "\n# Discussion Points",
     serializeMeetingContent(meeting.items || [], meeting.action_items || []),
     "\n# Full Transcript",
@@ -121,10 +122,10 @@ function parseMeetingTask(task: any, spaceId: string, spaceName: string, list: a
   const recordingFormat = recFormatMatch?.[1]?.trim().toLowerCase();
 
   const hasNotesSection = /# Meeting Notes\r?\n/.test(description);
-  const summary = hasNotesSection
-    ? section("Executive Summary", "Meeting Notes")
-    : section("Executive Summary", "Discussion Points");
-  const meetingNotes = hasNotesSection ? section("Meeting Notes", "Discussion Points") : "";
+  const summaryNext = hasNotesSection ? "Meeting Notes" : (/\n# Other Discussions\r?\n/.test(description) ? "Other Discussions" : "Discussion Points");
+  const summary = section("Executive Summary", summaryNext);
+  const meetingNotes = hasNotesSection ? section("Meeting Notes", /\n# Other Discussions\r?\n/.test(description) ? "Other Discussions" : "Discussion Points") : "";
+  const otherDiscussions = section("Other Discussions", "Discussion Points");
 
   const content = parseMeetingContent(section("Discussion Points", "Full Transcript"));
   return {
@@ -139,6 +140,7 @@ function parseMeetingTask(task: any, spaceId: string, spaceName: string, list: a
     attendees_prime: attendeesPrime.length > 0 ? attendeesPrime : ["Dave Policarpio"],
     attendees_external: attendeesExternal,
     summary,
+    other_discussions: otherDiscussions,
     meeting_notes: meetingNotes,
     recording_type: recordingType,
     recording_format: recordingFormat,

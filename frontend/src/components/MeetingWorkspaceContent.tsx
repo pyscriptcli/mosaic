@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { SearchableMemberMultiSelect, type ClickUpMember } from "./SearchableMemberSelect";
 
 export function useMeetingAssignees(enabled: boolean) {
@@ -107,13 +107,19 @@ function renderDiscussionPoint(value: string) {
     else blocks.push({ type: "paragraph", lines: [line] });
   });
 
+  const renderEmphasis = (text: string, keyPrefix: string) => text.split(/(\*\*[^*]+\*\*)/g).map((part, partIndex) =>
+    part.startsWith("**") && part.endsWith("**")
+      ? <strong key={`${keyPrefix}-${partIndex}`} className="font-bold text-[#003366]">{part.slice(2, -2)}</strong>
+      : <Fragment key={`${keyPrefix}-${partIndex}`}>{part}</Fragment>
+  );
+
   return blocks.map((block, index) => block.type === "list" ? (
     <ul key={`list-${index}`} className="list-disc space-y-1 pl-5 text-sm leading-relaxed text-slate-700">
-      {block.lines.map((line, lineIndex) => <li key={lineIndex}>{line}</li>)}
+      {block.lines.map((line, lineIndex) => <li key={lineIndex}>{renderEmphasis(line, `list-${index}-${lineIndex}`)}</li>)}
     </ul>
   ) : (
     <p key={`paragraph-${index}`} className="text-sm leading-relaxed text-slate-700">
-      {block.lines.join(" ")}
+      {renderEmphasis(block.lines.join(" "), `paragraph-${index}`)}
     </p>
   ));
 }
@@ -128,7 +134,7 @@ export function MeetingDiscussionCard({
   onAddAction,
   children,
 }: MeetingDiscussionCardProps) {
-  const editable = Boolean(onTitleChange || onDiscussionPointChange);
+  const [editingDiscussion, setEditingDiscussion] = useState(!discussionPoint.trim());
 
   return (
     <article className="space-y-3 border border-gray-200/90 bg-[#FFFCFB] p-5 shadow-2xs">
@@ -151,7 +157,7 @@ export function MeetingDiscussionCard({
         </section>
       )}
 
-      {onDiscussionPointChange ? (
+      {onDiscussionPointChange && editingDiscussion ? (
         <AutoResizeTextarea
           label="Discussion point"
           value={discussionPoint}
@@ -162,7 +168,14 @@ export function MeetingDiscussionCard({
         <div className="space-y-2">{renderDiscussionPoint(discussionPoint)}</div>
       )}
 
-      {editable && <p className="text-[11px] text-slate-400">Use a short paragraph followed by bullets for separate points.</p>}
+      {onDiscussionPointChange && (
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-[11px] text-slate-400">Use a short intro followed by concise bullets. Wrap important details in **bold**.</p>
+          <button type="button" onClick={() => setEditingDiscussion((editing) => !editing)} className="shrink-0 text-xs font-semibold text-[#003366] underline underline-offset-2">
+            {editingDiscussion ? "Done editing" : "Edit discussion"}
+          </button>
+        </div>
+      )}
       {onAddAction && (
         <div className="flex justify-end border-t border-gray-100 pt-3">
           <button type="button" onClick={onAddAction} className="border border-[#003366]/30 bg-[#FFFCFB] px-3 py-1.5 text-xs font-semibold text-[#003366] transition-colors hover:border-[#003366] hover:bg-blue-50/50">

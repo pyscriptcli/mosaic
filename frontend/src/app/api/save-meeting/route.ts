@@ -8,7 +8,7 @@ import { serializeMeetingContent } from "@/lib/meetingArchive";
 
 export async function POST(req: NextRequest) {
   try {
-    const { meeting_details, items = [], action_items = [], other_discussions, transcript, meeting_notes } = await req.json();
+    const { meeting_details, items = [], action_items = [], summary = "", other_discussions, transcript, meeting_notes } = await req.json();
 
     const token = getTokenFromRequest(req);
     if (!token) return NextResponse.json({ error: "ClickUp authentication required" }, { status: 401 });
@@ -67,8 +67,9 @@ export async function POST(req: NextRequest) {
       ...(meeting_details.recording_format ? [`**Recording Format:** ${meeting_details.recording_format}`] : []),
       ...(teamAtt ? [`**Team Attendees:** ${teamAtt}`] : []),
       ...(extAtt ? [`**External Attendees:** ${extAtt}`] : []),
-      `\n# Executive Summary\n${other_discussions || ""}`,
+      `\n# Executive Summary\n${summary || ""}`,
       ...(effectiveNotes ? [`\n# Meeting Notes\n${effectiveNotes}`] : []),
+      ...(other_discussions ? [`\n# Other Discussions\n${other_discussions}`] : []),
       `\n# Discussion Points\n${serializeMeetingContent(items, action_items)}`,
       `\n# Full Transcript\n${(transcript || "").substring(0, 20000)}`
     ].join("\n");
@@ -126,7 +127,7 @@ export async function POST(req: NextRequest) {
       meeting_date: meetingDate,
       meeting_type: meeting_details.meeting_type || "Internal",
       location: meeting_details.location || "",
-      summary_md: other_discussions || "",
+      summary_md: summary || "",
       transcript_md: (transcript || "").substring(0, 20_000),
       meeting_notes: effectiveNotes,
       table_items: items || [],

@@ -1,17 +1,24 @@
 ﻿"use client";
 
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { 
   X, 
   Search, 
   Sparkles, 
   Zap, 
   Plus, 
-  Calendar, 
-  UserCheck, 
   Loader2,
 } from "lucide-react";
 import type { DiscoveredTopicItem } from "@/app/api/discover-topics/route";
+
+function renderDiscussionText(text: string) {
+  return <div className="space-y-1">{text.split(/\r?\n/).filter(Boolean).map((line, lineIndex) => {
+    const bullet = line.trim().match(/^(?:[-*•]|\d+[.)])\s+(.*)$/);
+    const value = bullet?.[1] || line.trim();
+    const parts = value.split(/(\*\*[^*]+\*\*)/g).filter(Boolean).map((part, partIndex) => part.startsWith("**") && part.endsWith("**") ? <strong key={partIndex} className="font-bold text-[#003366]">{part.slice(2, -2)}</strong> : <React.Fragment key={partIndex}>{part}</React.Fragment>);
+    return bullet ? <p key={lineIndex} className="pl-3 before:mr-2 before:text-[#C9AB4C] before:content-['•']">{parts}</p> : <p key={lineIndex}>{parts}</p>;
+  })}</div>;
+}
 
 interface DiscoverTopicsModalProps {
   isOpen: boolean;
@@ -24,6 +31,8 @@ interface DiscoverTopicsModalProps {
   onTopicQueryChange: (query: string) => void;
   onDiscoverTopics: (query?: string) => void;
   onAddTopic: (index: number) => void;
+  onAddAction?: (index: number) => void;
+  onAddAllActions?: () => void;
   onAddAllTopics: () => void;
   onDismissTopic: (index: number) => void;
   transcript: string;
@@ -40,10 +49,17 @@ export function DiscoverTopicsModal({
   onTopicQueryChange,
   onDiscoverTopics,
   onAddTopic,
+  onAddAction,
+  onAddAllActions,
   onAddAllTopics,
   onDismissTopic,
   transcript,
 }: DiscoverTopicsModalProps) {
+  const [activeTab, setActiveTab] = useState<"topics" | "actions">("topics");
+  const topicRows = missedTopics.map((topic, index) => ({ topic, index }));
+  const actionRows = missedTopics
+    .map((topic, index) => ({ topic, index }))
+    .filter(({ topic }) => Boolean(topic.action_plan && topic.action_plan !== "None"));
   // Close on Escape key
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -108,13 +124,18 @@ export function DiscoverTopicsModal({
             </button>
 
             {/* Add All Button */}
-            {missedTopics.length > 1 && (
+            {activeTab === "topics" && missedTopics.length > 1 && (
               <button
                 type="button"
                 onClick={onAddAllTopics}
                 className="bg-[#c9ab4c] text-[#003366] hover:bg-[#d8bc5e] px-3 py-1 text-[11px] font-bold uppercase tracking-wider rounded-none shadow-2xs inline-flex items-center gap-1 transition-colors"
               >
                 <Plus size={12} /> Add All ({missedTopics.length}) Discussion Points
+              </button>
+            )}
+            {activeTab === "actions" && actionRows.length > 1 && (
+              <button type="button" onClick={onAddAllActions} className="bg-[#c9ab4c] px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-[#003366] hover:bg-[#d8bc5e]">
+                <Plus size={12} className="mr-1 inline" /> Add All ({actionRows.length}) Action Items
               </button>
             )}
 
@@ -182,14 +203,23 @@ export function DiscoverTopicsModal({
           </form>
         </div>
 
-        {/* Scrollable Topics Body */}
+        <div role="tablist" aria-label="Discovered meeting items" className="flex border-b border-gray-200 bg-white px-4">
+          <button type="button" role="tab" aria-selected={activeTab === "topics"} onClick={() => setActiveTab("topics")} className={`border-b-2 px-4 py-2.5 text-xs font-bold uppercase tracking-wider ${activeTab === "topics" ? "border-[#003366] text-[#003366]" : "border-transparent text-gray-400"}`}>
+            Topics ({topicRows.length})
+          </button>
+          <button type="button" role="tab" aria-selected={activeTab === "actions"} onClick={() => setActiveTab("actions")} className={`border-b-2 px-4 py-2.5 text-xs font-bold uppercase tracking-wider ${activeTab === "actions" ? "border-[#003366] text-[#003366]" : "border-transparent text-gray-400"}`}>
+            Action Items ({actionRows.length})
+          </button>
+        </div>
+
+        {/* Scrollable Topics and Actions */}
         <div className="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1 min-h-[220px]">
-          {missedTopics.length === 0 ? (
+          {(activeTab === "topics" ? topicRows.length === 0 : actionRows.length === 0) ? (
             <div className="text-center py-12 px-4 bg-[#FFFCFB] border border-dashed border-gray-200">
               <Sparkles size={28} className="mx-auto text-[#c9ab4c] mb-2.5 opacity-80" />
-              <h3 className="text-xs font-bold uppercase tracking-wider text-[#003366]">No Uncaptured Discussion Points</h3>
+              <h3 className="text-xs font-bold uppercase tracking-wider text-[#003366]">{activeTab === "topics" ? "No Uncaptured Discussion Points" : "No Explicit Action Items Found"}</h3>
               <p className="text-[11px] text-gray-500 mt-1.5 max-w-md mx-auto leading-relaxed">
-                Find discussion points that are missing from the minutes. Action suggestions appear separately and are never added as action items automatically. Search a keyword above or run <strong>Auto-Discover</strong>.
+                {activeTab === "topics" ? <>Find discussion points that are missing from the minutes. Search a keyword above or run <strong>Auto-Discover</strong>.</> : <>An action item appears here only when the transcript contains an explicit commitment or assigned next step. Discover more topics to check again.</>}
               </p>
               <div className="mt-4 flex items-center justify-center gap-2">
                 <button
@@ -202,12 +232,10 @@ export function DiscoverTopicsModal({
                 </button>
               </div>
             </div>
-          ) : (
+          ) : activeTab === "topics" ? (
             <>
-              <p className="text-[11px] text-gray-500">
-                Discussion points capture what was discussed. Only explicit commitments appear as optional action suggestions.
-              </p>
-              {missedTopics.map((topic, idx) => (
+              <p className="text-[11px] text-gray-500">Discussion points capture what was discussed. Add an item here to the Discussion Points tab.</p>
+              {topicRows.map(({ topic, index: idx }) => (
               <div
                 key={idx}
                 className="p-4 bg-white border border-gray-200 shadow-2xs hover:border-[#003366]/40 transition-all rounded-none"
@@ -270,29 +298,30 @@ export function DiscoverTopicsModal({
                     <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-0.5">
                       Discussion Point
                     </span>
-                    <p className="text-xs text-gray-700 leading-relaxed">
-                      {topic.discussion_point}
-                    </p>
-                  </div>
-                )}
-
-                {topic.action_plan && topic.action_plan !== "None" && (
-                  <div className="mt-3 pt-2.5 border-t border-gray-100">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-[#003366] block mb-1">
-                      Possible Action Suggestion <span className="font-medium normal-case text-gray-400">(optional)</span>
-                    </span>
-                    <p className="text-xs text-gray-700 leading-relaxed">{topic.action_plan}</p>
-                    <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1.5 text-[10px] text-gray-500">
-                      {topic.indicative_delivery_date && topic.indicative_delivery_date !== "TBD" && (
-                        <span className="inline-flex items-center gap-1"><Calendar size={11} /> Target: {topic.indicative_delivery_date}</span>
-                      )}
-                      {topic.person_in_charge && topic.person_in_charge !== "Unassigned" && (
-                        <span className="inline-flex items-center gap-1"><UserCheck size={11} /> Suggested owner: {topic.person_in_charge}</span>
-                      )}
-                    </div>
+                    <div className="text-xs leading-relaxed text-gray-700">{renderDiscussionText(topic.discussion_point)}</div>
                   </div>
                 )}
               </div>
+              ))}
+            </>
+          ) : (
+            <>
+              <p className="text-[11px] text-gray-500">Only explicit commitments appear here. Adding one creates a separate action item linked to its discussion point.</p>
+              {actionRows.map(({ topic, index }) => (
+                <article key={`${index}-${topic.topic_title}`} className="border border-gray-200 bg-white p-4 shadow-2xs">
+                  <header className="flex items-start justify-between gap-3 border-b border-gray-100 pb-2.5">
+                    <div><h3 className="font-serif text-sm font-bold text-[#003366]">{topic.topic_title}</h3><p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">Discussion point</p><div className="mt-1 text-xs leading-relaxed text-slate-700">{renderDiscussionText(topic.discussion_point)}</div></div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <button type="button" onClick={() => onAddAction?.(index)} className="btn-outline !py-1.5 !px-3 !text-xs rounded-none inline-flex items-center gap-1.5 text-[#003366]"><Plus size={12} /> Add Action Item</button>
+                      <button type="button" onClick={() => onDismissTopic(index)} aria-label={`Dismiss ${topic.topic_title}`} className="p-1 text-gray-400 hover:text-red-500"><X size={15} /></button>
+                    </div>
+                  </header>
+                  {topic.evidence_quote && <p className="mt-3 border-l-2 border-[#c9ab4c] bg-gray-50 px-3 py-2 text-[11px] italic leading-relaxed text-slate-600">{topic.evidence_quote}</p>}
+                  <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                    <div className="sm:col-span-2"><span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Action Plan</span><p className="mt-1 text-sm leading-relaxed text-[#003366]">{topic.action_plan}</p></div>
+                    <div><span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Target Date</span><p className="mt-1 text-xs text-slate-700">{topic.indicative_delivery_date === "TBD" ? "Not specified" : topic.indicative_delivery_date}</p><span className="mt-2 block text-[10px] font-bold uppercase tracking-wider text-slate-500">Person in Charge</span><p className="mt-1 text-xs text-slate-700">{topic.person_in_charge === "Unassigned" ? "Unassigned" : topic.person_in_charge}</p></div>
+                  </div>
+                </article>
               ))}
             </>
           )}
@@ -301,7 +330,7 @@ export function DiscoverTopicsModal({
         {/* Modal Footer */}
         <div className="px-5 py-3 bg-gray-50 border-t border-gray-200 flex items-center justify-between shrink-0">
           <p className="text-[11px] text-gray-500">
-            Adding creates a discussion point only. Use Add as action item on its card to create a separate action.
+            {activeTab === "topics" ? "Adding creates a discussion point only. Add its action separately from the Action Items tab." : "Adding an action links it to its discussion point; a missing discussion point is added at the same time."}
           </p>
           <button
             type="button"

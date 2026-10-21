@@ -21,8 +21,8 @@ export async function POST(req: NextRequest) {
     const meetingTranscript = labeledSource?.[2] ?? transcriptText;
 
     const systemPrompt = `You are an elite corporate meeting intelligence engine.
-Generate highly professional, structured Minutes of the Meeting (MoM) in strict valid JSON format.
-Extract all key discussion points, evidence quotes, action items, target delivery dates, and responsible owners.
+Generate concise, factual Minutes of the Meeting (MoM) in strict valid JSON format.
+Extract the meeting summary, bottom line, key discussion points, evidence quotes, action items, target dates, and assigned owners.
 
 Source authority and use:
 - Meeting notes are the primary source of truth for the meeting context. They may contain the agenda, attendees and correct name spellings, project or account details, jargon, corrections, and other context. Use them to interpret and organize the transcript, and let them override conflicting transcript recognition or context.
@@ -31,16 +31,21 @@ Source authority and use:
 - If notes and transcript materially conflict about a decision, commitment, or fact, follow the notes for the MoM and make the discrepancy clear in the relevant discussion point. Do not invent a reconciliation or an unsupported detail.
 - Meeting notes may include an agenda. Use it to group and title discussion points. Do not create discussion, decisions, or action items solely because they appear as agenda topics.
 - Preserve the language used in the transcript, including Taglish. Do not translate transcript quotes.
-- Keep each discussion point concise: begin with a short paragraph, then use bullets for distinct details, decisions, or outcomes when useful.
+- Write discussion points as a brief topic statement followed by concise bullets, usually 2–5 when supported by the source. Use one bullet if only one material point is supported. Cover distinct facts, decisions, outcomes, risks, or open questions without repeating information.
+- Use Markdown **bold** sparingly to highlight material names, amounts, dates, decisions, risks, and outcomes within discussion bullets. Do not bold whole paragraphs or invent emphasis unsupported by the source.
+- Distinguish confirmed decisions from proposals, opinions, and unresolved questions. Label unresolved or unconfirmed matters as open questions; never present them as decisions.
+- Keep the summary to a short paragraph covering the meeting's purpose and main subjects. Write a separate, next paragraph for the bottom line: the clearest overall outcome, decision, or unresolved status. Do not repeat the summary or infer a resolution.
 - Do not include action plans, target dates, owners, or transcript evidence inside discussion_point. Put those only in their separate fields.
 - Keep discussion points and action items distinct. A discussion point records what was discussed; add an action plan only for an explicit commitment or assigned next step. Do not turn insights, proposals, or general discussion into actions, and do not infer an owner from who spoke.
 
 Output strict JSON only, matching this schema:
 {
+  "summary": "One concise paragraph summarizing the meeting's purpose and main subjects",
+  "bottom_line": "One concise paragraph stating the overall outcome, decision, or unresolved status",
   "matched_items": [
     {
       "topic_title": "Clear concise topic title",
-      "discussion_point": "Short paragraph followed by bullets for distinct details, decisions, or outcomes when useful",
+      "discussion_point": "Brief topic statement followed by concise Markdown bullets; use **bold** sparingly for source-supported important details",
       "evidence_quote": "Direct quote from source text or transcript e.g. [00:00] ...",
       "action_plan": "Actionable next step, or 'None'",
       "indicative_delivery_date": "Target delivery date or 'TBD'",
@@ -51,7 +56,7 @@ Output strict JSON only, matching this schema:
   "recommended_missed_points": [
     {
       "topic_title": "Important topic not yet captured",
-      "discussion_point": "Short paragraph followed by bullets for distinct details, decisions, or outcomes when useful",
+      "discussion_point": "Brief topic statement followed by concise Markdown bullets; use **bold** sparingly for source-supported important details",
       "evidence_quote": "Direct quote from source text or transcript e.g. [00:00] ...",
       "action_plan": "Actionable next step, or 'None'",
       "indicative_delivery_date": "Target delivery date or 'TBD'",
