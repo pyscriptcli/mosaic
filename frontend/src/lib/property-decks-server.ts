@@ -1,10 +1,9 @@
-import { execFile } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { promisify } from "node:util";
 import JSZip from "jszip";
+import { compileCopiedPptx } from "./property-deck-export";
 import {
   enrichDeckSlidesWithSharedWarehouseSpecs,
   extractSpecsFromSlideText,
@@ -14,8 +13,6 @@ import {
   type PropertyDeckCatalog,
   type PropertySlideItem,
 } from "./property-decks";
-
-const execFileAsync = promisify(execFile);
 
 const CACHE_ROOT = process.env.VITEST
   ? path.join(os.tmpdir(), "mosaic-vitest-property-decks-cache")
@@ -312,87 +309,28 @@ export async function compilePropertyDeck(params: {
   const safeClient = (params.manifest.proposal.clientName || "Client")
     .replace(/[^a-zA-Z0-9_-]+/g, "_")
     .replace(/^_+|_+$/g, "");
-  const modeLabel = params.manifest.mode === "comprehensive" ? "Comprehensive" : "Standard";
   const datePart = (params.manifest.proposal.date || new Date().toISOString().slice(0, 10)).replace(
     /[^0-9-]/g,
     "",
   );
-  const fileName = `PRIME_Proposal_${safeClient}_${modeLabel}_${datePart}.pptx`;
+  const fileName = `PRIME_Proposal_${safeClient}_${datePart}.pptx`;
   const outputPath = path.join(resolvedOutputFolder, fileName);
 
-  const enrichedSlides = await Promise.all(
-    params.manifest.slides.map(async (slide) => {
-      const localThumbnailPath = await resolveSlideThumbnailFile(slide.id);
-      return { ...slide, localThumbnailPath };
-    }),
-  );
-
-  const enrichedManifest = {
-    ...params.manifest,
-    slides: enrichedSlides,
-  };
-
-  const tempManifestPath = path.join(
-    os.tmpdir(),
-    `mosaic-deck-manifest-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.json`,
-  );
-  await fs.promises.writeFile(tempManifestPath, JSON.stringify(enrichedManifest, null, 2), "utf-8");
-
-  const scriptPath = path.join(process.cwd(), "scripts", "property_decks", "pptx_engine.py");
-
-  try {
-    if (fs.existsSync(scriptPath)) {
-      const { stdout } = await execFileAsync("python", [
-        scriptPath,
-        "compile",
-        tempManifestPath,
-        outputPath,
-      ]);
-      const parsed = JSON.parse(stdout.trim());
-      return {
-        outputPath,
-        fileName,
-        slideCount: Number(parsed.slideCount || params.manifest.slides.length + 2),
-        engine: String(parsed.engine || "python-pptx"),
-      };
-    }
-  } catch {
-    // Fallback to pure JSZip OpenXML compilation if Python fails
-  } finally {
-    await fs.promises.rm(tempManifestPath, { force: true }).catch(() => null);
+  const sourceFiles = new Map<string, { name: string; relativePath: string; data: Buffer }>();
+  for (const slide of params.manifest.slides) {
+    if (sourceFiles.has(slide.deckFilePath)) continue;
+    sourceFiles.set(slide.deckFilePath, {
+      name: slide.deckFileName,
+      relativePath: slide.deckFilePath,
+      data: await fs.promises.readFile(slide.deckFilePath),
+    });
   }
-
-  const zip = new JSZip();
-  const allSlideTexts: string[] = [
-    `PRIME PHILIPPINES PROPOSAL FOR ${params.manifest.proposal.clientName}`,
-  ];
-  if (params.manifest.includeSummaryTable) {
-    allSlideTexts.push(
-      `EXECUTIVE SUMMARY TABLE (${params.manifest.comparisonRows.length} OPTIONS)`,
-    );
-  }
-  for (const s of params.manifest.slides) {
-    allSlideTexts.push(`${s.title} - ${s.specs.location} - ${s.specs.gla} - ${s.specs.leaseRate}`);
-  }
-  if (params.manifest.includeCredentials) {
-    allSlideTexts.push("PRIME PHILIPPINES INDUSTRIAL CREDENTIALS");
-  }
-  allSlideTexts.push("THANK YOU & CONTACT INFORMATION");
-
-  allSlideTexts.forEach((text, i) => {
-    zip.file(
-      `ppt/slides/slide${i + 1}.xml`,
-      `<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><a:t>${text}</a:t></p:sld>`,
-    );
-  });
-
-  const buffer = await zip.generateAsync({ type: "nodebuffer" });
-  await fs.promises.writeFile(outputPath, buffer);
-
+  const copiedDeck = await compileCopiedPptx(params.manifest, sourceFiles);
+  await fs.promises.writeFile(outputPath, copiedDeck.buffer);
   return {
     outputPath,
     fileName,
-    slideCount: allSlideTexts.length,
-    engine: "jszip-fallback",
+    slideCount: copiedDeck.slideCount,
+    engine: "openxml-slide-copy",
   };
 }

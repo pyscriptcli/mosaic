@@ -25,19 +25,18 @@ import {
 import {
   applySlideOverrides,
   buildCompilationManifest,
-  compilePptxInBrowser,
   filterPropertySlides,
   groupPropertySlidesByTitle,
   indexPptxFilesInBrowser,
   reorderSelectedSlides,
   type BrowserPptxFileInput,
-  type DeckCompilationMode,
   type PropertyDeckCatalog,
   type PropertySlideGroup,
   type PropertySlideItem,
   type PropertySlideOverride,
   type SlideRole,
 } from "@/lib/property-decks";
+import { compileCopiedPptx } from "@/lib/property-deck-export";
 import { readBrowserPageCache, writeBrowserPageCache } from "@/lib/browserPageCache";
 
 const CONFIG_STORAGE_KEY = "mosaic_property_decks_config_v1";
@@ -59,12 +58,8 @@ interface CompiledResult {
 
 export function PropertyDecksView({
   userId,
-  userName,
-  userEmail,
 }: {
   userId?: string;
-  userName?: string;
-  userEmail?: string;
 }) {
   const [catalog, setCatalog] = useState<PropertyDeckCatalog | null>(null);
   const [sourceFolder, setSourceFolder] = useState("");
@@ -117,16 +112,11 @@ export function PropertyDecksView({
     }));
   }, []);
 
-  // Proposal Details
-  const [deckMode, setDeckMode] = useState<DeckCompilationMode>("standard");
+  // Export filename
   const [clientName, setClientName] = useState("");
-  const [projectTitle, setProjectTitle] = useState("Industrial Warehouse Property Options");
-  const [brokerName, setBrokerName] = useState(() => userName || "PRIME Industrial Advisory");
-  const [brokerEmail] = useState(() => userEmail || "industrial@primephilippines.com");
-  const [brokerPhone] = useState("+63 2 8888 0000");
-  const [proposalDate, setProposalDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [compiledResult, setCompiledResult] = useState<CompiledResult | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
+  const browserSourceFilesRef = useRef<Map<string, BrowserPptxFileInput>>(new Map());
 
   const openBrowserFolderPicker = useCallback(() => {
     if (folderInputRef.current) {
@@ -189,6 +179,9 @@ export function PropertyDecksView({
           sourceLabel,
           outputLabel,
         );
+        browserSourceFilesRef.current = new Map(
+          browserInputs.map((file) => [file.relativePath || `${sourceLabel}\\${file.name}`, file]),
+        );
 
         const nextConfig: StoredFolderConfig = {
           sourceFolder: indexedCatalog.sourceFolder,
@@ -232,6 +225,7 @@ export function PropertyDecksView({
     async function bootstrap() {
       setLoading(true);
       setError(null);
+      browserSourceFilesRef.current.clear();
       try {
         const cachedInDb = await readBrowserPageCache<PropertyDeckCatalog>(
           userId || "local",
@@ -334,6 +328,7 @@ export function PropertyDecksView({
           throw new Error(serverErr);
         }
 
+        browserSourceFilesRef.current.clear();
         setCatalog(payload.catalog);
         void writeBrowserPageCache(userId || "local", "property-decks:catalog", payload.catalog);
         setFolderModalOpen(false);
@@ -400,13 +395,13 @@ export function PropertyDecksView({
         catalogSlides: allSlides,
         overrides,
         proposal: {
-          clientName: clientName || "Valued Client",
-          projectTitle: projectTitle || "Industrial Warehouse Property Options",
-          brokerName: brokerName || "PRIME Industrial Advisory",
-          brokerEmail,
-          brokerPhone,
-          date: proposalDate,
-          mode: deckMode,
+          clientName: clientName || "Client",
+          projectTitle: "",
+          brokerName: "",
+          brokerEmail: "",
+          brokerPhone: "",
+          date: new Date().toISOString().slice(0, 10),
+          mode: "standard",
         },
       }),
     [
@@ -414,12 +409,6 @@ export function PropertyDecksView({
       allSlides,
       overrides,
       clientName,
-      projectTitle,
-      brokerName,
-      brokerEmail,
-      brokerPhone,
-      proposalDate,
-      deckMode,
     ],
   );
 
@@ -507,63 +496,60 @@ export function PropertyDecksView({
     setError(null);
     setCompiledResult(null);
     try {
-      const browserCompiled = await compilePptxInBrowser(activeProposalManifest);
-      const downloadUrl =
-        typeof URL !== "undefined" && typeof URL.createObjectURL === "function"
-          ? URL.createObjectURL(browserCompiled.blob)
-          : undefined;
+      if (
+        browserSourceFilesRef.current.size === 0 &&
+        allSlides.length > 0 &&
+        allSlides.every((slide) => slide.thumbnailUrl.startsWith("data:"))
+      ) {
+        throw new Error("Choose the source OneDrive folder again to export its original slides.");
+      }
 
-      const isBrowserOnlyCatalog = allSlides.every((s) => s.thumbnailUrl.startsWith("data:"));
+      if (browserSourceFilesRef.current.size > 0) {
+        const copiedDeck = await compileCopiedPptx(activeProposalManifest, browserSourceFilesRef.current);
+        const downloadUrl = URL.createObjectURL(copiedDeck.blob);
+        triggerBrowserDownload(downloadUrl, copiedDeck.fileName);
+        setCompiledResult({
+          outputPath: `${outputFolder || "OneDrive\\Compiled Proposals"}\\${copiedDeck.fileName}`,
+          fileName: copiedDeck.fileName,
+          slideCount: copiedDeck.slideCount,
+          engine: "openxml-slide-copy",
+          downloadUrl,
+        });
+        return;
+      }
 
-      if (!isBrowserOnlyCatalog) {
+      {
         const res = await fetch("/api/property-decks/compile", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             selectedSlideIds,
-            slides: allSlides,
             overrides,
             outputFolder:
               outputFolder || (sourceFolder ? `${sourceFolder}\\Compiled Proposals` : undefined),
             proposal: {
-              clientName: clientName.trim() || "Valued Client",
-              projectTitle: projectTitle.trim() || "Industrial Warehouse Property Options",
-              brokerName: brokerName.trim() || "PRIME Industrial Advisory",
-              brokerEmail: brokerEmail.trim(),
-              brokerPhone: brokerPhone.trim(),
-              date: proposalDate,
-              mode: deckMode,
+              clientName: clientName.trim() || "Client",
+              projectTitle: "",
+              brokerName: "",
+              brokerEmail: "",
+              brokerPhone: "",
+              date: new Date().toISOString().slice(0, 10),
+              mode: "standard",
             },
           }),
         });
         const payload = await res.json().catch(() => ({}));
         if (res.ok && payload.fileName) {
-          const isCloudTmp = String(payload.outputPath || "").startsWith("/tmp/");
-          if (isCloudTmp && downloadUrl) {
-            triggerBrowserDownload(downloadUrl, payload.fileName);
-          }
           setCompiledResult({
             outputPath: payload.outputPath,
             fileName: payload.fileName,
             slideCount: payload.slideCount,
             engine: payload.engine,
-            downloadUrl,
           });
           return;
         }
+        throw new Error(payload.error || "The source slides could not be exported.");
       }
-
-      if (downloadUrl) {
-        triggerBrowserDownload(downloadUrl, browserCompiled.fileName);
-      }
-
-      setCompiledResult({
-        outputPath: `${outputFolder || "OneDrive\\Compiled Proposals"}\\${browserCompiled.fileName}`,
-        fileName: browserCompiled.fileName,
-        slideCount: browserCompiled.slideCount,
-        engine: "browser-openxml",
-        downloadUrl,
-      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to compile presentation deck.");
     } finally {
@@ -1155,53 +1141,7 @@ export function PropertyDecksView({
             )}
           </div>
 
-          {/* Deck Mode Toggle: Standard vs Comprehensive */}
-          <div>
-            <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-500">
-              Deck Format
-            </span>
-            <div className="mt-1.5 grid grid-cols-2 gap-1.5">
-              <button
-                type="button"
-                onClick={() => setDeckMode("standard")}
-                className={`border p-2.5 text-left transition-colors ${
-                  deckMode === "standard"
-                    ? "border-[#003366] bg-[#003366] text-white"
-                    : "border-slate-200 bg-white text-[#003366] hover:border-[#003366]"
-                }`}
-              >
-                <span className="block text-xs font-semibold">Standard Deck</span>
-                <span
-                  className={`mt-0.5 block text-[10px] ${
-                    deckMode === "standard" ? "text-[#D7E3EF]" : "text-slate-500"
-                  }`}
-                >
-                  Cover + Warehouses + Closing
-                </span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setDeckMode("comprehensive")}
-                className={`border p-2.5 text-left transition-colors ${
-                  deckMode === "comprehensive"
-                    ? "border-[#003366] bg-[#003366] text-white"
-                    : "border-slate-200 bg-white text-[#003366] hover:border-[#003366]"
-                }`}
-              >
-                <span className="block text-xs font-semibold">Comprehensive Deck</span>
-                <span
-                  className={`mt-0.5 block text-[10px] ${
-                    deckMode === "comprehensive" ? "text-[#D7E3EF]" : "text-slate-500"
-                  }`}
-                >
-                  + Summary Matrix & Credentials
-                </span>
-              </button>
-            </div>
-          </div>
-
-          {/* Client & Broker Pitch Details */}
+          {/* Client name is used only in the export filename. */}
           <div className="space-y-2.5 border-t border-slate-100 pt-3">
             <label className="block text-xs font-semibold text-[#003366]">
               Client Name
@@ -1214,48 +1154,17 @@ export function PropertyDecksView({
               />
             </label>
 
-            <label className="block text-xs font-semibold text-[#003366]">
-              Proposal Title
-              <input
-                type="text"
-                value={projectTitle}
-                onChange={(e) => setProjectTitle(e.target.value)}
-                className="mt-1 h-9 w-full border border-slate-300 bg-white px-2.5 text-xs font-normal text-[#003366] focus:border-[#003366] focus:outline-none"
-              />
-            </label>
-
-            <div className="grid grid-cols-2 gap-2">
-              <label className="block text-xs font-semibold text-[#003366]">
-                Lead Broker
-                <input
-                  type="text"
-                  value={brokerName}
-                  onChange={(e) => setBrokerName(e.target.value)}
-                  className="mt-1 h-8 w-full border border-slate-300 bg-white px-2 text-xs font-normal text-[#003366] focus:border-[#003366] focus:outline-none"
-                />
-              </label>
-
-              <label className="block text-xs font-semibold text-[#003366]">
-                Proposal Date
-                <input
-                  type="date"
-                  value={proposalDate}
-                  onChange={(e) => setProposalDate(e.target.value)}
-                  className="mt-1 h-8 w-full border border-slate-300 bg-white px-2 text-xs font-normal text-[#003366] focus:border-[#003366] focus:outline-none"
-                />
-              </label>
-            </div>
           </div>
 
           {/* Selected Slide Sequence List */}
           <div className="border-t border-slate-100 pt-3">
             <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-500">
-              Slide Sequence ({activeProposalManifest.slides.length} warehouse slides)
+              Selected Slide Order ({activeProposalManifest.slides.length})
             </span>
 
             {activeProposalManifest.slides.length === 0 ? (
               <p className="mt-2 border border-dashed border-slate-200 bg-slate-50 p-4 text-center text-xs text-slate-500">
-                Click <strong>Add to Deck</strong> on any warehouse card to stage it for compilation.
+                Select slides from the gallery to add them to the export.
               </p>
             ) : (
               <ol className="mt-2 max-h-60 divide-y divide-slate-100 overflow-y-auto border border-slate-200">
@@ -1312,21 +1221,17 @@ export function PropertyDecksView({
             <Layers className="h-4 w-4 text-[#C9A84C]" />
             {compiling
               ? "Compiling Presentation…"
-              : `Compile PPTX Deck (${
-                  deckMode === "comprehensive"
-                    ? activeProposalManifest.slides.length + 3
-                    : activeProposalManifest.slides.length + 2
-                } Slides)`}
+              : `Export Selected Slides (${activeProposalManifest.slides.length})`}
           </button>
 
           {compiledResult && (
             <div className="space-y-2 border border-[#C9A84C] bg-[#FBF7E9] p-3 text-xs text-[#003366]">
               <p className="font-semibold">
-                {compiledResult.downloadUrl ? "Proposal Deck Compiled:" : "Compiled to OneDrive:"}
+                {compiledResult.downloadUrl ? "Selected slides exported:" : "Slides copied to OneDrive:"}
               </p>
               <p className="break-all font-mono text-[11px]">{compiledResult.fileName}</p>
               <p className="text-[10px] text-slate-600">
-                {compiledResult.slideCount} slides generated ·{" "}
+                {compiledResult.slideCount} slides copied ·{" "}
                 {compiledResult.downloadUrl
                   ? "Ready for PowerPoint download"
                   : `Saved in ${outputFolder}`}
@@ -1369,58 +1274,6 @@ export function PropertyDecksView({
           )}
         </aside>
       </div>
-
-      {/* Comprehensive Mode Live Comparison Table Preview */}
-      {deckMode === "comprehensive" && activeProposalManifest.comparisonRows.length > 0 && (
-        <section aria-label="Executive summary comparison matrix preview" className="border border-slate-200 bg-white">
-          <header className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
-            <div>
-              <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-[#31577D]">
-                Comprehensive Deck Slide #2 Preview
-              </p>
-              <h2 className="text-sm font-semibold text-[#003366]">
-                Executive Summary Comparison Matrix ({activeProposalManifest.comparisonRows.length} Shortlisted Options)
-              </h2>
-            </div>
-          </header>
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-left text-xs">
-              <thead>
-                <tr className="border-b border-slate-200 bg-[#F7FAFC] text-[10px] font-bold uppercase tracking-wider text-slate-600">
-                  <th className="border-r border-slate-200 px-3 py-2">Option</th>
-                  <th className="border-r border-slate-200 px-3 py-2">Property / Warehouse</th>
-                  <th className="border-r border-slate-200 px-3 py-2">Location</th>
-                  <th className="border-r border-slate-200 px-3 py-2">Leasable Area (GLA)</th>
-                  <th className="border-r border-slate-200 px-3 py-2">Clear Height</th>
-                  <th className="border-r border-slate-200 px-3 py-2">Lease Rate</th>
-                  <th className="px-3 py-2">Broker Notes</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200">
-                {activeProposalManifest.comparisonRows.map((row, idx) => (
-                  <tr key={row.slideId} className={idx % 2 === 0 ? "bg-white" : "bg-slate-50/70"}>
-                    <td className="border-r border-slate-200 px-3 py-2 font-semibold text-[#003366]">
-                      Option {row.optionNumber}
-                    </td>
-                    <td className="border-r border-slate-200 px-3 py-2 font-semibold text-[#003366]">
-                      {row.propertyName}
-                    </td>
-                    <td className="border-r border-slate-200 px-3 py-2 text-slate-700">{row.location}</td>
-                    <td className="border-r border-slate-200 px-3 py-2 font-semibold tabular-nums text-[#003366]">
-                      {row.gla}
-                    </td>
-                    <td className="border-r border-slate-200 px-3 py-2 text-slate-700">{row.ceilingHeight}</td>
-                    <td className="border-r border-slate-200 px-3 py-2 font-semibold tabular-nums text-[#003366]">
-                      {row.leaseRate}
-                    </td>
-                    <td className="px-3 py-2 text-slate-600">{row.notes || "Standard handover"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
 
       {/* Modal 1: Configure OneDrive Folder Path */}
       {folderModalOpen && (

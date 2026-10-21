@@ -231,7 +231,7 @@ describe("Property Decks filtering, overrides, and cart sequencing", () => {
     expect(catalog.slides[1].thumbnailUrl).toMatch(/^data:image\//);
   });
 
-  it("compiles a complete OpenXML PPTX archive directly in the browser", async () => {
+  it("exports exact selected source slides in cart order", async () => {
     const manifest = buildCompilationManifest({
       selectedSlideIds: ["deck-1:slide:2", "deck-2:slide:3"],
       catalogSlides: sampleSlides,
@@ -249,20 +249,67 @@ describe("Property Decks filtering, overrides, and cart sequencing", () => {
       },
     });
 
-    const compiled = await compilePptxInBrowser(manifest);
-    expect(compiled.fileName).toBe("PRIME_Proposal_Shopee_Express_Comprehensive_2026-10-21.pptx");
-    expect(compiled.slideCount).toBe(6);
+    const makeSourceDeck = async (fileName: string, selectedNumber: number, originalSlide: string) => {
+      const source = new JSZip();
+      const slidePaths = Array.from({ length: selectedNumber }, (_, index) => `ppt/slides/slide${index + 1}.xml`);
+      slidePaths.forEach((slidePath, index) => {
+        source.file(slidePath, index + 1 === selectedNumber ? originalSlide : `<p:sld>unused ${index + 1}</p:sld>`);
+      });
+      const slideOverrides = slidePaths
+        .map((slidePath) => `<Override PartName="/${slidePath}" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>`)
+        .join("");
+      const slideIds = slidePaths.map((_, index) => `<p:sldId id="${256 + index}" r:id="rId${index + 1}"/>`).join("");
+      const slideRelationships = slidePaths
+        .map((_, index) => `<Relationship Id="rId${index + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide${index + 1}.xml"/>`)
+        .join("");
+      source.file(
+        "[Content_Types].xml",
+        `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="jpg" ContentType="image/jpeg"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/><Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/><Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/>${slideOverrides}</Types>`,
+      );
+      source.file("_rels/.rels", `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/></Relationships>`);
+      source.file("ppt/presentation.xml", `<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:sldMasterIdLst><p:sldMasterId id="2147483648" r:id="rId99"/></p:sldMasterIdLst><p:sldIdLst>${slideIds}</p:sldIdLst></p:presentation>`);
+      source.file("ppt/_rels/presentation.xml.rels", `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId99" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster" Target="slideMasters/slideMaster1.xml"/>${slideRelationships}</Relationships>`);
+      source.file(`ppt/slides/_rels/slide${selectedNumber}.xml.rels`, `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdImage" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/photo.jpg"/><Relationship Id="rIdLayout" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/></Relationships>`);
+      source.file("ppt/media/photo.jpg", new Uint8Array([255, 216, 32, 8, 0, 255, 217]));
+      source.file("ppt/slideLayouts/slideLayout1.xml", `<p:sldLayout xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"/>`);
+      source.file("ppt/slideLayouts/_rels/slideLayout1.xml.rels", `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdMaster" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster" Target="../slideMasters/slideMaster1.xml"/></Relationships>`);
+      source.file("ppt/slideMasters/slideMaster1.xml", `<p:sldMaster xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"/>`);
+      source.file("ppt/slideMasters/_rels/slideMaster1.xml.rels", `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdTheme" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="../theme/theme1.xml"/></Relationships>`);
+      source.file("ppt/theme/theme1.xml", `<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"/>`);
+      return {
+        name: fileName,
+        relativePath: fileName,
+        data: await source.generateAsync({ type: "uint8array" }),
+      };
+    };
+    const originalOne = `<p:sld><a:t>FIRST SELECTED SOURCE SLIDE</a:t></p:sld>`;
+    const originalTwo = `<p:sld><a:t>SECOND SELECTED SOURCE SLIDE</a:t></p:sld>`;
+    const sourceFiles = new Map([
+      [sampleSlides[0].deckFilePath, await makeSourceDeck(sampleSlides[0].deckFileName, 2, originalOne)],
+      [sampleSlides[1].deckFilePath, await makeSourceDeck(sampleSlides[1].deckFileName, 3, originalTwo)],
+    ]);
+
+    const compiled = await compilePptxInBrowser(manifest, sourceFiles);
+    expect(compiled.fileName).toBe("PRIME_Proposal_Shopee_Express_2026-10-21.pptx");
+    expect(compiled.slideCount).toBe(2);
 
     const loadedZip = await JSZip.loadAsync(compiled.buffer);
     expect(loadedZip.file("[Content_Types].xml")).not.toBeNull();
     expect(loadedZip.file("_rels/.rels")).not.toBeNull();
     expect(loadedZip.file("ppt/presentation.xml")).not.toBeNull();
     expect(loadedZip.file("ppt/slides/slide1.xml")).not.toBeNull();
-    expect(loadedZip.file("ppt/slides/slide6.xml")).not.toBeNull();
-
-    const slide3Xml = await loadedZip.file("ppt/slides/slide3.xml")!.async("string");
-    expect(slide3Xml).toContain("Cabuyao Cold Storage");
-    expect(slide3Xml).toContain("345/sqm (Final)");
+    expect(loadedZip.file("ppt/slides/slide3.xml")).toBeNull();
+    expect(await loadedZip.file("ppt/slides/slide1.xml")!.async("string")).toBe(originalOne);
+    expect(await loadedZip.file("ppt/slides/slide2.xml")!.async("string")).toBe(originalTwo);
+    const slideRels = await loadedZip.file("ppt/slides/_rels/slide1.xml.rels")!.async("string");
+    expect(slideRels).toContain("../selected/slide1/assets/0-photo.jpg");
+    expect(await loadedZip.file("ppt/selected/slide1/assets/0-photo.jpg")!.async("uint8array")).toEqual(
+      new Uint8Array([255, 216, 32, 8, 0, 255, 217]),
+    );
+    const presentationXml = await loadedZip.file("ppt/presentation.xml")!.async("string");
+    expect(presentationXml.match(/<p:sldMasterId\b/g)).toHaveLength(3);
+    const presentationRelationships = await loadedZip.file("ppt/_rels/presentation.xml.rels")!.async("string");
+    expect(presentationRelationships.match(/\/relationships\/slideMaster"/g)).toHaveLength(3);
   });
 
   it("reads active slide order from presentation.xml and skips orphan deleted slides", async () => {

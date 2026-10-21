@@ -1504,7 +1504,7 @@ export default function Home() {
             {currentView === "project" && <ProjectWorkspace userId={authUser?.id ? String(authUser.id) : undefined} />}
             {currentView === "maps" && <ProjectAtlasMapsPage />}
             {currentView === "bsc" && <BscPortal />}
-            {currentView === "property-decks" && <PropertyDecksView userId={authUser?.id ? String(authUser.id) : undefined} userName={authUser?.username} userEmail={authUser?.email} />}
+            {currentView === "property-decks" && <PropertyDecksView userId={authUser?.id ? String(authUser.id) : undefined} />}
             {currentView === "delta" && <ContractsWorkspace />}
             {(currentView === "performance-marketing" || currentView === "google-ads") && <GoogleAdsKnowledgeCenter pathname={pathname || ""} userId={authUser?.id ? String(authUser.id) : undefined} />}
 

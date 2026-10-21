@@ -65,9 +65,10 @@ describe("PropertyDecksView component", () => {
 
   afterEach(() => {
     cleanup();
+    vi.unstubAllGlobals();
   });
 
-  it("loads catalog, allows overriding warehouse specs, and compiles a Comprehensive or Standard deck", async () => {
+  it("loads the catalog, allows spec overrides, and exports the selected source slides", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url === "/api/property-decks" && (!init || init.method !== "POST")) {
@@ -96,7 +97,7 @@ describe("PropertyDecksView component", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<PropertyDecksView userName="Dave P." userEmail="dave@primephilippines.com" />);
+    render(<PropertyDecksView />);
 
     await waitFor(() => {
       expect(screen.getByText("Biñan Logistics Center — Warehouse 4")).toBeDefined();
@@ -122,15 +123,12 @@ describe("PropertyDecksView component", () => {
     fireEvent.click(addButtons[0]);
     fireEvent.click(addButtons[1]);
 
-    // Switch deck format to Comprehensive Deck
-    fireEvent.click(screen.getByRole("button", { name: /comprehensive deck/i }));
-
     // Fill Client Name
     const clientInput = screen.getByLabelText(/client name/i);
     fireEvent.change(clientInput, { target: { value: "FastCargo Logistics" } });
 
-    // Compile Deck
-    fireEvent.click(screen.getByRole("button", { name: /compile pptx deck/i }));
+    // Export selected slides
+    fireEvent.click(screen.getByRole("button", { name: /export selected slides/i }));
 
     await waitFor(() => {
       expect(screen.getByText(/PRIME_Proposal_FastCargo Logistics\.pptx/i)).toBeDefined();
@@ -138,6 +136,15 @@ describe("PropertyDecksView component", () => {
   });
 
   it("indexes local OneDrive PPTX files in the browser and compiles client-side when running on cloud/Vercel", async () => {
+    let exportedBlob: Blob | null = null;
+    vi.stubGlobal("URL", {
+      ...URL,
+      createObjectURL: vi.fn((blob: Blob) => {
+        exportedBlob = blob;
+        return "blob:exported-pptx";
+      }),
+    });
+
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url === "/api/property-decks" && init?.method === "POST") {
@@ -169,7 +176,7 @@ describe("PropertyDecksView component", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<PropertyDecksView userName="Dave P." userEmail="dave@primephilippines.com" />);
+    render(<PropertyDecksView />);
 
     await waitFor(() => {
       expect(screen.getByText(/Configure OneDrive Deck Folders/i)).toBeDefined();
@@ -180,6 +187,21 @@ describe("PropertyDecksView component", () => {
     zip.file(
       "ppt/slides/slide1.xml",
       `<p:sld><a:p><a:t>PLARIDEL INDUSTRIAL PARK - WAREHOUSE A</a:t></a:p><a:p><a:t>Location: Plaridel, Bulacan</a:t></a:p><a:p><a:t>GLA: 6,000 sqm</a:t></a:p><a:p><a:t>Lease Rate: Php 280 / sqm</a:t></a:p></p:sld>`,
+    );
+    const originalSlideOne = await zip.file("ppt/slides/slide1.xml")!.async("string");
+    const originalSlideTwo = `<p:sld><a:p><a:t>SECOND ORIGINAL SLIDE, KEEP THIS EXACT</a:t></a:p></p:sld>`;
+    zip.file("ppt/slides/slide2.xml", originalSlideTwo);
+    zip.file(
+      "[Content_Types].xml",
+      `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/><Override PartName="/ppt/slides/slide2.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/></Types>`,
+    );
+    zip.file(
+      "ppt/presentation.xml",
+      `<p:presentation xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:sldIdLst><p:sldId id="256" r:id="rId1"/><p:sldId id="257" r:id="rId2"/></p:sldIdLst></p:presentation>`,
+    );
+    zip.file(
+      "ppt/_rels/presentation.xml.rels",
+      `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide2.xml"/></Relationships>`,
     );
     const pptxBytes = await zip.generateAsync({ type: "uint8array" });
     const mockFile = new File([pptxBytes as unknown as BlobPart], "Bulacan_Warehouses.pptx", {
@@ -201,18 +223,28 @@ describe("PropertyDecksView component", () => {
       expect(screen.getByText("PLARIDEL INDUSTRIAL PARK - WAREHOUSE A")).toBeDefined();
     });
 
-    // Add to proposal and compile in browser
-    fireEvent.click(screen.getByRole("button", { name: /add to deck/i }));
+    // Add both original slides to the proposal and export their unmodified contents.
+    fireEvent.click(screen.getAllByRole("button", { name: /add to deck/i })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: /add to deck/i })[0]);
     fireEvent.change(screen.getByLabelText(/client name/i), {
       target: { value: "Lazada Logistics" },
     });
-    fireEvent.click(screen.getByRole("button", { name: /compile pptx deck/i }));
+    const downloadClick = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    fireEvent.click(screen.getByRole("button", { name: /export selected slides/i }));
 
     await waitFor(() => {
       expect(
-        screen.getByText(/PRIME_Proposal_Lazada_Logistics_Standard_/i),
+        screen.getByText(/PRIME_Proposal_Lazada_Logistics_/i),
       ).toBeDefined();
     });
+
+    expect(exportedBlob).toBeInstanceOf(Blob);
+    expect(downloadClick).toHaveBeenCalledOnce();
+    const exportedZip = await JSZip.loadAsync(exportedBlob!);
+    const exportedSlideOne = await exportedZip.file("ppt/slides/slide1.xml")!.async("string");
+    const exportedSlideTwo = await exportedZip.file("ppt/slides/slide2.xml")!.async("string");
+    expect(exportedSlideOne).toBe(originalSlideOne);
+    expect(exportedSlideTwo).toBe(originalSlideTwo);
   });
 
   it("simplifies filter tabs and groups same-title warehouse slides into collapsed cards with partial and full selection", async () => {
@@ -277,7 +309,7 @@ describe("PropertyDecksView component", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<PropertyDecksView userName="Dave P." userEmail="dave@primephilippines.com" />);
+    render(<PropertyDecksView />);
 
     await waitFor(() => {
       expect(screen.getByText("Bataan Warehouse Space")).toBeDefined();

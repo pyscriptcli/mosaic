@@ -917,12 +917,21 @@ function wrapSlideXml(shapesXml: string): string {
 </p:sld>`;
 }
 
-export async function compilePptxInBrowser(manifest: CompilationManifest): Promise<{
+export async function compilePptxInBrowser(
+  manifest: CompilationManifest,
+  sourceFiles?: ReadonlyMap<string, BrowserPptxFileInput>,
+): Promise<{
   blob: Blob;
   buffer: Uint8Array;
   fileName: string;
   slideCount: number;
 }> {
+  if (!sourceFiles?.size) {
+    throw new Error("Original source decks are required to export selected slides.");
+  }
+  const { compileCopiedPptx } = await import("./property-deck-export");
+  return compileCopiedPptx(manifest, sourceFiles);
+
   const safeClient = (manifest.proposal.clientName || "Client")
     .replace(/[^a-zA-Z0-9_-]+/g, "_")
     .replace(/^_+|_+$/g, "");

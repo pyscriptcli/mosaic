@@ -11,6 +11,17 @@ async function createSamplePptx(filePath: string, slidesXml: string[]) {
   slidesXml.forEach((xml, idx) => {
     zip.file(`ppt/slides/slide${idx + 1}.xml`, xml);
   });
+  const slideIds = slidesXml.map((_, index) => `<p:sldId id="${256 + index}" r:id="rId${index + 1}"/>`).join("");
+  const relationships = slidesXml
+    .map((_, index) => `<Relationship Id="rId${index + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide${index + 1}.xml"/>`)
+    .join("");
+  const slideOverrides = slidesXml
+    .map((_, index) => `<Override PartName="/ppt/slides/slide${index + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>`)
+    .join("");
+  zip.file("[Content_Types].xml", `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/>${slideOverrides}</Types>`);
+  zip.file("_rels/.rels", `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/></Relationships>`);
+  zip.file("ppt/presentation.xml", `<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:sldIdLst>${slideIds}</p:sldIdLst></p:presentation>`);
+  zip.file("ppt/_rels/presentation.xml.rels", `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${relationships}</Relationships>`);
   const buffer = await zip.generateAsync({ type: "nodebuffer" });
   await fs.promises.writeFile(filePath, buffer);
 }
@@ -64,7 +75,7 @@ describe("Property Decks server indexer and compiler", () => {
     expect(warehouseSlide.specs.leaseRate).toContain("340");
   });
 
-  it("compiles both Standard and Comprehensive PPTX proposals to the output folder", async () => {
+  it("copies only the selected source slide to the output folder", async () => {
     const catalog = await scanOneDriveFolder(sourceDir, outputDir);
     const warehouseSlide = catalog.slides[1];
 
@@ -95,7 +106,12 @@ describe("Property Decks server indexer and compiler", () => {
 
     expect(fs.existsSync(compiled.outputPath)).toBe(true);
     expect(compiled.fileName).toMatch(/Kuehne_Nagel/i);
-    expect(compiled.slideCount).toBeGreaterThanOrEqual(4);
+    expect(compiled.slideCount).toBe(1);
+    const source = await JSZip.loadAsync(await fs.promises.readFile(warehouseSlide.deckFilePath));
+    const output = await JSZip.loadAsync(await fs.promises.readFile(compiled.outputPath));
+    expect(await output.file("ppt/slides/slide1.xml")!.async("string")).toBe(
+      await source.file("ppt/slides/slide2.xml")!.async("string"),
+    );
   });
 
   it("falls back to the bundled Converted seed catalog when a Windows OneDrive path is requested on a cloud/non-existent filesystem", async () => {

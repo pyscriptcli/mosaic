@@ -23,6 +23,10 @@ describe("/api/property-decks API routes", () => {
       "ppt/slides/slide1.xml",
       `<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:p><a:t>CARMONA INDUSTRIAL HUB</a:t></a:p><a:p><a:t>Location: Carmona, Cavite</a:t></a:p><a:p><a:t>GLA: 2,800 sqm</a:t></a:p><a:p><a:t>Lease Rate: Php 310/sqm</a:t></a:p></p:sld>`,
     );
+    zip.file("[Content_Types].xml", `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/></Types>`);
+    zip.file("_rels/.rels", `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/></Relationships>`);
+    zip.file("ppt/presentation.xml", `<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:sldIdLst><p:sldId id="256" r:id="rId1"/></p:sldIdLst></p:presentation>`);
+    zip.file("ppt/_rels/presentation.xml.rels", `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/></Relationships>`);
     const buffer = await zip.generateAsync({ type: "nodebuffer" });
     await fs.promises.writeFile(path.join(sourceDir, "Carmona_Hub.pptx"), buffer);
   });
@@ -74,6 +78,6 @@ describe("/api/property-decks API routes", () => {
     expect(compileRes.status).toBe(200);
     const compilePayload = await compileRes.json();
     expect(fs.existsSync(compilePayload.outputPath)).toBe(true);
-    expect(compilePayload.slideCount).toBe(3);
+    expect(compilePayload.slideCount).toBe(1);
   });
 });

@@ -24,9 +24,7 @@ export async function POST(request: Request) {
     }
 
     const cached = await readCachedCatalog();
-    const catalogSlides: PropertySlideItem[] = Array.isArray(body.slides)
-      ? body.slides
-      : cached?.slides || [];
+    const catalogSlides: PropertySlideItem[] = cached?.slides || [];
 
     const overrides: Record<string, PropertySlideOverride> =
       body.overrides && typeof body.overrides === "object" ? body.overrides : {};
