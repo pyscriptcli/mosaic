@@ -290,12 +290,13 @@ export function MeetingSummaryEditor({
 }) {
   const [refining, setRefining] = useState(false);
   const [error, setError] = useState("");
+  const [refinementStyle, setRefinementStyle] = useState<"balanced" | "concise" | "decision-focused" | "detail-preserving">("balanced");
 
   const handleRefine = async () => {
     setRefining(true);
     setError("");
     try {
-      const refined = await refineMeetingSummary({ summary, bottom_line: bottomLine, notes, transcript });
+      const refined = await refineMeetingSummary({ summary, bottom_line: bottomLine, notes, transcript, refinement_style: refinementStyle });
       onChange(String(refined.summary || ""), String(refined.bottom_line || ""));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not refine the meeting summary.");
@@ -311,9 +312,26 @@ export function MeetingSummaryEditor({
           <h3 className="font-serif text-lg italic text-[#003366]">Meeting Summary</h3>
           <p className="mt-1 text-xs text-slate-500">Meeting notes guide the summary; transcript details support them.</p>
         </div>
-        <button type="button" onClick={() => void handleRefine()} disabled={refining || (!notes.trim() && !transcript.trim())} aria-busy={refining} className="inline-flex min-h-9 items-center gap-2 border border-[#003366]/30 px-3 py-2 text-xs font-semibold text-[#003366] transition-colors hover:border-[#003366] hover:bg-blue-50/50 disabled:cursor-not-allowed disabled:opacity-50">
-          {refining ? "Refining summary…" : "Refine with AI"}
-        </button>
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="grid gap-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+            Refinement style
+            <select
+              aria-label="Refinement style"
+              value={refinementStyle}
+              onChange={(event) => setRefinementStyle(event.target.value as typeof refinementStyle)}
+              disabled={refining}
+              className="min-h-9 border border-gray-200 bg-white px-2 text-xs font-medium normal-case tracking-normal text-[#003366] focus:border-[#C9AB4C] focus:outline-none"
+            >
+              <option value="balanced">Balanced</option>
+              <option value="concise">More concise</option>
+              <option value="decision-focused">Decisions and outcomes</option>
+              <option value="detail-preserving">Preserve more detail</option>
+            </select>
+          </label>
+          <button type="button" onClick={() => void handleRefine()} disabled={refining || (!notes.trim() && !transcript.trim())} aria-busy={refining} className="inline-flex min-h-9 items-center gap-2 border border-[#003366]/30 px-3 py-2 text-xs font-semibold text-[#003366] transition-colors hover:border-[#003366] hover:bg-blue-50/50 disabled:cursor-not-allowed disabled:opacity-50">
+            {refining ? "Refining summary…" : "Refine with AI"}
+          </button>
+        </div>
       </header>
       {!notes.trim() && !transcript.trim() && <p className="text-xs text-slate-500">Add meeting notes or a transcript to enable AI refinement.</p>}
       {error && <p role="alert" className="border-l-2 border-red-500 bg-red-50 px-3 py-2 text-xs text-red-800">{error}</p>}

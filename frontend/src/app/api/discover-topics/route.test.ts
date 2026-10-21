@@ -94,8 +94,10 @@ describe("POST /api/discover-topics", () => {
     expect(requestBody.messages[0].content).toContain("Meeting notes are the primary source of truth");
     expect(requestBody.messages[0].content).toContain("Return discussion points only; never treat every discussion point as an action item.");
     expect(requestBody.messages[0].content).toContain('"action_plan": Optional suggestion only when the transcript contains an explicit commitment or assigned next step.');
-    expect(requestBody.messages[0].content).toContain("A short paragraph followed by literal hyphen-space bullets for distinct details or outcomes when useful.");
-    expect(requestBody.messages[0].content).toContain("literal hyphen-space bullets");
+    expect(requestBody.messages[0].content).toContain("Start with one short introductory paragraph that frames the topic.");
+    expect(requestBody.messages[0].content).toContain("Never start with a bullet or put bullets before the introductory paragraph.");
+    expect(requestBody.messages[0].content).toContain("Start with one short introductory paragraph that frames the topic.");
+    expect(requestBody.messages[0].content).toContain("Never start with a bullet or put bullets before the introductory paragraph.");
     expect(requestBody.messages[0].content).toContain("Do not put literal backslashes before bullet or bold markers.");
     expect(requestBody.messages[0].content).toContain("Do not include action plans, dates, owners, or transcript evidence inside discussion_point.");
     expect(requestBody.messages[1].content).toContain("<meeting_notes>\nAgenda: Advisor account updates\nCorrect name: Melisa\n</meeting_notes>");

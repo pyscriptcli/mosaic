@@ -102,4 +102,30 @@ describe("POST /api/export-pdf MoM structure", () => {
     expect(renderedTables).toContain("• Prime was founded in 2013.");
     expect(renderedTables).not.toContain("\\\\*\\\\*");
   });
+
+  it("keeps each discussion point to a title row and one combined details row", async () => {
+    const { POST } = await import("./route");
+    const request = new NextRequest("http://localhost/api/export-pdf", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        meeting_details: { client_name: "Northstar" },
+        discussion_points: [{
+          topic_title: "Account update",
+          discussion_point: "The team reviewed the renewal status.\n- The client approved the revised terms.\n- **PHP 250,000** fee remains unchanged.",
+        }],
+      }),
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(200);
+    const discussionTable = (pdfCapture.tables as { head?: string[][]; body?: unknown[][] }[])
+      .find((table) => table.head?.[0]?.[0] === "Account update");
+
+    expect(discussionTable?.head).toEqual([["Account update"]]);
+    expect(discussionTable?.body).toHaveLength(1);
+    expect(JSON.stringify(discussionTable?.body)).toContain("The team reviewed the renewal status.");
+    expect(JSON.stringify(discussionTable?.body)).toContain("• The client approved the revised terms.");
+    expect(JSON.stringify(discussionTable?.body)).toContain("• PHP 250,000 fee remains unchanged.");
+  });
 });

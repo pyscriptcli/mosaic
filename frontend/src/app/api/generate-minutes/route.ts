@@ -52,7 +52,7 @@ An insight is a source-supported observation that helps the team understand a co
 - If notes and transcript materially conflict about a decision, commitment, or fact, follow the notes for the MoM and make the discrepancy clear in the relevant discussion point. Do not invent a reconciliation or an unsupported detail.
 - Meeting notes may include an agenda. Use it to group and title discussion points. Do not create discussion, decisions, or action items solely because they appear as agenda topics.
 - Preserve the language used in the transcript, including Taglish. Do not translate transcript quotes.
-- Write discussion points as a brief topic statement followed by concise bullets, usually 2–5 when supported by the source. Use one bullet if only one material point is supported. Cover distinct facts, decisions, outcomes, risks, or open questions without repeating information. Start each bullet with a literal hyphen and a space.
+- Start each discussion_point with one short introductory paragraph before its detail bullets. Then, when distinct supporting facts, decisions, risks, or outcomes exist, put each on a separate line beginning with a literal hyphen and a space. Never begin a discussion_point with a bullet or put bullets before the introductory paragraph. If there is no distinct detail to list, keep the introductory paragraph alone.
 - Use unescaped Markdown **bold** sparingly to highlight material names, amounts, dates, decisions, risks, and outcomes within discussion bullets. Do not include literal backslashes before bullet or bold markers, do not bold whole paragraphs, and do not invent emphasis unsupported by the source.
 5. Decisions and actions
 - Distinguish confirmed decisions from proposals, opinions, and unresolved questions. Label unresolved or unconfirmed matters as open questions; never present them as decisions.
@@ -71,7 +71,7 @@ Output strict JSON only, matching this schema:
       "category": "decision | action | risk | open_question | insight | context",
       "importance": "material | supporting",
       "why_it_matters": "Concrete consequence for an insight; otherwise an empty string",
-      "discussion_point": "Brief topic statement followed by literal hyphen bullets; use unescaped **bold** markers sparingly for source-supported important details",
+      "discussion_point": "One short introductory paragraph followed by optional literal hyphen-space detail bullets; use unescaped **bold** markers sparingly for source-supported important details",
       "evidence_quote": "Direct quote from source text or transcript e.g. [00:00] ...",
       "action_plan": "Actionable next step, or 'None'",
       "indicative_delivery_date": "Target delivery date or 'TBD'",
@@ -85,7 +85,7 @@ Output strict JSON only, matching this schema:
       "category": "decision | action | risk | open_question | insight",
       "importance": "material",
       "why_it_matters": "Concrete consequence for an insight; otherwise an empty string",
-      "discussion_point": "Brief topic statement followed by literal hyphen bullets; use unescaped **bold** markers sparingly for source-supported important details",
+      "discussion_point": "One short introductory paragraph followed by optional literal hyphen-space detail bullets; use unescaped **bold** markers sparingly for source-supported important details",
       "evidence_quote": "Direct quote from source text or transcript e.g. [00:00] ...",
       "action_plan": "Actionable next step, or 'None'",
       "indicative_delivery_date": "Target delivery date or 'TBD'",

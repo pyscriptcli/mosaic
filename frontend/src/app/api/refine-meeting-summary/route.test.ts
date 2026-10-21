@@ -30,4 +30,28 @@ describe("POST /api/refine-meeting-summary", () => {
     expect(request.messages[1].content).toContain("Agenda: renewal review");
     expect(request.messages[1].content).toContain("The team agreed to proceed.");
   });
+
+  it("applies the selected refinement style as bounded guidance", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ choices: [{ message: { content: JSON.stringify({ summary: "Concise summary", bottom_line: "Decision pending." }) } }] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { POST } = await import("./route");
+    const response = await POST(new NextRequest("http://localhost/api/refine-meeting-summary", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        summary: "Original summary",
+        bottom_line: "Original bottom line",
+        notes: "Renewal review",
+        refinement_style: "concise",
+      }),
+    }));
+
+    expect(response.status).toBe(200);
+    const request = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(request.messages[0].content).toContain("Prefer short sentences and retain only material context");
+    expect(request.messages[0].content).toContain("do not omit decisions, dates, owners, risks, or unresolved questions");
+  });
 });

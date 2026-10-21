@@ -168,18 +168,18 @@ export async function POST(req: NextRequest) {
 
     (discussion_points || []).forEach((item: any, index: number) => {
       const topic = cleanField(item.topic_title) || `Discussion ${index + 1}`;
-      const sourceLines = cleanField(item.discussion_point).split(/\r?\n/).filter(Boolean);
-      const discussionPoint = sourceLines.length ? sourceLines : ["No discussion details recorded."];
+      const sourceDiscussion = cleanField(item.discussion_point) || "No discussion details recorded.";
+      const discussionPoint = formatDiscussionText(sourceDiscussion);
       autoTable(doc, {
         startY: tableStartY,
         head: [[topic]],
-        body: discussionPoint.map((line: string) => [formatDiscussionText(line)]),
+        body: [[discussionPoint]],
         theme: "grid",
         headStyles: { fillColor: [250, 249, 247], textColor: [0, 51, 102], fontStyle: "bold", fontSize: 9 },
         bodyStyles: { fillColor: [255, 255, 255], textColor: [50, 50, 50], fontSize: 8, cellPadding: 3.5, overflow: "linebreak", halign: "justify" },
         styles: { lineColor: [220, 225, 230], lineWidth: 0.2 },
         didParseCell: (data: any) => {
-          if (data.section === "body" && sourceLines[data.row.index]?.replace(/\\+\*/g, "*").includes("**")) data.cell.styles.fontStyle = "bold";
+          if (data.section === "body" && sourceDiscussion.replace(/\\+\*/g, "*").includes("**")) data.cell.styles.fontStyle = "bold";
         },
       });
       // @ts-ignore

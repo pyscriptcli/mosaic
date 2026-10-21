@@ -1,5 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 
+const refinementGuidance = {
+  balanced: "Improve clarity and flow while preserving the draft's level of detail.",
+  concise: "Prefer short sentences and retain only material context; do not omit decisions, dates, owners, risks, or unresolved questions.",
+  "decision-focused": "Emphasize confirmed decisions, outcomes, commitments, and unresolved decisions without turning them into new facts or actions.",
+  "detail-preserving": "Retain meaningful account and project details, examples, numbers, and dependencies; remove repetition only.",
+} as const;
+
 export async function POST(request: NextRequest) {
   try {
     const apiKey = request.headers.get("x-api-key") || process.env.DEEPSEEK_API_KEY || "";
@@ -7,7 +14,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "DeepSeek API key is required. Configure it in settings to refine the summary." }, { status: 401 });
     }
 
-    const { summary = "", bottom_line = "", notes = "", transcript = "" } = await request.json();
+    const { summary = "", bottom_line = "", notes = "", transcript = "", refinement_style = "balanced" } = await request.json();
+    const selectedGuidance = refinementGuidance[refinement_style as keyof typeof refinementGuidance] || refinementGuidance.balanced;
     const meetingNotes = String(notes).trim();
     const meetingTranscript = String(transcript).trim();
     if (!meetingNotes && !meetingTranscript) {
@@ -22,7 +30,7 @@ export async function POST(request: NextRequest) {
         messages: [
           {
             role: "system",
-            content: `Refine a meeting summary and bottom line. Return valid JSON only with string keys "summary" and "bottom_line". Keep the summary to one concise paragraph describing the purpose and main subjects. Keep the bottom line to one concise paragraph describing the outcome, decision, or unresolved status. Meeting notes are the primary source of truth and may contain corrections, agenda, names, projects, or context. Use the transcript to connect details and add clearly supported spoken information. Do not let the transcript override meeting notes. Preserve Taglish and names as provided. Do not invent facts, decisions, owners, or commitments. Use the existing draft as an editable starting point, removing repetition and improving clarity while preserving supported content. If a source conflict cannot be resolved from the notes, state the uncertainty clearly.`,
+            content: `Refine a meeting summary and bottom line. Return valid JSON only with string keys "summary" and "bottom_line". Keep the summary to one concise paragraph describing the purpose and main subjects. Keep the bottom line to one concise paragraph describing the outcome, decision, or unresolved status. Meeting notes are the primary source of truth and may contain corrections, agenda, names, projects, or context. Use the transcript to connect details and add clearly supported spoken information. Do not let the transcript override meeting notes. Preserve Taglish and names as provided. Do not invent facts, decisions, owners, or commitments. Use the existing draft as an editable starting point, removing repetition and improving clarity while preserving supported content. If a source conflict cannot be resolved from the notes, state the uncertainty clearly. Selected refinement style: ${selectedGuidance}`,
           },
           {
             role: "user",

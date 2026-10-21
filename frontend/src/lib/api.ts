@@ -257,7 +257,7 @@ export async function generateMinutes(transcript: string, user_topics: string, n
   return res.json();
 }
 
-export async function refineMeetingSummary(input: { summary: string; bottom_line: string; notes: string; transcript: string }) {
+export async function refineMeetingSummary(input: { summary: string; bottom_line: string; notes: string; transcript: string; refinement_style: "balanced" | "concise" | "decision-focused" | "detail-preserving" }) {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   const storedKey = getStoredApiKey();
   if (storedKey) headers["x-api-key"] = storedKey;

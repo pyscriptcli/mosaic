@@ -45,6 +45,7 @@ describe("POST /api/export-word MoM structure", () => {
     expect(discussionCards).toHaveLength(2);
     expect(discussionCards[0]).toContain("Renewal timing was reviewed.");
     expect(discussionCards[0]).not.toContain("Send the proposal");
+    expect(discussionCards.map((card) => (card.match(/<w:tr\b/g) || []).length)).toEqual([2, 2]);
 
     const actionSection = content.slice(content.indexOf("ACTION ITEMS"), content.indexOf("OTHER DISCUSSIONS"));
     const actionHeaders = ["Discussion Point", "Action Plan", "Target Date", "Person in Charge"]
