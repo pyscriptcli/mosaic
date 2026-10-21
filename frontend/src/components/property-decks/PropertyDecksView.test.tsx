@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import JSZip from "jszip";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { clearBrowserPageCache } from "@/lib/browserPageCache";
 import { PropertyDecksView } from "./PropertyDecksView";
 
 const mockCatalog = {
@@ -55,9 +57,14 @@ const mockCatalog = {
 };
 
 describe("PropertyDecksView component", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     localStorage.clear();
+    await clearBrowserPageCache("local");
     vi.restoreAllMocks();
+  });
+
+  afterEach(() => {
+    cleanup();
   });
 
   it("loads catalog, allows overriding warehouse specs, and compiles a Comprehensive or Standard deck", async () => {
@@ -127,6 +134,84 @@ describe("PropertyDecksView component", () => {
 
     await waitFor(() => {
       expect(screen.getByText(/PRIME_Proposal_FastCargo Logistics\.pptx/i)).toBeDefined();
+    });
+  });
+
+  it("indexes local OneDrive PPTX files in the browser and compiles client-side when running on cloud/Vercel", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/property-decks" && init?.method === "POST") {
+        return new Response(
+          JSON.stringify({
+            error:
+              "OneDrive source folder not found: /var/task/frontend/C:\\Users\\PRIME_Dave\\OneDrive - Jet Innovisions\\Converted",
+          }),
+          { status: 400 },
+        );
+      }
+      if (url === "/api/property-decks") {
+        return new Response(
+          JSON.stringify({
+            catalog: null,
+            suggestedDefaultFolder:
+              "C:\\Users\\PRIME_Dave\\OneDrive - Jet Innovisions\\Sondi Tuazon's files - CRD 2026 COMPILED ONE DRIVE\\Industrial\\Property Deck\\Converted",
+          }),
+          { status: 200 },
+        );
+      }
+      if (url === "/api/property-decks/compile") {
+        return new Response(JSON.stringify({ error: "Server cannot access local path" }), {
+          status: 400,
+        });
+      }
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<PropertyDecksView userName="Dave P." userEmail="dave@primephilippines.com" />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Configure OneDrive Deck Folders/i)).toBeDefined();
+    });
+
+    // Build an in-memory PPTX file and feed it to the local folder file input
+    const zip = new JSZip();
+    zip.file(
+      "ppt/slides/slide1.xml",
+      `<p:sld><a:p><a:t>PLARIDEL INDUSTRIAL PARK - WAREHOUSE A</a:t></a:p><a:p><a:t>Location: Plaridel, Bulacan</a:t></a:p><a:p><a:t>GLA: 6,000 sqm</a:t></a:p><a:p><a:t>Lease Rate: Php 280 / sqm</a:t></a:p></p:sld>`,
+    );
+    const pptxBytes = await zip.generateAsync({ type: "uint8array" });
+    const mockFile = new File([pptxBytes], "Bulacan_Warehouses.pptx", {
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    });
+    Object.defineProperty(mockFile, "webkitRelativePath", {
+      value: "Converted/Bulacan_Warehouses.pptx",
+    });
+    Object.defineProperty(mockFile, "arrayBuffer", {
+      value: async () => pptxBytes.buffer.slice(pptxBytes.byteOffset, pptxBytes.byteOffset + pptxBytes.byteLength),
+    });
+
+    const folderInput = screen.getByTestId("onedrive-folder-input") as HTMLInputElement;
+    fireEvent.change(folderInput, {
+      target: { files: [mockFile] },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("PLARIDEL INDUSTRIAL PARK - WAREHOUSE A")).toBeDefined();
+    });
+
+    // Add to proposal and compile in browser
+    fireEvent.click(screen.getByRole("button", { name: /add to deck/i }));
+    fireEvent.change(screen.getByLabelText(/client name/i), {
+      target: { value: "Lazada Logistics" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /compile pptx deck/i }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/PRIME_Proposal_Lazada_Logistics_Standard_/i),
+      ).toBeDefined();
     });
   });
 });

@@ -1,9 +1,12 @@
+import JSZip from "jszip";
 import { describe, expect, it } from "vitest";
 import {
   applySlideOverrides,
   buildCompilationManifest,
+  compilePptxInBrowser,
   extractSpecsFromSlideText,
   filterPropertySlides,
+  indexPptxFilesInBrowser,
   parseNumericGla,
   reorderSelectedSlides,
   type PropertySlideItem,
@@ -192,5 +195,71 @@ describe("Property Decks filtering, overrides, and cart sequencing", () => {
       gla: "3,200 sqm",
       leaseRate: "₱350/sqm",
     });
+  });
+
+  it("indexes PPTX buffers directly in the browser without requiring server filesystem access", async () => {
+    const zip = new JSZip();
+    zip.file(
+      "ppt/slides/slide1.xml",
+      `<p:sld><a:p><a:t>PROPERTY INFORMATION SHEET</a:t></a:p><a:p><a:t>Prepared Exclusively For: Nestle</a:t></a:p></p:sld>`,
+    );
+    zip.file(
+      "ppt/slides/slide2.xml",
+      `<p:sld><a:p><a:t>CABUYAO LOGISTICS PARK - BLDG 3</a:t></a:p><a:p><a:t>Location: Cabuyao, Laguna</a:t></a:p><a:p><a:t>GLA: 5,400 sqm</a:t></a:p><a:p><a:t>Ceiling Height: 12 meters</a:t></a:p><a:p><a:t>Lease Rate: Php 350 / sqm</a:t></a:p></p:sld>`,
+    );
+    const buffer = await zip.generateAsync({ type: "arraybuffer" });
+
+    const catalog = await indexPptxFilesInBrowser(
+      [
+        {
+          name: "Laguna_Industrial_2026.pptx",
+          relativePath: "Converted/Laguna_Industrial_2026.pptx",
+          data: buffer,
+        },
+      ],
+      "C:\\Users\\PRIME_Dave\\OneDrive - Jet Innovisions\\Converted",
+    );
+
+    expect(catalog.decksCount).toBe(1);
+    expect(catalog.slides).toHaveLength(2);
+    expect(catalog.slides[0].slideRole).toBe("cover");
+    expect(catalog.slides[1].slideRole).toBe("property");
+    expect(catalog.slides[1].specs.location).toContain("Laguna");
+    expect(catalog.slides[1].specs.gla).toBe("5,400 sqm");
+    expect(catalog.slides[1].thumbnailUrl).toMatch(/^data:image\//);
+  });
+
+  it("compiles a complete OpenXML PPTX archive directly in the browser", async () => {
+    const manifest = buildCompilationManifest({
+      selectedSlideIds: ["deck-1:slide:2", "deck-2:slide:3"],
+      catalogSlides: sampleSlides,
+      overrides: {
+        "deck-1:slide:2": { leaseRate: "₱345/sqm (Final)" },
+      },
+      proposal: {
+        clientName: "Shopee Express",
+        projectTitle: "Luzon Fulfillment Hubs",
+        brokerName: "Dave P.",
+        brokerEmail: "dave@primephilippines.com",
+        brokerPhone: "+63 917 000 0000",
+        date: "2026-10-21",
+        mode: "comprehensive",
+      },
+    });
+
+    const compiled = await compilePptxInBrowser(manifest);
+    expect(compiled.fileName).toBe("PRIME_Proposal_Shopee_Express_Comprehensive_2026-10-21.pptx");
+    expect(compiled.slideCount).toBe(6);
+
+    const loadedZip = await JSZip.loadAsync(compiled.buffer);
+    expect(loadedZip.file("[Content_Types].xml")).not.toBeNull();
+    expect(loadedZip.file("_rels/.rels")).not.toBeNull();
+    expect(loadedZip.file("ppt/presentation.xml")).not.toBeNull();
+    expect(loadedZip.file("ppt/slides/slide1.xml")).not.toBeNull();
+    expect(loadedZip.file("ppt/slides/slide6.xml")).not.toBeNull();
+
+    const slide3Xml = await loadedZip.file("ppt/slides/slide3.xml")!.async("string");
+    expect(slide3Xml).toContain("Cabuyao Cold Storage");
+    expect(slide3Xml).toContain("345/sqm (Final)");
   });
 });

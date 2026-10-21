@@ -1,10 +1,11 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDown,
   ArrowUp,
   Check,
+  Download,
   Edit3,
   ExternalLink,
   FolderOpen,
@@ -22,8 +23,11 @@ import {
 import {
   applySlideOverrides,
   buildCompilationManifest,
+  compilePptxInBrowser,
   filterPropertySlides,
+  indexPptxFilesInBrowser,
   reorderSelectedSlides,
+  type BrowserPptxFileInput,
   type DeckCompilationMode,
   type PropertyDeckCatalog,
   type PropertySlideItem,
@@ -46,6 +50,7 @@ interface CompiledResult {
   fileName: string;
   slideCount: number;
   engine: string;
+  downloadUrl?: string;
 }
 
 export function PropertyDecksView({
@@ -109,6 +114,98 @@ export function PropertyDecksView({
   const [brokerPhone] = useState("+63 2 8888 0000");
   const [proposalDate, setProposalDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [compiledResult, setCompiledResult] = useState<CompiledResult | null>(null);
+  const folderInputRef = useRef<HTMLInputElement | null>(null);
+
+  const openBrowserFolderPicker = useCallback(() => {
+    if (folderInputRef.current) {
+      folderInputRef.current.value = "";
+      folderInputRef.current.click();
+    }
+  }, []);
+
+  const handleLocalFolderInputChange = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const fileList = e.target.files;
+      if (!fileList || fileList.length === 0) return;
+
+      setIndexing(true);
+      setError(null);
+      setStatusMessage(null);
+
+      try {
+        const filesArray = Array.from(fileList);
+        const pptxCandidates = filesArray.filter(
+          (f) => f.name.toLowerCase().endsWith(".pptx") && !f.name.startsWith("~$"),
+        );
+
+        if (pptxCandidates.length === 0) {
+          throw new Error(
+            "No .pptx presentation files were found in the selected folder. Select the OneDrive folder containing your .pptx decks.",
+          );
+        }
+
+        const firstRel =
+          (pptxCandidates[0] as File & { webkitRelativePath?: string }).webkitRelativePath || "";
+        const rootFolderName = firstRel.includes("/")
+          ? firstRel.split("/")[0]
+          : draftSourceFolder.trim() || sourceFolder.trim() || "OneDrive Local Decks";
+
+        const sourceLabel =
+          draftSourceFolder.trim() || sourceFolder.trim() || `OneDrive (${rootFolderName})`;
+        const outputLabel =
+          draftOutputFolder.trim() ||
+          outputFolder.trim() ||
+          `${sourceLabel.replace(/[\\/]+$/, "")}\\Compiled Proposals`;
+
+        const browserInputs: BrowserPptxFileInput[] = await Promise.all(
+          pptxCandidates.slice(0, 40).map(async (file) => {
+            const rel = (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name;
+            const data =
+              typeof file.arrayBuffer === "function"
+                ? await file.arrayBuffer()
+                : await new Response(file).arrayBuffer();
+            return {
+              name: file.name,
+              relativePath: rel,
+              data,
+            };
+          }),
+        );
+
+        const indexedCatalog = await indexPptxFilesInBrowser(
+          browserInputs,
+          sourceLabel,
+          outputLabel,
+        );
+
+        const nextConfig: StoredFolderConfig = {
+          sourceFolder: indexedCatalog.sourceFolder,
+          outputFolder: indexedCatalog.outputFolder,
+        };
+        try {
+          localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(nextConfig));
+        } catch {
+          // Ignore storage quota errors
+        }
+
+        setSourceFolder(indexedCatalog.sourceFolder);
+        setOutputFolder(indexedCatalog.outputFolder);
+        setDraftSourceFolder(indexedCatalog.sourceFolder);
+        setDraftOutputFolder(indexedCatalog.outputFolder);
+        setCatalog(indexedCatalog);
+        void writeBrowserPageCache(userId || "local", "property-decks:catalog", indexedCatalog);
+        setFolderModalOpen(false);
+        setStatusMessage(
+          `Indexed ${indexedCatalog.slides.length} slides across ${indexedCatalog.decksCount} presentation decks in Browser DB.`,
+        );
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Could not index selected OneDrive folder.");
+      } finally {
+        setIndexing(false);
+      }
+    },
+    [draftOutputFolder, draftSourceFolder, outputFolder, sourceFolder, userId],
+  );
 
   // Load saved browser config and initial catalog
   useEffect(() => {
@@ -132,6 +229,8 @@ export function PropertyDecksView({
           setCatalog(cachedInDb);
           setSourceFolder(savedConfig?.sourceFolder || cachedInDb.sourceFolder);
           setOutputFolder(savedConfig?.outputFolder || cachedInDb.outputFolder);
+          setDraftSourceFolder(savedConfig?.sourceFolder || cachedInDb.sourceFolder);
+          setDraftOutputFolder(savedConfig?.outputFolder || cachedInDb.outputFolder);
         }
 
         const res = await fetch("/api/property-decks", { cache: "no-store" });
@@ -145,7 +244,7 @@ export function PropertyDecksView({
           setSourceFolder(nextSource);
           setOutputFolder(nextOutput);
           void writeBrowserPageCache(userId || "local", "property-decks:catalog", payload.catalog);
-        } else {
+        } else if (!cachedInDb?.slides?.length) {
           const fallbackFolder = savedConfig?.sourceFolder || payload.suggestedDefaultFolder || "";
           const fallbackOutput =
             savedConfig?.outputFolder ||
@@ -187,7 +286,7 @@ export function PropertyDecksView({
   const runFolderIndex = useCallback(
     async (targetSource: string, targetOutput: string) => {
       if (!targetSource.trim()) {
-        setError("Enter a valid OneDrive source folder path to index.");
+        openBrowserFolderPicker();
         return;
       }
       setIndexing(true);
@@ -212,7 +311,16 @@ export function PropertyDecksView({
           }),
         });
         const payload = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(payload.error || "Indexing failed.");
+        if (!res.ok) {
+          const serverErr = String(payload.error || "Indexing failed.");
+          if (serverErr.includes("/var/task/") || serverErr.includes("not found")) {
+            openBrowserFolderPicker();
+            throw new Error(
+              "Cloud app cannot read local C:\\ paths directly. Choose your local OneDrive folder in the file dialog to index your .pptx decks in the browser.",
+            );
+          }
+          throw new Error(serverErr);
+        }
 
         setCatalog(payload.catalog);
         void writeBrowserPageCache(userId || "local", "property-decks:catalog", payload.catalog);
@@ -226,7 +334,7 @@ export function PropertyDecksView({
         setIndexing(false);
       }
     },
-    [userId],
+    [openBrowserFolderPicker, userId],
   );
 
   const allSlides = useMemo(() => catalog?.slides || [], [catalog]);
@@ -344,6 +452,19 @@ export function PropertyDecksView({
     setEditingSlideId(null);
   };
 
+  const triggerBrowserDownload = (url: string, fileName: string) => {
+    try {
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = fileName;
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+    } catch {
+      // Ignore DOM download errors in test runners
+    }
+  };
+
   const handleCompileDeck = async () => {
     if (selectedSlideIds.length === 0) {
       setError("Select at least one property slide to compile a deck.");
@@ -353,34 +474,58 @@ export function PropertyDecksView({
     setError(null);
     setCompiledResult(null);
     try {
-      const res = await fetch("/api/property-decks/compile", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          selectedSlideIds,
-          slides: allSlides,
-          overrides,
-          outputFolder:
-            outputFolder || (sourceFolder ? `${sourceFolder}\\Compiled Proposals` : undefined),
-          proposal: {
-            clientName: clientName.trim() || "Valued Client",
-            projectTitle: projectTitle.trim() || "Industrial Warehouse Property Options",
-            brokerName: brokerName.trim() || "PRIME Industrial Advisory",
-            brokerEmail: brokerEmail.trim(),
-            brokerPhone: brokerPhone.trim(),
-            date: proposalDate,
-            mode: deckMode,
-          },
-        }),
-      });
-      const payload = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(payload.error || "Compilation failed.");
+      const isBrowserOnlyCatalog = allSlides.every((s) => s.thumbnailUrl.startsWith("data:"));
+
+      if (!isBrowserOnlyCatalog) {
+        const res = await fetch("/api/property-decks/compile", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            selectedSlideIds,
+            slides: allSlides,
+            overrides,
+            outputFolder:
+              outputFolder || (sourceFolder ? `${sourceFolder}\\Compiled Proposals` : undefined),
+            proposal: {
+              clientName: clientName.trim() || "Valued Client",
+              projectTitle: projectTitle.trim() || "Industrial Warehouse Property Options",
+              brokerName: brokerName.trim() || "PRIME Industrial Advisory",
+              brokerEmail: brokerEmail.trim(),
+              brokerPhone: brokerPhone.trim(),
+              date: proposalDate,
+              mode: deckMode,
+            },
+          }),
+        });
+        const payload = await res.json().catch(() => ({}));
+        if (res.ok && payload.fileName) {
+          setCompiledResult({
+            outputPath: payload.outputPath,
+            fileName: payload.fileName,
+            slideCount: payload.slideCount,
+            engine: payload.engine,
+          });
+          return;
+        }
+      }
+
+      // Client-side OpenXML compilation fallback (works on Vercel / PWA / Browser DB)
+      const browserCompiled = await compilePptxInBrowser(activeProposalManifest);
+      const downloadUrl =
+        typeof URL !== "undefined" && typeof URL.createObjectURL === "function"
+          ? URL.createObjectURL(browserCompiled.blob)
+          : undefined;
+
+      if (downloadUrl) {
+        triggerBrowserDownload(downloadUrl, browserCompiled.fileName);
+      }
 
       setCompiledResult({
-        outputPath: payload.outputPath,
-        fileName: payload.fileName,
-        slideCount: payload.slideCount,
-        engine: payload.engine,
+        outputPath: `${outputFolder || "OneDrive\\Compiled Proposals"}\\${browserCompiled.fileName}`,
+        fileName: browserCompiled.fileName,
+        slideCount: browserCompiled.slideCount,
+        engine: "browser-openxml",
+        downloadUrl,
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to compile presentation deck.");
@@ -403,6 +548,22 @@ export function PropertyDecksView({
 
   return (
     <section className="mx-auto w-full max-w-[1440px] space-y-5 pb-8">
+      <input
+        ref={(el) => {
+          folderInputRef.current = el;
+          if (el) {
+            el.setAttribute("webkitdirectory", "");
+            el.setAttribute("directory", "");
+          }
+        }}
+        data-testid="onedrive-folder-input"
+        type="file"
+        multiple
+        accept=".pptx"
+        onChange={(e) => void handleLocalFolderInputChange(e)}
+        className="hidden"
+      />
+
       {/* Mosaic Standard Page Header */}
       <header className="flex min-h-[58px] flex-col justify-between gap-2 border-b border-[#003366]/15 pb-2 sm:flex-row sm:items-center">
         <div className="flex min-w-0 items-center gap-2">
@@ -429,6 +590,14 @@ export function PropertyDecksView({
         <div className="flex shrink-0 flex-wrap items-center gap-2">
           <button
             type="button"
+            onClick={openBrowserFolderPicker}
+            className="inline-flex h-8 min-h-8 items-center justify-center gap-1.5 border border-[#C9A84C] bg-[#FBF7E9] px-2.5 text-[11px] font-semibold text-[#003366] transition-colors hover:border-[#003366]"
+          >
+            <FolderOpen aria-hidden="true" className="h-3.5 w-3.5 text-[#003366]" />
+            Choose OneDrive Folder
+          </button>
+          <button
+            type="button"
             onClick={() => {
               setDraftSourceFolder(sourceFolder);
               setDraftOutputFolder(outputFolder);
@@ -442,7 +611,7 @@ export function PropertyDecksView({
           <button
             type="button"
             onClick={() => void runFolderIndex(sourceFolder, outputFolder)}
-            disabled={indexing || !sourceFolder}
+            disabled={indexing}
             className="inline-flex h-8 min-h-8 items-center justify-center gap-1.5 border border-[#003366] bg-[#003366] px-3 text-[11px] font-semibold text-white transition-colors hover:bg-[#174778] disabled:cursor-wait disabled:opacity-60"
           >
             <RefreshCw aria-hidden="true" className={`h-3.5 w-3.5 ${indexing ? "animate-spin" : ""}`} />
@@ -938,28 +1107,48 @@ export function PropertyDecksView({
 
           {compiledResult && (
             <div className="space-y-2 border border-[#C9A84C] bg-[#FBF7E9] p-3 text-xs text-[#003366]">
-              <p className="font-semibold">Compiled to OneDrive:</p>
+              <p className="font-semibold">
+                {compiledResult.downloadUrl ? "Proposal Deck Compiled:" : "Compiled to OneDrive:"}
+              </p>
               <p className="break-all font-mono text-[11px]">{compiledResult.fileName}</p>
               <p className="text-[10px] text-slate-600">
-                {compiledResult.slideCount} slides generated · Saved in {outputFolder}
+                {compiledResult.slideCount} slides generated ·{" "}
+                {compiledResult.downloadUrl
+                  ? "Ready for PowerPoint download"
+                  : `Saved in ${outputFolder}`}
               </p>
               <div className="flex flex-wrap gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => void triggerWindowsOpen(compiledResult.outputPath, "open-file")}
-                  className="inline-flex min-h-8 items-center gap-1 border border-[#003366] bg-[#003366] px-2.5 text-[11px] font-semibold text-white"
-                >
-                  <ExternalLink className="h-3 w-3" />
-                  Open in PowerPoint
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void triggerWindowsOpen(compiledResult.outputPath, "reveal-folder")}
-                  className="inline-flex min-h-8 items-center gap-1 border border-slate-300 bg-white px-2.5 text-[11px] font-semibold text-[#003366]"
-                >
-                  <FolderOpen className="h-3 w-3" />
-                  Show in Explorer
-                </button>
+                {compiledResult.downloadUrl ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      triggerBrowserDownload(compiledResult.downloadUrl!, compiledResult.fileName)
+                    }
+                    className="inline-flex min-h-8 items-center gap-1 border border-[#003366] bg-[#003366] px-2.5 text-[11px] font-semibold text-white"
+                  >
+                    <Download className="h-3 w-3" />
+                    Download PPTX
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => void triggerWindowsOpen(compiledResult.outputPath, "open-file")}
+                      className="inline-flex min-h-8 items-center gap-1 border border-[#003366] bg-[#003366] px-2.5 text-[11px] font-semibold text-white"
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                      Open in PowerPoint
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void triggerWindowsOpen(compiledResult.outputPath, "reveal-folder")}
+                      className="inline-flex min-h-8 items-center gap-1 border border-slate-300 bg-white px-2.5 text-[11px] font-semibold text-[#003366]"
+                    >
+                      <FolderOpen className="h-3 w-3" />
+                      Show in Explorer
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           )}
@@ -1051,6 +1240,24 @@ export function PropertyDecksView({
             </header>
 
             <div className="mt-4 space-y-3">
+              <div className="border border-[#C9A84C] bg-[#FBF7E9] p-3">
+                <p className="text-xs font-semibold text-[#003366]">
+                  Direct Browser Folder Indexing (Recommended for Web / PWA)
+                </p>
+                <p className="mt-0.5 text-[11px] text-slate-600">
+                  Pick your local synced OneDrive folder directly from your PC. All .pptx slides and specs are indexed in Browser DB without uploading files to any external server.
+                </p>
+                <button
+                  type="button"
+                  onClick={openBrowserFolderPicker}
+                  disabled={indexing}
+                  className="mt-2.5 inline-flex min-h-9 items-center gap-1.5 border border-[#003366] bg-[#003366] px-3.5 text-xs font-semibold text-white hover:bg-[#174778] disabled:opacity-50"
+                >
+                  <FolderOpen className="h-3.5 w-3.5 text-[#C9A84C]" />
+                  {indexing ? "Indexing Folder…" : "Browse & Index Local OneDrive Folder"}
+                </button>
+              </div>
+
               <label className="block text-xs font-semibold text-[#003366]">
                 Source Decks Folder Path (OneDrive)
                 <input
