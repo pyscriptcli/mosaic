@@ -4,10 +4,11 @@ import { clickUpFetch as fetch } from "@/lib/clickupCalendarApi";
 import { getUserFromRequest } from "@/lib/auth";
 import { randomUUID } from "node:crypto";
 import { scheduleMosaicWriteSync, stageMosaicWrite } from "@/lib/mosaicWriteStore";
+import { serializeMeetingContent } from "@/lib/meetingArchive";
 
 export async function POST(req: NextRequest) {
   try {
-    const { meeting_details, items, other_discussions, transcript, meeting_notes } = await req.json();
+    const { meeting_details, items = [], action_items = [], other_discussions, transcript, meeting_notes } = await req.json();
 
     const token = getTokenFromRequest(req);
     if (!token) return NextResponse.json({ error: "ClickUp authentication required" }, { status: 401 });
@@ -68,7 +69,7 @@ export async function POST(req: NextRequest) {
       ...(extAtt ? [`**External Attendees:** ${extAtt}`] : []),
       `\n# Executive Summary\n${other_discussions || ""}`,
       ...(effectiveNotes ? [`\n# Meeting Notes\n${effectiveNotes}`] : []),
-      `\n# Discussion Points\n${JSON.stringify(items || [], null, 2)}`,
+      `\n# Discussion Points\n${serializeMeetingContent(items, action_items)}`,
       `\n# Full Transcript\n${(transcript || "").substring(0, 20000)}`
     ].join("\n");
     const meetingDate = meeting_details.date || new Date().toISOString().slice(0, 10);

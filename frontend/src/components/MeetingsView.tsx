@@ -35,9 +35,10 @@ import {
   AlertTriangle,
   Archive
 } from "lucide-react";
-import { ArchivedMeeting, DiscussionItem } from "@/types/meeting";
+import { ArchivedMeeting, DiscussionItem, MeetingActionItem } from "@/types/meeting";
 import { MeetingWorkspaceTabs, type MeetingWorkspaceTab } from "./MeetingWorkspaceTabs";
-import { MeetingActionItemsTable, MeetingDiscussionCard } from "./MeetingWorkspaceContent";
+import { MeetingActionItemsTable, MeetingDiscussionCard, useMeetingAssignees } from "./MeetingWorkspaceContent";
+import { createActionFromDiscussion } from "@/lib/meetingArchive";
 import type { StudioSession } from "@/types/studio";
 import { getInterruptedSessions, downloadSession, clearSession, exportSessionAsFile } from "@/lib/studioStorage";
 import { exportWord, exportPdf, askEcho, discoverClickUpLists, getStoredApiKey } from "@/lib/api";
@@ -279,6 +280,7 @@ export function MeetingsView({
   const [showArchiveDetails, setShowArchiveDetails] = useState(false);
   const [showEmailModal, setShowEmailModal] = useState(false);
   const [detailTab, setDetailTab] = useState<MeetingWorkspaceTab>("discussion");
+  const meetingAssignees = useMeetingAssignees(detailTab === "actions");
   const [showDiscoverTopicsModal, setShowDiscoverTopicsModal] = useState(false);
   const [missedTopics, setMissedTopics] = useState<DiscoveredTopicItem[]>([]);
   const [topicQuery, setTopicQuery] = useState("");
@@ -532,13 +534,14 @@ export function MeetingsView({
       dueDate?: string;
       priority?: string;
       assigneeName?: string;
+      assigneeId?: string;
       topic?: string;
       evidence?: string;
       discussionPointId?: string;
       existingTaskId?: string;
       existingTaskUrl?: string;
     };
-    topicIndex?: number;
+    actionIndex?: number;
   }>({
     isOpen: false,
     data: {},
@@ -669,13 +672,24 @@ export function MeetingsView({
     const newItem: DiscussionItem = {
       id: `item-${Date.now()}`,
       topic: "New Discussion Topic",
-      evidence: "[00:00] Recorded discussion notes",
+      evidence: "",
       discussion_point: "",
-      action_plan: "",
-      target_date: "TBD",
-      person_in_charge: "Dave Policarpio"
     };
     setActiveMeeting({ ...activeMeeting, items: [...activeMeeting.items, newItem] });
+  };
+
+  const handleAddAction = (discussion: DiscussionItem) => {
+    if (!activeMeeting) return;
+    const action = createActionFromDiscussion(discussion, `action-${Date.now()}-${(activeMeeting.action_items || []).length}`);
+    setActiveMeeting({ ...activeMeeting, action_items: [...(activeMeeting.action_items || []), action] });
+    setDetailTab("actions");
+  };
+
+  const handleUpdateAction = (id: string, field: "actionPlan" | "targetDate" | "personInCharge", value: string, assigneeId?: string) => {
+    if (!activeMeeting) return;
+    const key = { actionPlan: "action_plan", targetDate: "target_date", personInCharge: "person_in_charge" }[field] as "action_plan" | "target_date" | "person_in_charge";
+    const updated = { ...activeMeeting, action_items: (activeMeeting.action_items || []).map((action) => String(action.id) === id ? { ...action, [key]: value, ...(field === "personInCharge" ? { assignee_id: assigneeId || undefined } : {}) } : action) };
+    setActiveMeeting(updated);
   };
 
   // Add Attendee Handlers
@@ -772,9 +786,7 @@ export function MeetingsView({
       topic: suggestion.topic_title,
       evidence: suggestion.evidence_quote || "",
       discussion_point: suggestion.discussion_point || "Review and complete the discussion details.",
-      action_plan: suggestion.action_plan || "None",
-      target_date: suggestion.indicative_delivery_date || "TBD",
-      person_in_charge: suggestion.person_in_charge || "Unassigned",
+      action_suggestion: { action_plan: suggestion.action_plan || "", target_date: suggestion.indicative_delivery_date || "", person_in_charge: suggestion.person_in_charge || "" },
     };
     setActiveMeeting({
       ...activeMeeting,
@@ -790,9 +802,7 @@ export function MeetingsView({
       topic: suggestion.topic_title,
       evidence: suggestion.evidence_quote || "",
       discussion_point: suggestion.discussion_point || "Review and complete the discussion details.",
-      action_plan: suggestion.action_plan || "None",
-      target_date: suggestion.indicative_delivery_date || "TBD",
-      person_in_charge: suggestion.person_in_charge || "Unassigned",
+      action_suggestion: { action_plan: suggestion.action_plan || "", target_date: suggestion.indicative_delivery_date || "", person_in_charge: suggestion.person_in_charge || "" },
     }));
     setActiveMeeting({
       ...activeMeeting,
@@ -845,7 +855,10 @@ export function MeetingsView({
         attendees_prime: activeMeeting.attendees_prime,
         attendees_external: activeMeeting.attendees_external
       };
-      await exportWord(metadata, activeMeeting.items, activeMeeting.summary, "");
+      await exportWord(metadata, activeMeeting.items, (activeMeeting.action_items || []).map((action) => {
+        const source = activeMeeting.items.find((item) => String(item.id) === String(action.discussion_point_id));
+        return { ...action, discussion_point_title: source?.topic || "", discussion_point: source?.discussion_point || "" };
+      }), activeMeeting.summary, "");
     } catch (e: any) {
       alert("Failed to export Word: " + e.message);
     } finally {
@@ -866,7 +879,10 @@ export function MeetingsView({
         attendees_prime: activeMeeting.attendees_prime,
         attendees_external: activeMeeting.attendees_external
       };
-      await exportPdf(metadata, activeMeeting.items, activeMeeting.summary, "");
+      await exportPdf(metadata, activeMeeting.items, (activeMeeting.action_items || []).map((action) => {
+        const source = activeMeeting.items.find((item) => String(item.id) === String(action.discussion_point_id));
+        return { ...action, discussion_point_title: source?.topic || "", discussion_point: source?.discussion_point || "" };
+      }), activeMeeting.summary, "");
     } catch (e: any) {
       alert("Failed to export PDF: " + e.message);
     } finally {
@@ -1678,26 +1694,28 @@ export function MeetingsView({
                 <div className="bg-[#FFFCFB] border border-gray-200/90 rounded-none p-5 shadow-2xs space-y-3">
                   <h3 className="font-serif font-bold text-lg text-[#003366] italic">Action Items</h3>
                   <MeetingActionItemsTable
-                    items={activeMeeting.items.map((item, index) => ({
-                      id: String(item.id ?? index),
-                      topicTitle: item.topic || "",
-                      evidenceQuote: item.evidence || "",
-                      discussionPoint: item.discussion_point,
-                      actionPlan: item.action_plan === "None" ? "" : item.action_plan,
-                      targetDate: item.target_date === "TBD" ? "" : item.target_date,
-                      personInCharge: item.person_in_charge === "Unassigned" ? "" : item.person_in_charge,
-                    }))}
-                    onChange={(id, field, value) => {
-                      const index = activeMeeting.items.findIndex((item, itemIndex) => String(item.id ?? itemIndex) === id);
-                      if (index < 0) return;
-                      const fields = { discussionPoint: "discussion_point", actionPlan: "action_plan", targetDate: "target_date", personInCharge: "person_in_charge" } as const;
-                      const nextValue = field === "actionPlan" && !value.trim() ? "None" : value;
-                      handleUpdateItem(index, fields[field], nextValue);
+                    items={(activeMeeting.action_items || []).map((action) => {
+                      const source = activeMeeting.items.find((item) => String(item.id) === String(action.discussion_point_id));
+                      return {
+                        id: String(action.id),
+                        discussionPointId: String(action.discussion_point_id),
+                        discussionPointTitle: source?.topic || "Discussion removed",
+                        discussionPoint: source?.discussion_point || "",
+                        actionPlan: action.action_plan,
+                        targetDate: action.target_date,
+                        personInCharge: action.person_in_charge,
+                        assigneeId: action.assignee_id,
+                      };
+                    })}
+                    members={meetingAssignees}
+                    onChange={(id, field, value, assigneeId) => {
+                      handleUpdateAction(id, field, value, assigneeId);
                     }}
                     renderAction={(row) => {
-                      const index = activeMeeting.items.findIndex((item, itemIndex) => String(item.id ?? itemIndex) === row.id);
-                      const item = activeMeeting.items[index];
+                      const index = (activeMeeting.action_items || []).findIndex((item) => String(item.id) === row.id);
+                      const item = (activeMeeting.action_items || [])[index];
                       if (!item) return null;
+                      const source = activeMeeting.items.find((discussion) => String(discussion.id) === String(item.discussion_point_id));
                       return item.clickUpTaskId ? (
                         <button type="button" onClick={() => onNavigateToTasks && onNavigateToTasks(item.clickUpTaskId!)} className="mt-2 flex items-center gap-1.5 border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-800 hover:bg-emerald-100" title="Already added to ClickUp. Click to view in Tasks portal">
                           <CheckCircle size={13} className="text-emerald-600" /><span>Added to Tasks</span>
@@ -1706,20 +1724,21 @@ export function MeetingsView({
                         <button type="button" onClick={() => setQuickAddTaskData({
                           isOpen: true,
                           data: {
-                            name: item.action_plan && item.action_plan !== "None" ? item.action_plan : item.topic || `Action from Topic #${index + 1}`,
-                            description: item.discussion_point || "",
-                            topic: item.topic || "",
-                            evidence: item.evidence || "",
+                            name: item.action_plan || source?.topic || `Action ${index + 1}`,
+                            description: source?.discussion_point || "",
+                            topic: source?.topic || "",
+                            evidence: source?.evidence || "",
                             meetingTitle: activeMeeting.title || "Meeting Archive",
                             meetingDate: activeMeeting.date,
                             dueDate: item.target_date || "",
                             priority: "normal",
                             assigneeName: item.person_in_charge || "",
-                            discussionPointId: String(item.id || `dp_${activeMeeting.id}_${index + 1}`),
+                            assigneeId: item.assignee_id || "",
+                            discussionPointId: String(item.discussion_point_id),
                             existingTaskId: item.clickUpTaskId,
                             existingTaskUrl: item.clickUpUrl,
                           },
-                          topicIndex: index,
+                          actionIndex: index,
                         })} className="mt-2 flex items-center gap-1.5 border border-[#003366]/30 bg-[#FFFCFB] px-2.5 py-1 text-[11px] font-bold text-[#003366] transition-colors hover:border-[#003366] hover:bg-blue-50/50">
                           <CheckSquare size={13} className="text-[#c9ab4c]" /><span>Add to Tasks</span>
                         </button>
@@ -1773,6 +1792,8 @@ export function MeetingsView({
                       title={item.topic}
                       discussionPoint={item.discussion_point}
                       evidenceQuote={item.evidence || ""}
+                      actionCount={(activeMeeting.action_items || []).filter((action) => String(action.discussion_point_id) === String(item.id)).length}
+                      onAddAction={() => handleAddAction(item)}
                       onTitleChange={(value) => handleUpdateItem(idx, "topic", value)}
                       onDiscussionPointChange={(value) => handleUpdateItem(idx, "discussion_point", value)}
                     >
@@ -1850,8 +1871,9 @@ export function MeetingsView({
             attendees_external: activeMeeting.attendees_external,
           },
           items: activeMeeting.items,
+          action_items: activeMeeting.action_items || [],
           summary: activeMeeting.summary,
-        } : { metadata: {}, items: [] }}
+        } : { metadata: {}, items: [], action_items: [] }}
       />
 
       {/* Delete Confirmation Modal */}
@@ -1936,16 +1958,16 @@ export function MeetingsView({
         onClose={() => setQuickAddTaskData({ isOpen: false, data: {} })}
         initialData={quickAddTaskData.data}
         onTaskCreated={(created) => {
-          if (activeMeeting && quickAddTaskData.topicIndex !== undefined) {
-            const idx = quickAddTaskData.topicIndex;
-            const updatedItems = [...activeMeeting.items];
-            if (updatedItems[idx]) {
-              updatedItems[idx] = {
-                ...updatedItems[idx],
+          if (activeMeeting && quickAddTaskData.actionIndex !== undefined) {
+            const idx = quickAddTaskData.actionIndex;
+            const updatedActions = [...(activeMeeting.action_items || [])];
+            if (updatedActions[idx]) {
+              updatedActions[idx] = {
+                ...updatedActions[idx],
                 clickUpTaskId: created.id,
                 clickUpUrl: created.url,
               };
-              const updatedMeeting = { ...activeMeeting, items: updatedItems };
+              const updatedMeeting = { ...activeMeeting, action_items: updatedActions };
               setActiveMeeting(updatedMeeting);
               onUpdateMeeting(updatedMeeting);
             }

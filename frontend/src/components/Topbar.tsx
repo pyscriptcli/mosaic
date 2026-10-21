@@ -293,14 +293,14 @@ export function Topbar({
         if (
           item.topic.toLowerCase().includes(query) ||
           item.discussion_point.toLowerCase().includes(query) ||
-          item.action_plan.toLowerCase().includes(query)
+          (item.action_plan || "").toLowerCase().includes(query)
         ) {
           if (matchedTopics.length < 5) {
             matchedTopics.push({
               meetingId: m.id,
               meetingTitle: m.title,
               topic: item.topic,
-              action: item.action_plan
+              action: item.action_plan || ""
             });
           }
         }

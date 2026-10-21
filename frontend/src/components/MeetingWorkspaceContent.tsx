@@ -1,20 +1,37 @@
-import type { ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { SearchableMemberSelect, type ClickUpMember } from "./SearchableMemberSelect";
+
+export function useMeetingAssignees(enabled: boolean) {
+  const [members, setMembers] = useState<ClickUpMember[]>([]);
+  useEffect(() => {
+    if (!enabled) return;
+    let cancelled = false;
+    fetch("/api/meeting-assignees", { cache: "no-store" })
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error("Unable to load ClickUp members")))
+      .then((data) => { if (!cancelled) setMembers(data.members || []); })
+      .catch(() => { if (!cancelled) setMembers([]); });
+    return () => { cancelled = true; };
+  }, [enabled]);
+  return members;
+}
 
 export interface MeetingActionItemRow {
   id: string;
-  topicTitle: string;
-  evidenceQuote?: string;
+  discussionPointId: string;
+  discussionPointTitle: string;
   discussionPoint: string;
   actionPlan: string;
   targetDate: string;
   personInCharge: string;
+  assigneeId?: string;
 }
 
-type ActionItemField = "discussionPoint" | "actionPlan" | "targetDate" | "personInCharge";
+type ActionItemField = "actionPlan" | "targetDate" | "personInCharge";
 
 interface MeetingActionItemsTableProps {
   items: MeetingActionItemRow[];
-  onChange?: (itemId: string, field: ActionItemField, value: string) => void;
+  members?: ClickUpMember[];
+  onChange?: (itemId: string, field: ActionItemField, value: string, assigneeId?: string) => void;
   renderAction?: (item: MeetingActionItemRow) => ReactNode;
 }
 
@@ -22,17 +39,53 @@ interface MeetingDiscussionCardProps {
   title: string;
   discussionPoint: string;
   evidenceQuote?: string;
+  actionCount?: number;
   onTitleChange?: (value: string) => void;
   onDiscussionPointChange?: (value: string) => void;
+  onAddAction?: () => void;
   children?: ReactNode;
 }
 
-const actionColumns: { label: string; field: ActionItemField }[] = [
-  { label: "Discussion Point", field: "discussionPoint" },
+const actionFields: { label: string; field: ActionItemField }[] = [
   { label: "Action Plan", field: "actionPlan" },
   { label: "Target Date", field: "targetDate" },
   { label: "Person in Charge", field: "personInCharge" },
 ];
+
+function AutoResizeTextarea({
+  label,
+  value,
+  onChange,
+  placeholder,
+  className = "",
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  className?: string;
+}) {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useLayoutEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = "auto";
+    textarea.style.height = `${Math.max(44, textarea.scrollHeight)}px`;
+  }, [value]);
+
+  return (
+    <textarea
+      ref={textareaRef}
+      aria-label={label}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      placeholder={placeholder}
+      rows={2}
+      className={`w-full resize-none overflow-hidden border border-gray-200 bg-white p-2.5 text-sm leading-relaxed text-[#003366] focus:border-[#C9AB4C] focus:outline-none ${className}`}
+    />
+  );
+}
 
 function renderDiscussionPoint(value: string) {
   const blocks: { type: "paragraph" | "list"; lines: string[] }[] = [];
@@ -68,8 +121,10 @@ export function MeetingDiscussionCard({
   title,
   discussionPoint,
   evidenceQuote = "",
+  actionCount = 0,
   onTitleChange,
   onDiscussionPointChange,
+  onAddAction,
   children,
 }: MeetingDiscussionCardProps) {
   const editable = Boolean(onTitleChange || onDiscussionPointChange);
@@ -96,25 +151,30 @@ export function MeetingDiscussionCard({
       )}
 
       {onDiscussionPointChange ? (
-        <textarea
-          aria-label="Discussion point"
+        <AutoResizeTextarea
+          label="Discussion point"
           value={discussionPoint}
-          onChange={(event) => onDiscussionPointChange(event.target.value)}
+          onChange={onDiscussionPointChange}
           placeholder="Add a short paragraph and bullets for key details or decisions."
-          rows={Math.max(3, discussionPoint.split(/\r?\n/).length)}
-          className="w-full resize-y border border-gray-200 bg-white p-3 text-sm leading-relaxed text-slate-700 focus:border-[#C9AB4C] focus:outline-none"
         />
       ) : (
         <div className="space-y-2">{renderDiscussionPoint(discussionPoint)}</div>
       )}
 
       {editable && <p className="text-[11px] text-slate-400">Use a short paragraph followed by bullets for separate points.</p>}
+      {onAddAction && (
+        <div className="flex justify-end border-t border-gray-100 pt-3">
+          <button type="button" onClick={onAddAction} className="border border-[#003366]/30 bg-[#FFFCFB] px-3 py-1.5 text-xs font-semibold text-[#003366] transition-colors hover:border-[#003366] hover:bg-blue-50/50">
+            {actionCount ? "Add another action item" : "Add as action item"}
+          </button>
+        </div>
+      )}
       {children}
     </article>
   );
 }
 
-export function MeetingActionItemsTable({ items, onChange, renderAction }: MeetingActionItemsTableProps) {
+export function MeetingActionItemsTable({ items, members = [], onChange, renderAction }: MeetingActionItemsTableProps) {
   if (items.length === 0) {
     return <p className="border border-dashed border-slate-300 bg-white/60 p-6 text-center text-sm text-slate-500">No action items recorded.</p>;
   }
@@ -125,35 +185,54 @@ export function MeetingActionItemsTable({ items, onChange, renderAction }: Meeti
         <article key={item.id} className="border border-gray-200/90 bg-[#FFFCFB] p-5 shadow-2xs">
           <header className="mb-3 flex items-center gap-3 border-b border-gray-100 pb-3">
             <span className="font-serif text-xl text-[#C9AB4C]">{String(index + 1).padStart(2, "0")}</span>
-            <h4 className="font-serif text-base font-bold italic text-[#003366]">{item.topicTitle || "Discussion"}</h4>
+            <h4 className="font-serif text-base font-bold italic text-[#003366]">{item.discussionPointTitle || "Action item"}</h4>
           </header>
-          {item.evidenceQuote?.trim() && (
-            <section aria-label={`Evidence quote / context reference for ${item.topicTitle || "discussion"}`} className="mb-4 border-l-2 border-[#C9AB4C] py-1 pl-3">
-              <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">Evidence quote / context reference</p>
-              <p className="font-serif text-sm italic leading-relaxed text-slate-600">{item.evidenceQuote}</p>
-            </section>
-          )}
           <div className="grid grid-cols-1 gap-4 border-t border-gray-100 pt-3 md:grid-cols-2 xl:grid-cols-[1.8fr_1.1fr_0.7fr_0.8fr]">
-            {actionColumns.map(({ label, field }) => (
+            <section className="min-w-0">
+              <h5 className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.1em] text-slate-500">Discussion Point</h5>
+              <p className="min-h-10 whitespace-pre-line border border-gray-200 bg-white p-2.5 text-sm leading-relaxed text-[#003366]">{item.discussionPoint || "Discussion removed"}</p>
+            </section>
+            {actionFields.map(({ label, field }) => (
               <section key={field} className="min-w-0">
                 <h5 className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.1em] text-slate-500">{label}</h5>
-                {onChange ? field === "targetDate" || field === "personInCharge" ? (
-                  <input
-                    aria-label={`${label} for ${item.discussionPoint}`}
-                    value={item[field]}
-                    placeholder={field === "targetDate" ? "TBD" : "Unassigned"}
-                    onChange={(event) => onChange(item.id, field, event.target.value)}
-                    className="w-full border-b border-gray-300 bg-transparent px-1 py-2 text-sm font-medium text-[#003366] focus:border-[#C9AB4C] focus:outline-none"
-                  />
+                {field === "actionPlan" ? (
+                  onChange ? <AutoResizeTextarea label={label} value={item.actionPlan} onChange={(value) => onChange(item.id, field, value)} />
+                    : <p className="min-h-10 whitespace-pre-line border border-gray-200 bg-white p-2.5 text-sm leading-relaxed text-[#003366]">{item.actionPlan || "—"}</p>
+                ) : field === "targetDate" ? (
+                  onChange ? (
+                    <input
+                      aria-label={label}
+                      type="date"
+                      value={item.targetDate}
+                      onChange={(event) => onChange(item.id, field, event.target.value)}
+                      className="w-full border-b border-gray-300 bg-transparent px-1 py-2 text-sm font-medium text-[#003366] focus:border-[#C9AB4C] focus:outline-none"
+                    />
+                  ) : <p className="min-h-10 border-b border-gray-300 px-1 py-2 text-sm text-[#003366]">{item.targetDate || "—"}</p>
                 ) : (
-                  <textarea
-                    aria-label={`${label} for ${item.discussionPoint}`}
-                    value={item[field]}
-                    onChange={(event) => onChange(item.id, field, event.target.value)}
-                    rows={Math.max(2, item[field].split(/\r?\n/).length)}
-                    className={`w-full resize-y border border-gray-200 bg-white p-2.5 text-sm leading-relaxed text-[#003366] focus:border-[#C9AB4C] focus:outline-none ${field === "discussionPoint" ? "border-[#C9AB4C]" : ""}`}
-                  />
-                ) : <p className="min-h-10 whitespace-pre-line border border-gray-200 bg-white p-2.5 text-sm leading-relaxed text-[#003366]">{item[field] || "—"}</p>}
+                  <>
+                    {onChange ? (
+                      <input
+                        aria-label={label}
+                        value={item.personInCharge}
+                        onChange={(event) => onChange(item.id, field, event.target.value, "")}
+                        placeholder="Enter a name or choose a ClickUp member"
+                        className="mb-2 w-full border-b border-gray-300 bg-transparent px-1 py-2 text-sm font-medium text-[#003366] focus:border-[#C9AB4C] focus:outline-none"
+                      />
+                    ) : <p className="min-h-10 border-b border-gray-300 px-1 py-2 text-sm text-[#003366]">{item.personInCharge || "—"}</p>}
+                    {onChange && (
+                      <SearchableMemberSelect
+                        members={members}
+                        selectedMemberId={item.assigneeId || ""}
+                        onChange={(memberId) => {
+                          const member = members.find((candidate) => String(candidate.id) === memberId);
+                          onChange(item.id, field, member?.username || "", memberId);
+                        }}
+                        placeholder="Choose ClickUp member"
+                        searchPlaceholder="Search ClickUp members..."
+                      />
+                    )}
+                  </>
+                )}
               </section>
             ))}
           </div>

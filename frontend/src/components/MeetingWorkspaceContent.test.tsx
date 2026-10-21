@@ -5,82 +5,86 @@ import { MeetingActionItemsTable, MeetingDiscussionCard } from "./MeetingWorkspa
 
 afterEach(cleanup);
 
+const members = [
+  { id: "11", username: "Alex Cruz", email: "alex@primephilippines.com" },
+  { id: "12", username: "Bea Santos", email: "bea@primephilippines.com" },
+];
+
 describe("MeetingDiscussionCard", () => {
-  it("presents a short discussion paragraph and its supporting bullets as a card", () => {
+  it("keeps discussion content separate and offers an explicit add-as-action control", () => {
+    const onAddAction = vi.fn();
     render(
       <MeetingDiscussionCard
         title="Advisor account update"
-        discussionPoint={"The team reviewed the account's renewal status.\n- The client requested revised terms.\n- The renewal is due this quarter."}
-        evidenceQuote="[00:18] The client asked whether the renewal can be completed this quarter."
+        discussionPoint="The team reviewed the renewal."
+        evidenceQuote="[00:18] The client asked about renewal timing."
+        onAddAction={onAddAction}
       />,
     );
 
     expect(screen.getByRole("heading", { name: "Advisor account update" })).toBeTruthy();
-    expect(screen.getByText("The team reviewed the account's renewal status.")).toBeTruthy();
-    expect(screen.getByRole("list").textContent).toContain("The client requested revised terms.");
-    expect(within(screen.getAllByRole("article")[0]).getByText("[00:18] The client asked whether the renewal can be completed this quarter.")).toBeTruthy();
-  });
-
-  it("keeps topic and discussion text editable inside the card", () => {
-    const onTitleChange = vi.fn();
-    const onDiscussionPointChange = vi.fn();
-    render(
-      <MeetingDiscussionCard
-        title="Old topic"
-        discussionPoint="Old discussion"
-        onTitleChange={onTitleChange}
-        onDiscussionPointChange={onDiscussionPointChange}
-      />,
-    );
-
-    fireEvent.change(screen.getByLabelText("Discussion topic"), { target: { value: "Updated topic" } });
-    fireEvent.change(screen.getByLabelText("Discussion point"), { target: { value: "Updated discussion" } });
-    expect(onTitleChange).toHaveBeenCalledWith("Updated topic");
-    expect(onDiscussionPointChange).toHaveBeenCalledWith("Updated discussion");
+    expect(screen.getByText("[00:18] The client asked about renewal timing.")).toBeTruthy();
+    expect(screen.queryByText("Send revised terms")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Add as action item" }));
+    expect(onAddAction).toHaveBeenCalledOnce();
   });
 });
 
 describe("MeetingActionItemsTable", () => {
-  it("shows each action as a topic card with evidence and the four requested fields", () => {
+  it("shows linked source discussion separately from an editable action and blank date", () => {
     const onChange = vi.fn();
     render(
       <MeetingActionItemsTable
         items={[{
-          id: "dp-1",
-          topicTitle: "Account renewal",
-          evidenceQuote: "[00:18] The client asked whether the renewal can be completed this quarter.",
+          id: "action-1",
+          discussionPointId: "dp-1",
+          discussionPointTitle: "Account renewal",
           discussionPoint: "The team reviewed the renewal.",
           actionPlan: "Send revised terms",
-          targetDate: "2026-11-02",
-          personInCharge: "Mika Santos",
+          targetDate: "",
+          personInCharge: "",
         }]}
+        members={members}
         onChange={onChange}
       />,
     );
 
-    expect(screen.getByRole("heading", { name: "Account renewal" })).toBeTruthy();
-    const actionCard = screen.getByRole("heading", { name: "Account renewal" }).closest("article");
-    expect(actionCard && within(actionCard).getByText("[00:18] The client asked whether the renewal can be completed this quarter.")).toBeTruthy();
-    expect(screen.getAllByLabelText(/^(Discussion Point|Action Plan|Target Date|Person in Charge) for/)).toHaveLength(4);
-    expect(screen.getByDisplayValue("The team reviewed the renewal.")).toBeTruthy();
-    fireEvent.change(screen.getByDisplayValue("Send revised terms"), { target: { value: "Send final terms" } });
-    expect(onChange).toHaveBeenCalledWith("dp-1", "actionPlan", "Send final terms");
-    fireEvent.change(screen.getByDisplayValue("2026-11-02"), { target: { value: "2026-11-05" } });
-    expect(onChange).toHaveBeenCalledWith("dp-1", "targetDate", "2026-11-05");
-    fireEvent.change(screen.getByDisplayValue("Mika Santos"), { target: { value: "Mika Ramos" } });
-    expect(onChange).toHaveBeenCalledWith("dp-1", "personInCharge", "Mika Ramos");
+    const card = screen.getByRole("heading", { name: "Account renewal" }).closest("article");
+    expect(card).toBeTruthy();
+    expect(within(card!).getByText("The team reviewed the renewal.")).toBeTruthy();
+    expect((within(card!).getByLabelText("Action Plan") as HTMLTextAreaElement).value).toBe("Send revised terms");
+    expect(within(card!).queryByLabelText("Discussion Point")).toBeNull();
+    expect(within(card!).getByLabelText("Target Date").getAttribute("type")).toBe("date");
+    expect((within(card!).getByLabelText("Target Date") as HTMLInputElement).value).toBe("");
+    expect(within(card!).getByLabelText("Person in Charge")).toBeTruthy();
   });
 
-  it("keeps task actions with their corresponding action row", () => {
-    const onAddTask = vi.fn();
+  it("updates action fields, supports free text, and offers searchable ClickUp members", () => {
+    const onChange = vi.fn();
     render(
       <MeetingActionItemsTable
-        items={[{ id: "dp-1", topicTitle: "Account renewal", discussionPoint: "Renewal reviewed.", actionPlan: "Send terms", targetDate: "", personInCharge: "" }]}
-        renderAction={() => <button type="button" onClick={onAddTask}>Add to Tasks</button>}
+        items={[{
+          id: "action-1",
+          discussionPointId: "dp-1",
+          discussionPointTitle: "Account renewal",
+          discussionPoint: "The team reviewed the renewal.",
+          actionPlan: "Send revised terms",
+          targetDate: "",
+          personInCharge: "",
+        }]}
+        members={members}
+        onChange={onChange}
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Add to Tasks" }));
-    expect(onAddTask).toHaveBeenCalledOnce();
+    fireEvent.change(screen.getByLabelText("Action Plan"), { target: { value: "Send final terms" } });
+    expect(onChange).toHaveBeenCalledWith("action-1", "actionPlan", "Send final terms");
+    fireEvent.change(screen.getByLabelText("Person in Charge"), { target: { value: "External consultant" } });
+    expect(onChange).toHaveBeenCalledWith("action-1", "personInCharge", "External consultant", "");
+
+    fireEvent.click(screen.getByRole("button", { name: "Choose ClickUp member" }));
+    fireEvent.change(screen.getByPlaceholderText("Search ClickUp members..."), { target: { value: "Alex" } });
+    fireEvent.click(screen.getByRole("button", { name: /Alex Cruz/ }));
+    expect(onChange).toHaveBeenCalledWith("action-1", "personInCharge", "Alex Cruz", "11");
   });
 });

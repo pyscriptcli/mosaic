@@ -16,6 +16,7 @@ interface SearchableMemberSelectProps {
   selectedMemberId: string;
   onChange: (memberId: string) => void;
   placeholder?: string;
+  searchPlaceholder?: string;
   className?: string;
 }
 
@@ -24,6 +25,7 @@ export function SearchableMemberSelect({
   selectedMemberId,
   onChange,
   placeholder = "-- Assign to Member --",
+  searchPlaceholder = "Search space members...",
   className = ""
 }: SearchableMemberSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
@@ -104,7 +106,7 @@ export function SearchableMemberSelect({
             <input
               type="text"
               autoFocus
-              placeholder="Search space members..."
+              placeholder={searchPlaceholder}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full text-xs bg-transparent outline-none text-gray-800"

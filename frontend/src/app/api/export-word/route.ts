@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
   const denied = await requireFeature(req, "meetings-export");
   if (denied) return denied;
   try {
-    const { meeting_details, items, summary, other_discussions } = await req.json();
+    const { meeting_details, discussion_points = [], action_items = [], summary, other_discussions } = await req.json();
 
     const clientName = cleanField(meeting_details?.client_name);
     const dateStr = cleanField(meeting_details?.date);
@@ -254,7 +254,7 @@ export async function POST(req: NextRequest) {
       size: 2,
       color: "DCDFE3",
     };
-    const discussionCards: Table[] = (items || []).map((item: any, index: number) => {
+    const discussionCards: Table[] = (discussion_points || []).map((item: any, index: number) => {
       const title = cleanField(item.topic_title) || `Discussion ${index + 1}`;
       const discussion = cleanField(item.discussion_point) || "No discussion details recorded.";
       const discussionParagraphs = discussion.split(/\r?\n/).filter((line: string) => line.trim()).map((line: string) => {
@@ -295,7 +295,7 @@ export async function POST(req: NextRequest) {
         ],
       });
     });
-    const actionItems = (items || []).filter((item: any) => cleanField(item.action_plan));
+    const actionItemRecords = (action_items || []).filter((item: any) => cleanField(item.action_plan));
     const actionRows: TableRow[] = [new TableRow({
       tableHeader: true,
       children: ["Discussion Point", "Action Plan", "Target Date", "Person in Charge"].map((label) => new TableCell({
@@ -304,10 +304,10 @@ export async function POST(req: NextRequest) {
         children: [new Paragraph({ children: [new TextRun({ text: label, bold: true, color: "FFFFFF", size: 19 })] })],
       })),
     })];
-    actionItems.forEach((item: any, index: number) => {
+    actionItemRecords.forEach((item: any, index: number) => {
       const rowFill = index % 2 ? "FAF9F7" : "FFFFFF";
       const discussionCell: Paragraph[] = [];
-      const topic = cleanField(item.topic_title);
+      const topic = cleanField(item.discussion_point_title || item.topic_title);
       const discussion = cleanField(item.discussion_point);
       if (topic) discussionCell.push(new Paragraph({ children: [new TextRun({ text: topic, bold: true, color: "003366", size: 18 })], spacing: { after: 60 } }));
       if (discussion) discussionCell.push(...discussion.split(/\r?\n/).map((line: string) => {
@@ -317,7 +317,7 @@ export async function POST(req: NextRequest) {
           : new Paragraph({ children: [new TextRun({ text: line.trim(), size: 18, color: "333333" })], spacing: { after: 60 } });
       }));
       if (discussionCell.length === 0) discussionCell.push(new Paragraph({ text: "" }));
-      const cells = [cleanField(item.action_plan), cleanField(item.indicative_delivery_date), cleanField(item.person_in_charge)];
+      const cells = [cleanField(item.action_plan), cleanField(item.target_date || item.indicative_delivery_date), cleanField(item.person_in_charge)];
       actionRows.push(new TableRow({
         children: [new TableCell({
           shading: { type: ShadingType.CLEAR, fill: rowFill },
@@ -344,7 +344,7 @@ export async function POST(req: NextRequest) {
         ? discussionCards.flatMap((card) => [card, new Paragraph({ text: "", spacing: { after: 120 } })])
         : [new Paragraph({ text: "No discussion points recorded.", spacing: { after: 150 } })]),
       new Paragraph({ text: "", spacing: { after: 200 } }),
-      ...(actionItems.length > 0 ? [
+      ...(actionItemRecords.length > 0 ? [
         sectionHeading("ACTION ITEMS"),
         new Table({ rows: actionRows, width: { size: 100, type: WidthType.PERCENTAGE } }),
         new Paragraph({ text: "", spacing: { after: 200 } }),

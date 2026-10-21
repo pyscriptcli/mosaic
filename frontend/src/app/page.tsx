@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { Stepper, Stage } from "@/components/Stepper";
 import { MeetingWorkspaceTabs } from "@/components/MeetingWorkspaceTabs";
-import { MeetingActionItemsTable, MeetingDiscussionCard } from "@/components/MeetingWorkspaceContent";
+import { MeetingActionItemsTable, MeetingDiscussionCard, useMeetingAssignees } from "@/components/MeetingWorkspaceContent";
 import { StudioRecoveryBanner } from "@/components/StudioRecoveryBanner";
 import { useStudioRecorderContext } from "@/components/StudioRecorderProvider";
 import type { StudioNote, StudioDisplayMode } from "@/types/studio";
@@ -44,7 +44,8 @@ import { FinalizeMeetingModal } from "@/components/FinalizeMeetingModal";
 import { DiscoverTopicsModal } from "@/components/DiscoverTopicsModal";
 import { EmailMeetingModal } from "@/components/EmailMeetingModal";
 import { LoginView } from "@/components/LoginView";
-import { ArchivedMeeting } from "@/types/meeting";
+import { ArchivedMeeting, MeetingActionItem } from "@/types/meeting";
+import { createActionFromDiscussion } from "@/lib/meetingArchive";
 import { mergeMeetings } from "@/lib/meetingsData";
 import { formatEchoDate } from "@/lib/dateUtils";
 import type { DiscoveredTopicItem } from "@/app/api/discover-topics/route";
@@ -314,6 +315,7 @@ export default function Home() {
   const [autoDiscoverEnabled, setAutoDiscoverEnabled] = useState(true);
   const [hasAutoDiscovered, setHasAutoDiscovered] = useState(false);
   const [reviewTab, setReviewTab] = useState<"discussion" | "actions" | "notes" | "transcript">("discussion");
+  const meetingAssignees = useMeetingAssignees(reviewTab === "actions");
   const [copiedTranscript, setCopiedTranscript] = useState(false);
   const [isStudioOpen, setIsStudioOpen] = useState(false);
   const [studioMode, setStudioMode] = useState<StudioDisplayMode>("panel");
@@ -384,13 +386,14 @@ export default function Home() {
       dueDate?: string;
       priority?: string;
       assigneeName?: string;
+      assigneeId?: string;
       topic?: string;
       evidence?: string;
       discussionPointId?: string;
       existingTaskId?: string;
       existingTaskUrl?: string;
     };
-    topicIndex?: number;
+    actionIndex?: number;
   }>({
     isOpen: false,
     data: {},
@@ -649,6 +652,7 @@ export default function Home() {
 
   // Review state
   const [momItems, setMomItems] = useState<any[]>([]);
+  const [actionItems, setActionItems] = useState<MeetingActionItem[]>([]);
   const [otherDiscussions, setOtherDiscussions] = useState("");
   const [showReviewAssist, setShowReviewAssist] = useState(true);
 
@@ -810,9 +814,17 @@ export default function Home() {
       setMomItems(
         (momRes.matched_items || []).map((item: any, idx: number) => ({
           id: item.id || `dp_${Date.now()}_${idx}`,
-          ...item,
+          topic_title: item.topic_title || item.topic || `Discussion ${idx + 1}`,
+          discussion_point: item.discussion_point || "",
+          evidence_quote: item.evidence_quote || item.evidence || "",
+          action_suggestion: {
+            action_plan: item.action_plan === "None" ? "" : item.action_plan || "",
+            target_date: item.target_date === "TBD" ? "" : item.target_date || "",
+            person_in_charge: item.person_in_charge === "Unassigned" ? "" : item.person_in_charge || "",
+          },
         }))
       );
+      setActionItems([]);
       setMissedTopics(
         Array.isArray(momRes.recommended_missed_points)
           ? momRes.recommended_missed_points.map((item: any) => ({
@@ -878,9 +890,17 @@ export default function Home() {
       setMomItems(
         (res.matched_items || []).map((item: any, idx: number) => ({
           id: item.id || `dp_${Date.now()}_${idx}`,
-          ...item,
+          topic_title: item.topic_title || item.topic || `Discussion ${idx + 1}`,
+          discussion_point: item.discussion_point || "",
+          evidence_quote: item.evidence_quote || item.evidence || "",
+          action_suggestion: {
+            action_plan: item.action_plan === "None" ? "" : item.action_plan || "",
+            target_date: item.indicative_delivery_date === "TBD" ? "" : item.indicative_delivery_date || "",
+            person_in_charge: item.person_in_charge === "Unassigned" ? "" : item.person_in_charge || "",
+          },
         }))
       );
+      setActionItems([]);
       setOtherDiscussions(res.other_discussions || "");
       setStage("Review");
     } catch (err: any) {
@@ -899,11 +919,13 @@ export default function Home() {
         topic_title: "",
         discussion_point: "",
         evidence_quote: "",
-        action_plan: "None",
-        indicative_delivery_date: new Date().toISOString().split("T")[0],
-        person_in_charge: "Unassigned"
       }
     ]);
+  };
+
+  const addActionItem = (discussion: any) => {
+    setActionItems((current) => [...current, createActionFromDiscussion(discussion, `action-${Date.now()}-${current.length}`)]);
+    setReviewTab("actions");
   };
 
   const removeRow = (index: number) => {
@@ -929,9 +951,11 @@ export default function Home() {
         topic_title: suggestion.topic_title,
         discussion_point: suggestion.discussion_point || "Review and complete the discussion details.",
         evidence_quote: suggestion.evidence_quote || "",
-        action_plan: suggestion.action_plan || "None",
-        indicative_delivery_date: suggestion.indicative_delivery_date || "TBD",
-        person_in_charge: suggestion.person_in_charge || "Unassigned"
+        action_suggestion: {
+          action_plan: suggestion.action_plan === "None" ? "" : suggestion.action_plan || "",
+          target_date: suggestion.indicative_delivery_date === "TBD" ? "" : suggestion.indicative_delivery_date || "",
+          person_in_charge: suggestion.person_in_charge === "Unassigned" ? "" : suggestion.person_in_charge || "",
+        },
       }
     ]);
     setMissedTopics((topics) => topics.filter((_, i) => i !== index));
@@ -944,9 +968,11 @@ export default function Home() {
       topic_title: suggestion.topic_title,
       discussion_point: suggestion.discussion_point || "Review and complete the discussion details.",
       evidence_quote: suggestion.evidence_quote || "",
-      action_plan: suggestion.action_plan || "None",
-      indicative_delivery_date: suggestion.indicative_delivery_date || "TBD",
-      person_in_charge: suggestion.person_in_charge || "Unassigned"
+      action_suggestion: {
+        action_plan: suggestion.action_plan === "None" ? "" : suggestion.action_plan || "",
+        target_date: suggestion.indicative_delivery_date === "TBD" ? "" : suggestion.indicative_delivery_date || "",
+        person_in_charge: suggestion.person_in_charge === "Unassigned" ? "" : suggestion.person_in_charge || "",
+      },
     }));
     setMomItems([...momItems, ...newItems]);
     setMissedTopics([]);
@@ -1016,7 +1042,10 @@ export default function Home() {
     setIsLoading(true);
     setLoadingText("Generating Word Document (.docx)...");
     try {
-      await exportWord(effectiveMeta, momItems, meetingSummary, otherDiscussions);
+      await exportWord(effectiveMeta, momItems, actionItems.map((action) => {
+        const source = momItems.find((item) => String(item.id) === String(action.discussion_point_id));
+        return { ...action, discussion_point_title: source?.topic_title || source?.topic || "", discussion_point: source?.discussion_point || "" };
+      }), meetingSummary, otherDiscussions);
       setShowFinalizeModal(false);
       setShowExportModal(false);
     } catch (err: any) {
@@ -1035,7 +1064,10 @@ export default function Home() {
     setIsLoading(true);
     setLoadingText("Generating PDF (.pdf)...");
     try {
-      await exportPdf(effectiveMeta, momItems, meetingSummary, otherDiscussions);
+      await exportPdf(effectiveMeta, momItems, actionItems.map((action) => {
+        const source = momItems.find((item) => String(item.id) === String(action.discussion_point_id));
+        return { ...action, discussion_point_title: source?.topic_title || source?.topic || "", discussion_point: source?.discussion_point || "" };
+      }), meetingSummary, otherDiscussions);
       setShowFinalizeModal(false);
       setShowExportModal(false);
     } catch (err: any) {
@@ -1102,7 +1134,7 @@ export default function Home() {
         ...(targetListId ? { list_id: targetListId } : {}),
         is_confidential: isConfidential,
       };
-      const res = await saveMeeting(payloadMeta, momItems, otherDiscussions, transcript, additionalMeetingNotes);
+      const res = await saveMeeting(payloadMeta, momItems, actionItems, otherDiscussions, transcript, additionalMeetingNotes);
       const newMeetingId = res.meeting_id || `MOM-${Date.now()}`;
       const newRecord: ArchivedMeeting = {
         id: newMeetingId,
@@ -1124,10 +1156,8 @@ export default function Home() {
           topic: item.topic_title || `Topic ${idx + 1}`,
           evidence: item.evidence_quote || "",
           discussion_point: item.discussion_point || "",
-          action_plan: item.action_plan || "",
-          target_date: item.indicative_delivery_date || "",
-          person_in_charge: item.person_in_charge || "Unassigned"
         })),
+        action_items: actionItems,
         transcript: transcript,
         created_at: new Date().toISOString(),
         clickup_space_id: res.clickup?.spaceId,
@@ -1164,8 +1194,8 @@ export default function Home() {
   // Stage accessibility conditions
   const isReviewAllowed = !!transcript || pastedText.trim().length > 0 || momItems.length > 0;
   // Counts for the Review summary statistics
-  const actionItemsCount = momItems.filter((i) => i.action_plan && i.action_plan !== "None").length;
-  const assignedCount = momItems.filter((i) => i.person_in_charge && i.person_in_charge !== "Unassigned").length;
+  const actionItemsCount = actionItems.length;
+  const assignedCount = actionItems.filter((item) => item.person_in_charge.trim()).length;
 
   // ClickUp Session Loading Gate
   if (authStatus === "loading") {
@@ -1252,6 +1282,7 @@ export default function Home() {
           date: getEffectiveMetadata().date,
           metadata: getEffectiveMetadata(),
           items: momItems,
+          action_items: actionItems,
           summary: otherDiscussions,
         }}
       />
@@ -2295,48 +2326,52 @@ export default function Home() {
               <div className="border border-gray-200 bg-[#FFFCFB] p-5 shadow-2xs rounded-none space-y-3">
                 <h3 className="text-lg font-serif text-[#003366] italic">Action Items</h3>
                 <MeetingActionItemsTable
-                  items={momItems.map((item, index) => ({
-                    id: String(item.id ?? index),
-                    topicTitle: item.topic_title || item.topic || "",
-                    evidenceQuote: item.evidence_quote || "",
-                    discussionPoint: item.discussion_point || "",
-                    actionPlan: item.action_plan === "None" ? "" : item.action_plan || "",
-                    targetDate: item.indicative_delivery_date || item.target_date || "",
-                    personInCharge: item.person_in_charge || "",
-                  }))}
-                  onChange={(id, field, value) => {
-                    const index = momItems.findIndex((item, itemIndex) => String(item.id ?? itemIndex) === id);
-                    if (index < 0) return;
-                    const fields = { discussionPoint: "discussion_point", actionPlan: "action_plan", targetDate: "indicative_delivery_date", personInCharge: "person_in_charge" } as const;
-                    const nextValue = field === "actionPlan" && !value.trim() ? "None" : value;
-                    setMomItems((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, [fields[field]]: nextValue } : item));
+                  items={actionItems.map((action) => {
+                    const source = momItems.find((item) => String(item.id) === String(action.discussion_point_id));
+                    return {
+                    id: String(action.id),
+                    discussionPointId: String(action.discussion_point_id),
+                    discussionPointTitle: source?.topic_title || source?.topic || "Discussion removed",
+                    discussionPoint: source?.discussion_point || "",
+                    actionPlan: action.action_plan,
+                    targetDate: action.target_date,
+                    personInCharge: action.person_in_charge,
+                    assigneeId: action.assignee_id,
+                    };
+                  })}
+                  members={meetingAssignees}
+                  onChange={(id, field, value, assigneeId) => {
+                    const fields = { actionPlan: "action_plan", targetDate: "target_date", personInCharge: "person_in_charge" } as const;
+                    setActionItems((current) => current.map((action) => String(action.id) === id ? { ...action, [fields[field]]: value, ...(field === "personInCharge" ? { assignee_id: assigneeId || undefined } : {}) } : action));
                   }}
                   renderAction={(row) => {
-                    const index = momItems.findIndex((item, itemIndex) => String(item.id ?? itemIndex) === row.id);
-                    const item = momItems[index];
+                    const index = actionItems.findIndex((item) => String(item.id) === row.id);
+                    const item = actionItems[index];
                     if (!item) return null;
+                    const source = momItems.find((discussion) => String(discussion.id) === String(item.discussion_point_id));
                     return item.clickUpTaskId ? (
-                      <button type="button" onClick={() => { setFocusedTaskId(item.clickUpTaskId); setCurrentView("tasks"); }} className="mt-2 flex items-center gap-1.5 border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-800 hover:bg-emerald-100" title="Already added to ClickUp. Click to view or edit in Tasks portal">
+                      <button type="button" onClick={() => { setFocusedTaskId(item.clickUpTaskId || null); setCurrentView("tasks"); }} className="mt-2 flex items-center gap-1.5 border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-800 hover:bg-emerald-100" title="Already added to ClickUp. Click to view or edit in Tasks portal">
                         <CheckCircle2 size={13} className="text-emerald-600" /><span>Added to Tasks</span>
                       </button>
                     ) : (
                       <button type="button" onClick={() => setQuickAddTaskData({
                         isOpen: true,
                         data: {
-                          name: item.action_plan && item.action_plan !== "None" ? item.action_plan : item.topic_title || `Action from Topic #${index + 1}`,
-                          description: item.discussion_point || "",
-                          topic: item.topic_title || "",
-                          evidence: item.evidence_quote || "",
+                          name: item.action_plan || source?.topic_title || `Action ${index + 1}`,
+                          description: source?.discussion_point || "",
+                          topic: source?.topic_title || source?.topic || "",
+                          evidence: source?.evidence_quote || source?.evidence || "",
                           meetingTitle: metadata.client_name || "Executive Meeting",
                           meetingDate: metadata.date,
-                          dueDate: item.indicative_delivery_date || "",
+                          dueDate: item.target_date || "",
                           priority: "normal",
                           assigneeName: item.person_in_charge || "",
-                          discussionPointId: item.id || `dp_${index + 1}`,
+                          assigneeId: item.assignee_id || "",
+                          discussionPointId: String(item.discussion_point_id),
                           existingTaskId: item.clickUpTaskId,
                           existingTaskUrl: item.clickUpUrl,
                         },
-                        topicIndex: index,
+                        actionIndex: index,
                       })} className="mt-2 flex items-center gap-1.5 border border-[#003366]/30 bg-[#FFFCFB] px-2.5 py-1 text-[11px] font-bold text-[#003366] transition-colors hover:border-[#003366] hover:bg-blue-50/50">
                         <CheckSquare size={13} className="text-[#c9ab4c]" /><span>Add to Tasks</span>
                       </button>
@@ -2377,6 +2412,8 @@ export default function Home() {
                     title={item.topic_title || item.topic || ""}
                     discussionPoint={item.discussion_point || ""}
                     evidenceQuote={item.evidence_quote || ""}
+                    actionCount={actionItems.filter((action) => String(action.discussion_point_id) === String(item.id)).length}
+                    onAddAction={() => addActionItem(item)}
                     onTitleChange={(value) => {
                       const nextItems = [...momItems];
                       nextItems[idx].topic_title = value;
@@ -2479,14 +2516,9 @@ export default function Home() {
         onClose={() => setQuickAddTaskData({ isOpen: false, data: {} })}
         initialData={quickAddTaskData.data}
         onTaskCreated={(created) => {
-          if (quickAddTaskData.topicIndex !== undefined) {
-            const idx = quickAddTaskData.topicIndex;
-            const updated = [...momItems];
-            if (updated[idx]) {
-              updated[idx].clickUpTaskId = created.id;
-              updated[idx].clickUpUrl = created.url;
-              setMomItems(updated);
-            }
+          if (quickAddTaskData.actionIndex !== undefined) {
+            const idx = quickAddTaskData.actionIndex;
+            setActionItems((current) => current.map((action, actionIndex) => actionIndex === idx ? { ...action, clickUpTaskId: created.id, clickUpUrl: created.url } : action));
           }
         }}
         onOpenInTasks={(taskId) => {

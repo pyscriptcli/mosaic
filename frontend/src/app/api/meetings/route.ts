@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getTokenFromRequest, getUserFromRequest } from "@/lib/auth";
-import { parseDiscussionItems } from "@/lib/meetingArchive";
+import { parseMeetingContent, serializeMeetingContent } from "@/lib/meetingArchive";
 import { clickUpCalendarFetch, clickUpFetch as fetch, fetchAllClickUpListTasks } from "@/lib/clickupCalendarApi";
 import { scheduleMosaicWriteSync, stageMosaicWrite } from "@/lib/mosaicWriteStore";
 
@@ -25,7 +25,7 @@ function meetingDescription(meeting: any) {
     meeting.summary || "—",
     ...(meeting.meeting_notes ? ["\n# Meeting Notes", meeting.meeting_notes] : []),
     "\n# Discussion Points",
-    ...(meeting.items || []).map((item: any, index: number) => `## ${index + 1}. ${item.topic || "Discussion topic"}\n**Discussion:** ${item.discussion_point || "—"}\n**Action:** ${item.action_plan || "—"}\n**Owner:** ${item.person_in_charge || "—"}\n**Target date:** ${item.target_date || "—"}`),
+    serializeMeetingContent(meeting.items || [], meeting.action_items || []),
     "\n# Full Transcript",
     meeting.transcript || "—",
   ];
@@ -47,6 +47,7 @@ function changeSummary(before: any, after: any) {
   ];
   const changes = fields.filter(([field]) => JSON.stringify(before?.[field]) !== JSON.stringify(after?.[field])).map(([, label]) => label);
   if (JSON.stringify(before?.items) !== JSON.stringify(after?.items)) changes.push("discussion points");
+  if (JSON.stringify(before?.action_items) !== JSON.stringify(after?.action_items)) changes.push("action items");
   if (JSON.stringify(before?.attendees_prime) !== JSON.stringify(after?.attendees_prime) || JSON.stringify(before?.attendees_external) !== JSON.stringify(after?.attendees_external)) changes.push("attendees");
   return changes.length ? changes.join(", ") : "meeting archive";
 }
@@ -125,6 +126,7 @@ function parseMeetingTask(task: any, spaceId: string, spaceName: string, list: a
     : section("Executive Summary", "Discussion Points");
   const meetingNotes = hasNotesSection ? section("Meeting Notes", "Discussion Points") : "";
 
+  const content = parseMeetingContent(section("Discussion Points", "Full Transcript"));
   return {
     id: String(task.id),
     meeting_id: String(task.id),
@@ -140,7 +142,8 @@ function parseMeetingTask(task: any, spaceId: string, spaceName: string, list: a
     meeting_notes: meetingNotes,
     recording_type: recordingType,
     recording_format: recordingFormat,
-    items: parseDiscussionItems(section("Discussion Points", "Full Transcript")),
+    items: content.items,
+    action_items: content.action_items,
     transcript: section("Full Transcript"),
     created_at: task.date_created ? new Date(Number(task.date_created)).toISOString() : new Date().toISOString(),
     clickup_space_id: taskSpaceId,

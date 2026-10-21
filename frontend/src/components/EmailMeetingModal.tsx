@@ -7,7 +7,7 @@ import { createMeetingEmailDraft, createOutlookComposeUrl, isValidRecipientList,
 
 interface EmailMeetingModalProps {
   isOpen: boolean;
-  meeting: { title?: string; date?: string; metadata: any; items: any[]; summary?: string };
+  meeting: { title?: string; date?: string; metadata: any; items: any[]; action_items: any[]; summary?: string };
   fromEmail?: string;
   onClose: () => void;
 }
@@ -38,7 +38,7 @@ export function EmailMeetingModal({ isOpen, meeting, fromEmail, onClose }: Email
     setError("");
     setIsPreparing(true);
     try {
-      const { blob, filename: generatedFilename } = await requestMeetingPdf(meeting.metadata, meeting.items, meeting.summary || "", "");
+      const { blob, filename: generatedFilename } = await requestMeetingPdf(meeting.metadata, meeting.items, meeting.action_items, meeting.summary || "", "");
       downloadBlob(blob, generatedFilename);
       setFilename(generatedFilename);
     } catch (cause) {

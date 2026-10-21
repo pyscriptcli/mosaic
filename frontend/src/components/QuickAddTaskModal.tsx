@@ -40,6 +40,7 @@ interface QuickAddTaskModalProps {
     dueDate?: string;
     priority?: string;
     assigneeName?: string;
+    assigneeId?: string;
     topic?: string;
     evidence?: string;
     discussionPointId?: string;
@@ -196,7 +197,7 @@ export function QuickAddTaskModal({
       setDueDate(initialData.dueDate || "");
       setPriority(initialData.priority || "normal");
       setCustomAssigneeName(initialData.assigneeName || "");
-      setSelectedAssigneeId("");
+      setSelectedAssigneeId(initialData.assigneeId || "");
 
       if (initialData.existingTaskId) {
         setCreatedTaskId(initialData.existingTaskId);

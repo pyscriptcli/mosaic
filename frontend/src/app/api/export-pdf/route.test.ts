@@ -40,9 +40,12 @@ describe("POST /api/export-pdf MoM structure", () => {
       body: JSON.stringify({
         meeting_details: { client_name: "Northstar", date: "2026-10-21", prepared_by: "Should not appear", confirmed_by: "Should not appear" },
         summary: "The team aligned on next steps.",
-        items: [
-          { topic_title: "Account Renewal", discussion_point: "Renewal timing was reviewed.", evidence_quote: "PRIVATE EVIDENCE QUOTE", action_plan: "Send the proposal", indicative_delivery_date: "Oct 30", person_in_charge: "Mika" },
-          { topic_title: "Market Update", discussion_point: "Vacancy trends were discussed.", action_plan: "None" },
+        discussion_points: [
+          { id: "dp-1", topic_title: "Account Renewal", discussion_point: "Renewal timing was reviewed.", evidence_quote: "PRIVATE EVIDENCE QUOTE" },
+          { id: "dp-2", topic_title: "Market Update", discussion_point: "Vacancy trends were discussed." },
+        ],
+        action_items: [
+          { id: "act-1", discussion_point_title: "Account Renewal", discussion_point: "Renewal timing was reviewed.", action_plan: "Send the proposal", target_date: "Oct 30", person_in_charge: "Mika" },
         ],
         other_discussions: "Team outing was mentioned.",
       }),

@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
   const denied = await requireFeature(req, "meetings-export");
   if (denied) return denied;
   try {
-    const { meeting_details, items, summary, other_discussions } = await req.json();
+    const { meeting_details, discussion_points = [], action_items = [], summary, other_discussions } = await req.json();
 
     const doc = new jsPDF({
       orientation: "portrait",
@@ -153,7 +153,7 @@ export async function POST(req: NextRequest) {
     doc.text("DISCUSSION POINTS", 14, tableStartY);
     tableStartY += 4;
 
-    (items || []).forEach((item: any, index: number) => {
+    (discussion_points || []).forEach((item: any, index: number) => {
       const topic = cleanField(item.topic_title) || `Discussion ${index + 1}`;
       const discussionPoint = formatDiscussionText(item.discussion_point) || "No discussion details recorded.";
       autoTable(doc, {
@@ -171,8 +171,8 @@ export async function POST(req: NextRequest) {
 
     let currentY = tableStartY + 5;
 
-    const actionItems = (items || []).filter((item: any) => cleanField(item.action_plan));
-    if (actionItems.length > 0) {
+    const actions = (action_items || []).filter((item: any) => cleanField(item.action_plan));
+    if (actions.length > 0) {
       doc.setFont("times", "bolditalic");
       doc.setFontSize(11);
       doc.setTextColor(0, 51, 102);
@@ -181,9 +181,9 @@ export async function POST(req: NextRequest) {
       autoTable(doc, {
         startY: currentY,
         head: [["Discussion Point", "Action Plan", "Target Date", "Person in Charge"]],
-        body: actionItems.map((item: any) => [
-          [cleanField(item.topic_title), formatDiscussionText(item.discussion_point)].filter(Boolean).join("\n"),
-          cleanField(item.action_plan), cleanField(item.indicative_delivery_date), cleanField(item.person_in_charge),
+        body: actions.map((item: any) => [
+          [cleanField(item.discussion_point_title || item.topic_title), formatDiscussionText(item.discussion_point)].filter(Boolean).join("\n"),
+          cleanField(item.action_plan), cleanField(item.target_date || item.indicative_delivery_date), cleanField(item.person_in_charge),
         ]),
         theme: "grid",
         headStyles: { fillColor: [0, 51, 102], textColor: [255, 255, 255], fontStyle: "bold", fontSize: 8.5 },
