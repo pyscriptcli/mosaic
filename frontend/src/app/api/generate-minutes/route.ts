@@ -15,9 +15,22 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Source content cannot be empty." }, { status: 400 });
     }
 
+    const transcriptText = String(transcript);
+    const labeledSource = transcriptText.match(/^=== MEETING NOTES ===\s*([\s\S]*?)\s*=== TRANSCRIPT ===\s*([\s\S]*)$/i);
+    const meetingNotes = String(notes || "").trim() || labeledSource?.[1].trim() || "";
+    const meetingTranscript = labeledSource?.[2] ?? transcriptText;
+
     const systemPrompt = `You are an elite corporate meeting intelligence engine.
 Generate highly professional, structured Minutes of the Meeting (MoM) in strict valid JSON format.
 Extract all key discussion points, evidence quotes, action items, target delivery dates, and responsible owners.
+
+Source authority and use:
+- Meeting notes are the primary source of truth for the meeting context. They may contain the agenda, attendees and correct name spellings, project or account details, jargon, corrections, and other context. Use them to interpret and organize the transcript, and let them override conflicting transcript recognition or context.
+- Use the transcript to connect the dots, add spoken detail to the notes, and identify relevant discussion that the notes did not capture. Do not let the transcript override meeting notes when they conflict.
+- Treat meeting notes as context, not as words spoken in the meeting. Evidence quotes and timestamps must come from the transcript only. Never present note text as a transcript quote.
+- If notes and transcript materially conflict about a decision, commitment, or fact, follow the notes for the MoM and make the discrepancy clear in the relevant discussion point. Do not invent a reconciliation or an unsupported detail.
+- Meeting notes may include an agenda. Use it to group and title discussion points. Do not create discussion, decisions, or action items solely because they appear as agenda topics.
+- Preserve the language used in the transcript, including Taglish. Do not translate transcript quotes.
 
 Output strict JSON only, matching this schema:
 {
@@ -46,20 +59,19 @@ Output strict JSON only, matching this schema:
   "other_discussions": "Comprehensive summary of announcements, non-action items, peripheral topics, and general context."
 }`;
 
-    const effectiveSource = notes && notes.trim()
-      ? `=== MEETING NOTES ===\n${notes.trim()}\n\n=== TRANSCRIPT ===\n${transcript}`
-      : transcript;
-
     const userContent = `
 ${instruction ? `Special Instruction: ${instruction}\n` : ""}
-Topics of Interest:
+<topics_of_interest>
 ${user_topics || "General Meeting Agenda"}
+</topics_of_interest>
 
-Additional Meeting Notes:
-${notes || "None"}
+<meeting_notes>
+${meetingNotes || "No meeting notes provided."}
+</meeting_notes>
 
-Source Content:
-${effectiveSource}`;
+<transcript>
+${meetingTranscript}
+</transcript>`;
 
     const response = await fetch("https://api.deepseek.com/chat/completions", {
       method: "POST",
