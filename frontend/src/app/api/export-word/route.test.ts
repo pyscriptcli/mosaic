@@ -29,7 +29,7 @@ describe("POST /api/export-word MoM structure", () => {
     const zip = await JSZip.loadAsync(await response.arrayBuffer());
     const xml = await zip.file("word/document.xml")!.async("text");
     const content = xml.replace(/<[^>]+>/g, "").replaceAll("&amp;", "&");
-    const positions = ["MEETING DETAILS", "SUMMARY", "DISCUSSION POINTS", "ACTION ITEMS", "OTHER DISCUSSIONS"]
+    const positions = ["MEETING DETAILS", "SUMMARY", "DISCUSSION POINTS", "ACTION PLAN", "OTHER DISCUSSIONS"]
       .map((heading) => content.indexOf(heading));
     expect(positions.every((position) => position >= 0)).toBe(true);
     expect(positions).toEqual([...positions].sort((a, b) => a - b));
@@ -41,27 +41,91 @@ describe("POST /api/export-word MoM structure", () => {
     expect(content).not.toContain("CONFIRMED BY");
 
     const tables = xml.match(/<w:tbl>[\s\S]*?<\/w:tbl>/g) || [];
-    const discussionCards = tables.filter((table) => /Account Renewal|Market Update/.test(table) && !table.includes("Send the proposal"));
-    expect(discussionCards).toHaveLength(2);
-    expect(discussionCards[0]).toContain("Renewal timing was reviewed.");
-    expect(discussionCards[0]).not.toContain("Send the proposal");
-    expect(discussionCards.map((card) => (card.match(/<w:tr\b/g) || []).length)).toEqual([2, 2]);
+    expect(tables).toHaveLength(1);
+    expect(tables[0]).toContain("Send the proposal");
+    expect(tables[0]).toContain("Account Renewal");
+    expect(tables[0]).not.toContain("Renewal timing was reviewed.");
 
-    const actionSection = content.slice(content.indexOf("ACTION ITEMS"), content.indexOf("OTHER DISCUSSIONS"));
+    const actionSection = content.slice(content.indexOf("ACTION PLAN"), content.indexOf("OTHER DISCUSSIONS"));
     const actionHeaders = ["Discussion Point", "Action Plan", "Target Date", "Person in Charge"]
       .map((header) => actionSection.indexOf(header));
     expect(actionHeaders.every((position) => position >= 0)).toBe(true);
     expect(actionHeaders).toEqual([...actionHeaders].sort((a, b) => a - b));
-    expect(actionSection).toContain("Renewal timing was reviewed.");
+    expect(actionSection).not.toContain("Renewal timing was reviewed.");
     expect(xml).toMatch(/<w:spacing[^>]*w:line="276"[^>]*w:lineRule="auto"/);
     expect(xml).not.toContain('<w:jc w:val="both"');
     expect(xml).toContain('<w:jc w:val="left"');
-    expect(discussionCards[0]).toContain('w:val="34"');
-    expect(xml).toContain('w:fill="FFFCFB"');
-    expect(xml).toContain('w:ascii="Montserrat"');
-    expect(xml).toContain('w:ascii="Cormorant Garamond"');
+    expect(xml).toContain('w:val="28"');
+    expect(xml).toContain('w:color="FFFCFB"');
+    expect(xml).toContain('w:ascii="Arial"');
+    expect(xml).toContain('w:ascii="Georgia"');
     expect(xml).not.toContain('w:fill="1A1A1A"');
     expect(xml).not.toContain('w:fill="FAF9F7"');
     expect(xml).not.toContain('w:fill="F8F6F2"');
+  });
+
+  it("keeps the meeting outcome separate and exports discussion bullets with selective emphasis", async () => {
+    const { POST } = await import("./route");
+    const request = new NextRequest("http://localhost/api/export-word", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        summary: "The team reviewed the proposal.\n\nBottom line: **Prime will proceed** after site approval.",
+        discussion_points: [{
+          topic_title: "Account update",
+          discussion_point: "The team reviewed the renewal.\n- **PHP 250,000** fee remains unchanged.",
+        }],
+      }),
+    });
+    const response = await POST(request);
+    const zip = await JSZip.loadAsync(await response.arrayBuffer());
+    const xml = await zip.file("word/document.xml")!.async("text");
+    const content = xml.replace(/<[^>]+>/g, "").replaceAll("&amp;", "&");
+
+    expect(response.status).toBe(200);
+    expect(content).toContain("The team reviewed the proposal.");
+    expect(content).toContain("Bottom line: Prime will proceed after site approval.");
+    expect(content).toContain("The team reviewed the renewal.");
+    expect(content).toContain("PHP 250,000 fee remains unchanged.");
+    expect(xml).toContain("<w:b");
+    expect(xml).toContain("<w:numPr>");
+  });
+
+  it("leaves missing action dates and assignees blank", async () => {
+    const { POST } = await import("./route");
+    const request = new NextRequest("http://localhost/api/export-word", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        discussion_points: [{ topic_title: "Site review", discussion_point: "A candidate site was reviewed." }],
+        action_items: [{ discussion_point_title: "Site review", action_plan: "Share the inspection report", target_date: "TBD", person_in_charge: "Unassigned" }],
+      }),
+    });
+    const response = await POST(request);
+    const zip = await JSZip.loadAsync(await response.arrayBuffer());
+    const xml = await zip.file("word/document.xml")!.async("text");
+    const content = xml.replace(/<[^>]+>/g, "");
+
+    expect(response.status).toBe(200);
+    expect(content).toContain("ACTION PLAN");
+    expect(content).not.toContain("TBD");
+    expect(content).not.toContain("Unassigned");
+    expect((xml.match(/<w:tbl>/g) || [])).toHaveLength(1);
+  });
+
+  it("omits the action plan heading and table when no action exists", async () => {
+    const { POST } = await import("./route");
+    const response = await POST(new NextRequest("http://localhost/api/export-word", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ discussion_points: [{ topic_title: "Site review", discussion_point: "The candidate site was reviewed." }] }),
+    }));
+    const zip = await JSZip.loadAsync(await response.arrayBuffer());
+    const xml = await zip.file("word/document.xml")!.async("text");
+    const content = xml.replace(/<[^>]+>/g, "");
+
+    expect(response.status).toBe(200);
+    expect(content).not.toContain("ACTION PLAN");
+    expect((xml.match(/<w:tbl>/g) || [])).toHaveLength(0);
   });
 });
