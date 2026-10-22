@@ -81,6 +81,30 @@ export function meetingExportDetails(details?: MeetingExportDetails) {
   ].filter(([, value]) => value) as [string, string][];
 }
 
+export function meetingExportTemplateDetails(details?: MeetingExportDetails): [string, string][] {
+  const attendees = [
+    cleanMeetingExportField(details?.team_attendees || details?.prime_attendees),
+    cleanMeetingExportField(details?.external_attendees),
+  ].filter(Boolean).join(", ");
+
+  return [
+    ["CLIENT", cleanMeetingExportField(details?.client_name)],
+    ["ATTENDEES", attendees],
+    ["LOCATION", cleanMeetingExportField(details?.location)],
+    ["MEETING TYPE", cleanMeetingExportField(details?.meeting_type)],
+  ].filter(([, value]) => value) as [string, string][];
+}
+
+export function formatMeetingExportTitleDate(value: unknown): string {
+  const dateValue = cleanMeetingExportField(value);
+  const match = dateValue.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return dateValue.toUpperCase();
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  return Number.isNaN(date.getTime())
+    ? dateValue.toUpperCase()
+    : new Intl.DateTimeFormat("en-US", { month: "long", day: "2-digit", year: "numeric", timeZone: "UTC" }).format(date).toUpperCase();
+}
+
 export function formatMeetingExportDate(value: string): string {
   const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) return value;
@@ -88,14 +112,14 @@ export function formatMeetingExportDate(value: string): string {
   return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" }).format(date);
 }
 
-export function meetingExportActionFields(item: MeetingExportAction, index = 0): [string, string, string, string] {
+export function meetingExportActionFields(item: MeetingExportAction): [string, string, string, string] {
   const topic = cleanMeetingExportField(item.discussion_point_title || item.topic_title);
   const action = cleanMeetingExportField(item.action_plan);
   return [
-    `A${index + 1}`,
-    topic ? `${topic}: ${action}` : action,
-    cleanMeetingExportField(item.person_in_charge) || "Not recorded",
+    topic || "Not recorded",
+    action,
     formatMeetingExportDate(cleanMeetingExportField(item.target_date || item.indicative_delivery_date)) || "Not recorded",
+    cleanMeetingExportField(item.person_in_charge) || "Not recorded",
   ];
 }
 

@@ -18,6 +18,7 @@ vi.mock("jspdf", () => ({
     internal = { pageSize: { getWidth: () => 210, getHeight: () => 297 } };
     lastAutoTable = { finalY: 120 };
     setFillColor() {}
+    addImage() {}
     rect() {}
     setTextColor() {}
     setFont(_family: string, style = "normal") { pdfCapture.fontStyle = style; }
@@ -67,7 +68,7 @@ describe("POST /api/export-pdf MoM structure", () => {
     pdfCapture.runs = [];
   });
 
-  it("exports the meeting identity, explicit outcome, populated sections, and compact actions", async () => {
+  it("exports the meeting identity, template sections, and separate action fields", async () => {
     const { POST } = await import("./route");
     const response = await POST(request({
       meeting_details: { client_name: "Northstar", date: "2026-10-21", location: "Makati", prepared_by: "Should not appear", confirmed_by: "Should not appear" },
@@ -82,12 +83,12 @@ describe("POST /api/export-pdf MoM structure", () => {
     }));
 
     const renderedText = pdfCapture.events.join(" ");
-    const sectionPositions = ["MEETING DETAILS", "OUTCOME", "ACTIONS", "DISCUSSION", "ADDITIONAL NOTES"]
+    const sectionPositions = ["SUMMARY", "DISCUSSION POINTS", "ACTION PLAN", "OTHER DISCUSSIONS"]
       .map((heading) => renderedText.indexOf(heading));
     expect(response.status).toBe(200);
     expect(renderedText).toContain("Northstar");
-    expect(sectionPositions.slice(0, 4).every((position) => position >= 0)).toBe(true);
-    expect(sectionPositions.slice(0, 4)).toEqual([...sectionPositions.slice(0, 4)].sort((a, b) => a - b));
+    expect(sectionPositions.every((position) => position >= 0)).toBe(true);
+    expect(sectionPositions).toEqual([...sectionPositions].sort((a, b) => a - b));
     expect(renderedText).toContain("The team aligned on next steps.");
     expect(renderedText).toContain("Proceed after approval.");
     expect(renderedText).toContain("•");
@@ -100,21 +101,21 @@ describe("POST /api/export-pdf MoM structure", () => {
     expect(pdfCapture.tables).toHaveLength(2);
     const detailsTable = pdfCapture.tables[0];
     expect(detailsTable.body?.map((row) => row[0])).toContain("CLIENT");
-    expect(detailsTable.body?.map((row) => row[0])).toContain("DATE");
+    expect(detailsTable.body?.map((row) => row[2])).toContain("MEETING TYPE");
     expect(detailsTable.body?.map((row) => row[1])).toContain("Northstar");
     expect(detailsTable.theme).toBe("plain");
     expect(detailsTable.styles).toMatchObject({ fillColor: [255, 252, 251], halign: "left" });
     expect(detailsTable.columnStyles?.[0]).toMatchObject({ fontStyle: "bold", textColor: [0, 51, 102] });
     const actionTable = pdfCapture.tables[1];
-    expect(actionTable.head?.[0]).toEqual(["ID", "ACTION", "OWNER", "DUE DATE"]);
-    expect(actionTable.body?.[0]).toEqual(["A1", "Account Renewal: Send the proposal", "Mika, Dino", "Oct 30"]);
+    expect(actionTable.head?.[0]).toEqual(["DISCUSSION POINT", "ACTION PLAN", "DUE DATE", "PERSON IN CHARGE"]);
+    expect(actionTable.body?.[0]).toEqual(["Account Renewal", "Send the proposal", "Oct 30", "Mika, Dino"]);
     expect(JSON.stringify(actionTable.body?.[0])).not.toContain("Renewal timing was reviewed.");
     expect(actionTable.bodyStyles).toMatchObject({ halign: "left", fontSize: 9.5 });
-    expect(actionTable.columnStyles).toMatchObject({ 0: { cellWidth: 12 }, 1: { cellWidth: 90 }, 2: { cellWidth: 39 }, 3: { cellWidth: 29 } });
+    expect(actionTable.columnStyles).toMatchObject({ 0: { cellWidth: 42 }, 1: { cellWidth: 70 }, 2: { cellWidth: 27 } });
     expect(actionTable.headStyles?.halign).toBe("left");
   });
 
-  it("keeps paragraphs left aligned, renders bold inline text, and omits an empty action section", async () => {
+  it("keeps paragraphs left aligned, renders bold inline text, and preserves empty template sections", async () => {
     const { POST } = await import("./route");
     const response = await POST(request({
       meeting_details: { client_name: "Northstar" },
@@ -123,9 +124,9 @@ describe("POST /api/export-pdf MoM structure", () => {
     }));
 
     expect(response.status).toBe(200);
-    expect(pdfCapture.tables).toHaveLength(1);
-    expect(pdfCapture.events.join(" ")).not.toContain("ACTIONS");
-    expect(pdfCapture.events.join(" ")).not.toContain("ADDITIONAL NOTES");
+    expect(pdfCapture.tables).toHaveLength(2);
+    expect(pdfCapture.events.join(" ")).toContain("ACTION PLAN");
+    expect(pdfCapture.events.join(" ")).toContain("OTHER DISCUSSIONS");
     expect(pdfCapture.text).toContain("PHP 250,000");
     expect(pdfCapture.runs).toContainEqual({ style: "bold", text: "PHP 250,000" });
     expect(pdfCapture.fontSizes).toContain(24);
@@ -139,5 +140,33 @@ describe("POST /api/export-pdf MoM structure", () => {
 
     expect(response.status).toBe(200);
     expect(pdfCapture.events.join(" ")).not.toContain("MEETING DETAILS");
+  });
+
+  it("exports the PRIME template sections with the requested action columns", async () => {
+    const { POST } = await import("./route");
+    const response = await POST(request({
+      meeting_details: { client_name: "Northstar", date: "2026-10-21", location: "Makati", meeting_type: "External", team_attendees: ["Mika"], external_attendees: ["Dino"] },
+      summary: "The parties reviewed the site proposal.",
+      outcome: "Prepare a revised proposal.",
+      discussion_points: [{ topic_title: "Site selection", discussion_point: "Cubao and Manila remain priorities." }],
+      action_items: [{ discussion_point_title: "Site selection", action_plan: "Send the revised proposal", target_date: "2026-10-30", person_in_charge: "Mika" }],
+      other_discussions: "The client offered a referral to its fuel business team.",
+    }));
+    const renderedText = pdfCapture.events.join(" ");
+    const headings = ["SUMMARY", "DISCUSSION POINTS", "ACTION PLAN", "OTHER DISCUSSIONS"];
+    const positions = headings.map((heading) => renderedText.indexOf(heading));
+    const actions = pdfCapture.tables.find((table) => JSON.stringify(table.head || []).includes("DISCUSSION POINT"));
+
+    expect(response.status).toBe(200);
+    expect(positions.every((position) => position >= 0)).toBe(true);
+    expect(positions).toEqual([...positions].sort((a, b) => a - b));
+    expect(renderedText).toContain("The parties reviewed the site proposal.");
+    expect(renderedText).toContain("Prepare a revised proposal.");
+    expect(renderedText).toContain("Site selection");
+    expect(renderedText).toContain("The client offered a referral to its fuel business team.");
+    expect(renderedText).not.toContain("MEETING DETAILS");
+    expect(renderedText).not.toContain("OUTCOME");
+    expect(actions?.head).toEqual([["DISCUSSION POINT", "ACTION PLAN", "DUE DATE", "PERSON IN CHARGE"]]);
+    expect(actions?.body).toEqual([["Site selection", "Send the revised proposal", "30 Oct 2026", "Mika"]]);
   });
 });

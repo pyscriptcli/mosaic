@@ -34,7 +34,7 @@ describe("POST /api/export-pdf generated document", () => {
       return content.items.map((item) => "str" in item ? item.str : "").join(" ");
     }));
     const text = pages.join(" ");
-    const headings = ["MEETING DETAILS", "OUTCOME", "ACTIONS", "DISCUSSION", "ADDITIONAL NOTES"];
+    const headings = ["SUMMARY", "DISCUSSION POINTS", "ACTION PLAN", "OTHER DISCUSSIONS"];
     const positions = headings.map((heading) => text.indexOf(heading));
 
     expect(pdf.numPages).toBeGreaterThan(1);
@@ -47,6 +47,10 @@ describe("POST /api/export-pdf generated document", () => {
     expect(text).toContain("Mika, Dino");
     expect(text).toContain("30 Oct 2026");
     expect(text).toContain("The next review will be scheduled separately.");
+    expect(text).toContain("DISCUSSION POINT");
+    expect(text).toContain("ACTION PLAN");
+    expect(text).toContain("DUE DATE");
+    expect(text).toContain("PERSON IN CHARGE");
     const actionPageIndexes = pages.map((pageText, index) => pageText.includes("Send the proposal") && pageText.includes("Mika, Dino") && pageText.includes("30 Oct 2026") ? index : -1).filter((index) => index >= 0);
     expect(actionPageIndexes).toHaveLength(1);
   });

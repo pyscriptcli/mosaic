@@ -1,15 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { requireFeature } from "@/lib/access-control-server";
 import {
   cleanMeetingExportField,
+  formatMeetingExportTitleDate,
   MEETING_EXPORT_STYLE,
   meetingExportActionFields,
   meetingExportContentLines,
-  meetingExportDetails,
   meetingExportInlineRuns,
   meetingExportSummary,
+  meetingExportTemplateDetails,
   type MeetingExportRequest,
 } from "@/lib/meetingExport";
 
@@ -36,12 +39,16 @@ export async function POST(req: NextRequest) {
     const pageHeight = doc.internal.pageSize.getHeight();
     const contentWidth = pageWidth - LEFT - RIGHT;
     const clientName = cleanMeetingExportField(meeting_details?.client_name);
+    const logo = await readFile(join(process.cwd(), "public", "forms", "prime-philippines-logo-blue.png"));
+    const logoData = `data:image/png;base64,${logo.toString("base64")}`;
     doc.setProperties({ title: `Meeting minutes - ${clientName || "Meeting"}`, author: "PRIME Philippines", subject: "Meeting minutes" });
     let y: number = TOP;
 
     const nextPageIfNeeded = (height: number) => {
       if (y + height > pageHeight - BOTTOM) {
         doc.addPage();
+        doc.setFillColor(...WARM_WHITE);
+        doc.rect(0, 0, pageWidth, pageHeight, "F");
         y = TOP;
       }
     };
@@ -121,77 +128,47 @@ export async function POST(req: NextRequest) {
       }
     };
 
-    doc.setFont(BODY_FONT, "bold");
-    doc.setFontSize(8);
+    doc.setFillColor(...WARM_WHITE);
+    doc.rect(0, 0, pageWidth, pageHeight, "F");
+    doc.addImage(logoData, "PNG", LEFT, y, 49, 15.5);
+    doc.setFont(HEADING_FONT, "normal");
+    doc.setFontSize(MEETING_EXPORT_STYLE.titlePt);
     doc.setTextColor(...BLUE);
-    doc.text("MEETING MINUTES", LEFT, y + 3);
-    y += 7;
-    writeHeading(clientName || "Meeting minutes", true);
-    const details = meetingExportDetails(meeting_details);
-    if (details.length) {
-      writeHeading("MEETING DETAILS");
-      autoTable(doc, {
-        startY: y,
-        margin: { left: LEFT, right: RIGHT, top: TOP, bottom: BOTTOM },
-        body: details,
-        theme: "plain",
-        columnStyles: {
-          0: { cellWidth: 42, fontStyle: "bold", textColor: BLUE },
-          1: { cellWidth: contentWidth - 42, textColor: GRAY },
-        },
-        styles: {
-          font: BODY_FONT,
-          fontSize: MEETING_EXPORT_STYLE.actionPt,
-          fillColor: WARM_WHITE,
-          cellPadding: { top: 2, right: 1, bottom: 2, left: 1 },
-          lineColor: GRAY,
-          lineWidth: { bottom: 0.1 },
-          overflow: "linebreak",
-          halign: "left",
-          valign: "top",
-        },
-      });
-      const detailsFinalY = (doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY;
-      y = (detailsFinalY || y + 12) + 2;
-    }
+    doc.text("Meeting Minutes", pageWidth - RIGHT, y + 7, { align: "right" });
+    doc.setFont(BODY_FONT, "bold");
+    doc.setFontSize(MEETING_EXPORT_STYLE.actionPt);
+    doc.text(formatMeetingExportTitleDate(meeting_details?.date), pageWidth - RIGHT, y + 13, { align: "right" });
+    y += 19;
+    doc.setDrawColor(...GOLD);
+    doc.setLineWidth(0.5);
+    doc.line(LEFT, y, pageWidth - RIGHT, y);
+    y += 3;
+
+    const details = new Map(meetingExportTemplateDetails(meeting_details));
+    const metadataRows = [
+      ["CLIENT", details.get("CLIENT") || "", "ATTENDEES", details.get("ATTENDEES") || ""],
+      ["LOCATION", details.get("LOCATION") || "", "MEETING TYPE", details.get("MEETING TYPE") || ""],
+    ];
+    autoTable(doc, {
+      startY: y,
+      margin: { left: LEFT, right: RIGHT, top: TOP, bottom: BOTTOM },
+      body: metadataRows,
+      theme: "plain",
+      columnStyles: {
+        0: { cellWidth: 22, fontStyle: "bold", textColor: BLUE },
+        1: { cellWidth: 53, textColor: GRAY },
+        2: { cellWidth: 30, fontStyle: "bold", textColor: BLUE },
+        3: { cellWidth: contentWidth - 105, textColor: GRAY },
+      },
+      styles: { font: BODY_FONT, fontSize: MEETING_EXPORT_STYLE.actionPt, fillColor: WARM_WHITE, cellPadding: { top: 2, right: 1, bottom: 2, left: 1 }, lineColor: GOLD, lineWidth: { bottom: 0.2 }, overflow: "linebreak", halign: "left", valign: "top" },
+    });
+    y = ((doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY || y + 12) + 2;
 
     const summaryContent = meetingExportSummary(summary, outcome);
-    if (summaryContent.summary) writeHeading("OVERVIEW");
-    if (summaryContent.summary) writeContent(summaryContent.summary);
-    if (summaryContent.outcome) {
-      writeHeading("OUTCOME");
-      writeContent(`**${summaryContent.outcome}**`);
-    }
+    writeHeading("SUMMARY");
+    writeContent([summaryContent.summary, summaryContent.outcome].filter(Boolean).join("\n\n"));
 
-    const actions = action_items.filter((item) => cleanMeetingExportField(item.action_plan));
-    if (actions.length) {
-      const firstAction = meetingExportActionFields(actions[0], 0);
-      const widths = [12, 90, 39, 29];
-      const firstRowLines = Math.max(...firstAction.map((value, index) => {
-        doc.setFont(BODY_FONT, "normal");
-        doc.setFontSize(MEETING_EXPORT_STYLE.actionPt);
-        return doc.splitTextToSize(value, widths[index] - 4).length;
-      }));
-      nextPageIfNeeded(18 + firstRowLines * 4.2);
-      writeHeading("ACTIONS");
-      autoTable(doc, {
-        startY: y,
-        margin: { left: LEFT, right: RIGHT, top: TOP, bottom: BOTTOM },
-        head: [["ID", "ACTION", "OWNER", "DUE DATE"]],
-        body: actions.map((item, index) => meetingExportActionFields(item, index).map((value) => meetingExportInlineRuns(value).map((run) => run.text).join(""))),
-        theme: "plain",
-        showHead: "everyPage",
-        rowPageBreak: "avoid",
-        headStyles: { fillColor: WARM_WHITE, textColor: BLUE, font: BODY_FONT, fontStyle: "bold", fontSize: MEETING_EXPORT_STYLE.actionPt, halign: "left", valign: "top", lineColor: GRAY, lineWidth: { bottom: 0.25 }, cellPadding: { top: 2, right: 2, bottom: 2, left: 1 } },
-        bodyStyles: { fillColor: WARM_WHITE, textColor: GRAY, font: BODY_FONT, fontSize: MEETING_EXPORT_STYLE.actionPt, halign: "left", valign: "top", cellPadding: { top: 2, right: 2, bottom: 2.5, left: 1 }, lineColor: GRAY, lineWidth: { bottom: 0.1 } },
-        columnStyles: { 0: { cellWidth: widths[0] }, 1: { cellWidth: widths[1] }, 2: { cellWidth: widths[2] }, 3: { cellWidth: widths[3] } },
-        styles: { overflow: "linebreak", halign: "left", valign: "top" },
-      });
-      const tableFinalY = (doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY;
-      y = tableFinalY || y + 12;
-    }
-
-    if (discussion_points.some((item) => cleanMeetingExportField(item.discussion_point))) writeHeading("DISCUSSION");
+    writeHeading("DISCUSSION POINTS");
     discussion_points.forEach((item, index) => {
       const discussion = cleanMeetingExportField(item.discussion_point);
       if (!discussion) return;
@@ -210,22 +187,26 @@ export async function POST(req: NextRequest) {
       y += 4;
     });
 
-    if (cleanMeetingExportField(other_discussions)) {
-      writeHeading("ADDITIONAL NOTES");
-      writeContent(cleanMeetingExportField(other_discussions));
-    }
+    writeHeading("ACTION PLAN");
+    const actions = action_items.filter((item) => cleanMeetingExportField(item.action_plan));
+    autoTable(doc, {
+      startY: y,
+      margin: { left: LEFT, right: RIGHT, top: TOP, bottom: BOTTOM },
+      head: [["DISCUSSION POINT", "ACTION PLAN", "DUE DATE", "PERSON IN CHARGE"]],
+      body: actions.map((item) => meetingExportActionFields(item).map((value) => meetingExportInlineRuns(value).map((run) => run.text).join(""))),
+      theme: "plain",
+      showHead: "everyPage",
+      rowPageBreak: "avoid",
+      headStyles: { fillColor: WARM_WHITE, textColor: BLUE, font: BODY_FONT, fontStyle: "bold", fontSize: MEETING_EXPORT_STYLE.actionPt, halign: "left", valign: "top", lineColor: BLUE, lineWidth: { bottom: 0.35 }, cellPadding: { top: 2, right: 2, bottom: 2, left: 1 } },
+      bodyStyles: { fillColor: WARM_WHITE, textColor: GRAY, font: BODY_FONT, fontSize: MEETING_EXPORT_STYLE.actionPt, halign: "left", valign: "top", cellPadding: { top: 2, right: 2, bottom: 2.5, left: 1 }, lineColor: GRAY, lineWidth: { bottom: 0.1 } },
+      columnStyles: { 0: { cellWidth: 42 }, 1: { cellWidth: 70 }, 2: { cellWidth: 27 }, 3: { cellWidth: contentWidth - 139 } },
+      styles: { overflow: "linebreak", halign: "left", valign: "top" },
+    });
+    const tableFinalY = (doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY;
+    y = tableFinalY || y + 12;
 
-    const pageCount = doc.getNumberOfPages();
-    for (let page = 1; page <= pageCount; page += 1) {
-      doc.setPage(page);
-      doc.setFont(BODY_FONT, "normal");
-      doc.setFontSize(8);
-      doc.setTextColor(...GRAY);
-      const meetingDate = cleanMeetingExportField(meeting_details?.date);
-      const dateLabel = meetingDate ? meetingExportDetails(meeting_details).find(([label]) => label === "DATE" || label === "DATE / TIME")?.[1] || meetingDate : "";
-      doc.text(`${clientName || "Meeting"}${dateLabel ? ` | ${dateLabel}` : ""}`, LEFT, pageHeight - 10);
-      doc.text(`Page ${page} of ${pageCount}`, pageWidth - RIGHT, pageHeight - 10, { align: "right" });
-    }
+    writeHeading("OTHER DISCUSSIONS");
+    writeContent(cleanMeetingExportField(other_discussions));
 
     const buffer = Buffer.from(doc.output("arraybuffer"));
     const safeClient = clientName || "Meeting";
