@@ -111,6 +111,8 @@ describe("PropertyDecksView component", () => {
       expect(screen.getByText("Biñan Logistics Center — Warehouse 4")).toBeDefined();
     });
 
+    expect(screen.getAllByRole("button", { name: /add all \(1\)/i }).length).toBeGreaterThan(0);
+
     const thumbnail = screen.getByAltText("Biñan Logistics Center — Warehouse 4");
     expect(thumbnail.getAttribute("src")).toBe(
       `${helperUrl}/api/property-decks/thumbnail?id=deck-laguna:slide:2`,
@@ -133,7 +135,7 @@ describe("PropertyDecksView component", () => {
     expect(screen.getByText("₱335/sqm (Negotiated)")).toBeDefined();
 
     // Select both slides into the Proposal Cart
-    const addButtons = screen.getAllByRole("button", { name: /add to deck/i });
+    const addButtons = screen.getAllByRole("button", { name: /add this slide/i });
     fireEvent.click(addButtons[0]);
     fireEvent.click(addButtons[1]);
 
@@ -216,7 +218,7 @@ describe("PropertyDecksView component", () => {
 
     render(<PropertyDecksView />);
     await waitFor(() => expect(screen.getByText("Biñan Logistics Center — Warehouse 4")).toBeDefined());
-    fireEvent.click(screen.getAllByRole("button", { name: /add to deck/i })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: /add this slide/i })[0]);
     fireEvent.click(screen.getByRole("button", { name: /export selected slides/i }));
 
     expect((await screen.findByRole("alert")).textContent).toContain("PPTX download is ready. PDF conversion failed");
@@ -247,7 +249,7 @@ describe("PropertyDecksView component", () => {
 
     render(<PropertyDecksView />);
     await waitFor(() => expect(screen.getByText("Biñan Logistics Center — Warehouse 4")).toBeDefined());
-    fireEvent.click(screen.getAllByRole("button", { name: /add to deck/i })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: /add this slide/i })[0]);
     fireEvent.click(screen.getByRole("button", { name: /export selected slides/i }));
 
     const exportButton = screen.getByRole("button", { name: /building powerpoint/i });
@@ -357,6 +359,24 @@ describe("PropertyDecksView component", () => {
     expect(screen.getByText(/Slides #3–#4/i)).toBeDefined();
     expect(screen.getAllByText(/\(2 slides\)/i).length).toBeGreaterThan(0);
 
+    // The large preview can be browsed without expanding the parts list.
+    expect(screen.getByRole("img", { name: /Lease Terms & Units/i })).toBeDefined();
+    expect(screen.getByText("Slide #3 · 1 of 2")).toBeDefined();
+    expect(screen.getByRole("button", { name: /previous slide/i }).hasAttribute("disabled")).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: /next slide/i }));
+    expect(screen.getByRole("img", { name: /Specifications & Access/i })).toBeDefined();
+    expect(screen.getByText("Slide #4 · 2 of 2")).toBeDefined();
+    expect(screen.getByRole("button", { name: /next slide/i }).hasAttribute("disabled")).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: /previous slide/i }));
+    expect(screen.getByText("Slide #3 · 1 of 2")).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: /next slide/i }));
+    expect(screen.getByText("Slide #4 · 2 of 2")).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: /add this slide/i }));
+    expect(screen.getByText("Selected Slides (1)")).toBeDefined();
+    expect(screen.getByText(/Bataan Warehouse Space — Specifications & Access/i)).toBeDefined();
+    expect(screen.getByText(/1\/2 Selected/i)).toBeDefined();
+
     // 3. Sub-slides should be collapsed by default
     expect(screen.queryByText(/Warehouse Slides \(2\)/i)).toBeNull();
 
@@ -366,27 +386,22 @@ describe("PropertyDecksView component", () => {
 
     // Now sub-slides are visible
     expect(screen.getByText(/Warehouse Slides \(2\)/i)).toBeDefined();
-    expect(screen.getByText(/Specifications & Access/i)).toBeDefined();
+    expect(screen.getAllByText(/Specifications & Access/i).length).toBeGreaterThan(0);
 
-    // 5. Select only ONE part of the group (Slide #3)
-    const addPartButtons = screen.getAllByRole("button", { name: /add part/i });
-    fireEvent.click(addPartButtons[0]);
-
-    // Group header now indicates partial selection (1/2 Selected)
-    expect(screen.getByText(/1\/2 Selected/i)).toBeDefined();
-
-    // 6. Click Add All (2)
+    // Add All selects the entire warehouse, including the unpreviewed slide.
     const addAllButton = screen.getByRole("button", { name: /add all \(2\)/i });
     fireEvent.click(addAllButton);
-
-    // Group header now indicates all selected
     expect(screen.getByText(/All 2 Selected/i)).toBeDefined();
 
-    // 7. Click Remove All (2) to deselect the entire warehouse
     const removeAllButton = screen.getByRole("button", { name: /remove all \(2\)/i });
     fireEvent.click(removeAllButton);
 
     expect(screen.queryByText(/All 2 Selected/i)).toBeNull();
     expect(screen.queryByText(/1\/2 Selected/i)).toBeNull();
+
+    // Individual part selection remains available and reports a partial group.
+    fireEvent.click(screen.getAllByRole("button", { name: /add part/i })[0]);
+    expect(screen.getByText("Selected Slides (1)")).toBeDefined();
+    expect(screen.getByText(/1\/2 Selected/i)).toBeDefined();
   });
 });

@@ -6,6 +6,8 @@ import {
   ArrowUp,
   Check,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   ChevronUp,
   Edit3,
   FolderOpen,
@@ -123,6 +125,7 @@ export function PropertyDecksView() {
   const [editingSlideId, setEditingSlideId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<PropertySlideOverride>({});
   const [expandedGroupIds, setExpandedGroupIds] = useState<Record<string, boolean>>({});
+  const [previewSlideIds, setPreviewSlideIds] = useState<Record<string, string>>({});
 
   const toggleGroupExpanded = useCallback((groupId: string) => {
     setExpandedGroupIds((prev) => ({
@@ -746,28 +749,62 @@ export function PropertyDecksView() {
                   groupSlideIds.length > 0 && selectedCountInGroup === groupSlideIds.length;
                 const isPartialGroupSelected =
                   selectedCountInGroup > 0 && !isAllGroupSelected;
-                const isLeadSelected = selectedSlideIds.includes(group.leadSlide.id);
-                const leadOrderNum = selectedSlideIds.indexOf(group.leadSlide.id) + 1;
-                const leadSlide = group.leadSlide;
+                const requestedPreviewId = previewSlideIds[group.groupId];
+                const requestedPreviewIndex = group.slides.findIndex((slide) => slide.id === requestedPreviewId);
+                const previewIndex = requestedPreviewIndex >= 0 ? requestedPreviewIndex : 0;
+                const previewSlide = group.slides[previewIndex] ?? group.leadSlide;
+                const isPreviewSelected = selectedSlideIds.includes(previewSlide.id);
+                const previewOrderNum = selectedSlideIds.indexOf(previewSlide.id) + 1;
+                const selectPreviewSlide = () => toggleSelectSlide(previewSlide.id);
 
                 return (
                   <article
                     key={group.groupId}
                     className={`flex flex-col border bg-white transition-colors ${
-                      isAllGroupSelected || (isMultiSlide ? isPartialGroupSelected : isLeadSelected)
+                      isAllGroupSelected || (isMultiSlide ? isPartialGroupSelected : isPreviewSelected)
                         ? "border-[#C9A84C] ring-1 ring-[#C9A84C]"
                         : "border-slate-200 hover:border-[#31577D]"
                     }`}
                   >
-                    {/* 16:9 Slide Thumbnail Header - NO OVERLAY BADGES ON SLIDE CONTENT */}
+                    {/* 16:9 source slide preview */}
                     <div className="relative aspect-video w-full overflow-hidden border-b border-slate-100 bg-slate-100">
                       <img
-                        src={leadSlide.thumbnailUrl}
-                        alt={leadSlide.title}
+                        src={previewSlide.thumbnailUrl}
+                        alt={previewSlide.title}
                         crossOrigin="anonymous"
                         loading="lazy"
                         className="h-full w-full object-cover"
                       />
+                    </div>
+
+                    <div className="flex min-h-9 items-center justify-between border-b border-slate-100 bg-white px-3 text-[11px] text-slate-600">
+                      <button
+                        type="button"
+                        onClick={() => setPreviewSlideIds((current) => ({
+                          ...current,
+                          [group.groupId]: group.slides[previewIndex - 1].id,
+                        }))}
+                        disabled={previewIndex === 0}
+                        aria-label="Previous slide"
+                        className="inline-flex h-7 w-7 items-center justify-center border border-slate-300 text-[#003366] hover:border-[#003366] disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        <ChevronLeft aria-hidden="true" className="h-4 w-4" />
+                      </button>
+                      <span aria-live="polite" className="tabular-nums">
+                        Slide #{previewSlide.slideNumber} · {previewIndex + 1} of {group.slides.length}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setPreviewSlideIds((current) => ({
+                          ...current,
+                          [group.groupId]: group.slides[previewIndex + 1].id,
+                        }))}
+                        disabled={previewIndex === group.slides.length - 1}
+                        aria-label="Next slide"
+                        className="inline-flex h-7 w-7 items-center justify-center border border-slate-300 text-[#003366] hover:border-[#003366] disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        <ChevronRight aria-hidden="true" className="h-4 w-4" />
+                      </button>
                     </div>
 
                     {/* Dedicated Metadata Strip Below Thumbnail */}
@@ -782,9 +819,9 @@ export function PropertyDecksView() {
                             </span>
                           </span>
                         ) : (
-                          <span>Slide #{leadSlide.slideNumber}</span>
+                          <span>Slide #{previewSlide.slideNumber}</span>
                         )}
-                        {group.slides.some((s) => s.hasOverrides) && (
+                        {previewSlide.hasOverrides && (
                           <span className="border border-[#C9A84C] bg-[#FBF7E9] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-[#003366]">
                             Edited Specs
                           </span>
@@ -802,9 +839,9 @@ export function PropertyDecksView() {
                               {selectedCountInGroup}/{group.slides.length} Selected
                             </span>
                           ) : null
-                        ) : isLeadSelected ? (
+                        ) : isPreviewSelected ? (
                           <span className="bg-[#C9A84C] px-2 py-0.5 text-[10px] font-bold text-[#003366]">
-                            Option #{leadOrderNum}
+                            Option #{previewOrderNum}
                           </span>
                         ) : null}
                       </div>
@@ -836,7 +873,7 @@ export function PropertyDecksView() {
                           </span>
                           <span className="flex items-center gap-1 truncate font-medium text-slate-700">
                             <MapPin className="h-3 w-3 shrink-0 text-[#C9A84C]" />
-                            <span className="truncate">{leadSlide.specs.location}</span>
+                            <span className="truncate">{previewSlide.specs.location}</span>
                           </span>
                         </div>
                         <div>
@@ -844,7 +881,7 @@ export function PropertyDecksView() {
                             Leasable Area (GLA)
                           </span>
                           <span className="block truncate font-semibold tabular-nums text-[#003366]">
-                            {leadSlide.specs.gla}
+                            {previewSlide.specs.gla}
                           </span>
                         </div>
                         <div>
@@ -852,7 +889,7 @@ export function PropertyDecksView() {
                             Lease Rate
                           </span>
                           <span className="block truncate font-semibold tabular-nums text-[#003366]">
-                            {leadSlide.specs.leaseRate}
+                            {previewSlide.specs.leaseRate}
                           </span>
                         </div>
                         <div>
@@ -860,95 +897,91 @@ export function PropertyDecksView() {
                             Clear Height
                           </span>
                           <span className="block truncate text-slate-700">
-                            {leadSlide.specs.ceilingHeight}
+                            {previewSlide.specs.ceilingHeight}
                           </span>
                         </div>
                       </div>
 
-                      {leadSlide.specs.notes && (
+                      {previewSlide.specs.notes && (
                         <p className="mt-2 border-l-2 border-[#C9A84C] bg-[#FBF7E9] px-2 py-1 text-[11px] text-[#003366]">
-                          {leadSlide.specs.notes}
+                          {previewSlide.specs.notes}
                         </p>
                       )}
 
                       {/* Group Action Controls */}
-                      <div className="mt-auto flex items-center justify-between gap-2 border-t border-slate-100 pt-3">
-                        {isMultiSlide ? (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => toggleSelectGroup(group)}
-                              className={`inline-flex min-h-8 flex-1 items-center justify-center gap-1.5 border px-3 text-[11px] font-semibold transition-colors ${
-                                isAllGroupSelected
-                                  ? "border-rose-300 bg-rose-50 text-rose-700 hover:border-rose-400"
-                                  : "border-[#003366] bg-[#003366] text-white hover:bg-[#174778]"
-                              }`}
-                            >
-                              {isAllGroupSelected ? (
-                                <>
-                                  <X className="h-3.5 w-3.5" />
-                                  Remove All ({group.slides.length})
-                                </>
-                              ) : (
-                                <>
-                                  <Plus className="h-3.5 w-3.5" />
-                                  Add All ({group.slides.length})
-                                </>
-                              )}
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => toggleGroupExpanded(group.groupId)}
-                              className="inline-flex min-h-8 items-center justify-center gap-1 border border-slate-300 bg-white px-2.5 text-[11px] font-semibold text-[#003366] transition-colors hover:border-[#003366]"
-                              aria-expanded={isExpanded}
-                            >
-                              {isExpanded ? (
-                                <>
-                                  <ChevronUp className="h-3.5 w-3.5" />
-                                  Collapse
-                                </>
-                              ) : (
-                                <>
-                                  <ChevronDown className="h-3.5 w-3.5" />
-                                  Parts ({group.slides.length})
-                                </>
-                              )}
-                            </button>
-                          </>
-                        ) : (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => openSpecEditor(leadSlide)}
-                              className="inline-flex min-h-8 items-center gap-1 border border-slate-300 bg-white px-2.5 text-[11px] font-semibold text-[#003366] hover:border-[#003366]"
-                            >
-                              <Edit3 className="h-3 w-3" />
-                              Edit Specs
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => toggleSelectSlide(leadSlide.id)}
-                              className={`inline-flex min-h-8 items-center gap-1.5 border px-3 text-[11px] font-semibold transition-colors ${
-                                isLeadSelected
-                                  ? "border-[#C9A84C] bg-[#FBF7E9] text-[#003366]"
-                                  : "border-[#003366] bg-[#003366] text-white hover:bg-[#174778]"
-                              }`}
-                            >
-                              {isLeadSelected ? (
-                                <>
-                                  <Check className="h-3.5 w-3.5" />
-                                  In Proposal (#{leadOrderNum})
-                                </>
-                              ) : (
-                                <>
-                                  <Plus className="h-3.5 w-3.5" />
-                                  Add to Deck
-                                </>
-                              )}
-                            </button>
-                          </>
+                      <div className="mt-auto flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
+                        {!isMultiSlide && (
+                          <button
+                            type="button"
+                            onClick={() => openSpecEditor(previewSlide)}
+                            className="inline-flex min-h-8 items-center gap-1 border border-slate-300 bg-white px-2.5 text-[11px] font-semibold text-[#003366] hover:border-[#003366]"
+                          >
+                            <Edit3 className="h-3 w-3" />
+                            Edit Specs
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={selectPreviewSlide}
+                          aria-pressed={isPreviewSelected}
+                          className={`inline-flex min-h-8 flex-1 items-center justify-center gap-1.5 border px-3 text-[11px] font-semibold transition-colors ${
+                            isPreviewSelected
+                              ? "border-[#C9A84C] bg-[#FBF7E9] text-[#003366]"
+                              : "border-[#003366] bg-[#003366] text-white hover:bg-[#174778]"
+                          }`}
+                        >
+                          {isPreviewSelected ? (
+                            <>
+                              <Check className="h-3.5 w-3.5" />
+                              Remove This Slide (#{previewOrderNum})
+                            </>
+                          ) : (
+                            <>
+                              <Plus className="h-3.5 w-3.5" />
+                              Add This Slide
+                            </>
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => toggleSelectGroup(group)}
+                          className={`inline-flex min-h-8 flex-1 items-center justify-center gap-1.5 border px-3 text-[11px] font-semibold transition-colors ${
+                            isAllGroupSelected
+                              ? "border-rose-300 bg-rose-50 text-rose-700 hover:border-rose-400"
+                              : "border-slate-300 bg-white text-[#003366] hover:border-[#003366]"
+                          }`}
+                        >
+                          {isAllGroupSelected ? (
+                            <>
+                              <X className="h-3.5 w-3.5" />
+                              Remove All ({group.slides.length})
+                            </>
+                          ) : (
+                            <>
+                              <Plus className="h-3.5 w-3.5" />
+                              Add All ({group.slides.length})
+                            </>
+                          )}
+                        </button>
+                        {isMultiSlide && (
+                          <button
+                            type="button"
+                            onClick={() => toggleGroupExpanded(group.groupId)}
+                            className="inline-flex min-h-8 items-center justify-center gap-1 border border-slate-300 bg-white px-2.5 text-[11px] font-semibold text-[#003366] transition-colors hover:border-[#003366]"
+                            aria-expanded={isExpanded}
+                          >
+                            {isExpanded ? (
+                              <>
+                                <ChevronUp className="h-3.5 w-3.5" />
+                                Collapse
+                              </>
+                            ) : (
+                              <>
+                                <ChevronDown className="h-3.5 w-3.5" />
+                                Parts ({group.slides.length})
+                              </>
+                            )}
+                          </button>
                         )}
                       </div>
 
