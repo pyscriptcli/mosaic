@@ -20,6 +20,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import { rankDemandMatches, type DemandMatchCriteria } from "@/lib/property-deck-demand-matching";
 import {
   applySlideOverrides,
   buildCompilationManifest,
@@ -51,6 +52,18 @@ const CTA_CONTACT_PRESETS: ProposalContact[] = [
 ];
 
 const EMPTY_CUSTOM_CONTACT = { name: "", title: "", phone: "", email: "" };
+const EMPTY_DEMAND_CRITERIA: DemandMatchCriteria = {
+  locations: [],
+  minGla: "",
+  maxGla: "",
+  minLeaseRate: "",
+  maxLeaseRate: "",
+  minClearHeight: "",
+  powerSupplies: [],
+  requiresLoadingDock: false,
+  requiresTruckAccess: false,
+  otherRequirements: "",
+};
 
 function helperCatalog(catalog: PropertyDeckCatalog): PropertyDeckCatalog {
   return {
@@ -115,6 +128,9 @@ export function PropertyDecksView() {
   const [roleFilter, setRoleFilter] = useState<"all" | SlideRole>("property");
   const [minGlaInput, setMinGlaInput] = useState("");
   const [maxGlaInput, setMaxGlaInput] = useState("");
+  const [demandPanelOpen, setDemandPanelOpen] = useState(false);
+  const [demandCriteria, setDemandCriteria] = useState<DemandMatchCriteria>(EMPTY_DEMAND_CRITERIA);
+  const [submittedDemandCriteria, setSubmittedDemandCriteria] = useState<DemandMatchCriteria | null>(null);
 
   // Overrides & Proposal Cart
   const [overrides, setOverrides] = useState<Record<string, PropertySlideOverride>>(() => {
@@ -353,6 +369,45 @@ export function PropertyDecksView() {
     () => groupPropertySlidesByTitle(filteredSlides),
     [filteredSlides],
   );
+
+  const demandMatches = useMemo(
+    () => submittedDemandCriteria
+      ? rankDemandMatches(slideGroups.map((group) => group.leadSlide), submittedDemandCriteria)
+      : null,
+    [slideGroups, submittedDemandCriteria],
+  );
+  const demandMatchBySlideId = useMemo(
+    () => new Map((demandMatches || []).map((match) => [match.property.id, match])),
+    [demandMatches],
+  );
+  const displayedSlideGroups = useMemo(() => {
+    if (!demandMatches) return slideGroups;
+    const matchOrder = new Map(demandMatches.map((match, index) => [match.property.id, index]));
+    return slideGroups
+      .filter((group) => matchOrder.has(group.leadSlide.id))
+      .sort((left, right) => (matchOrder.get(left.leadSlide.id) ?? 0) - (matchOrder.get(right.leadSlide.id) ?? 0));
+  }, [demandMatches, slideGroups]);
+
+  const toggleDemandLocation = (city: string) => {
+    setDemandCriteria((current) => ({
+      ...current,
+      locations: current.locations.includes(city)
+        ? current.locations.filter((location) => location !== city)
+        : [...current.locations, city],
+    }));
+  };
+  const toggleDemandPower = (phase: "three-phase" | "single-phase") => {
+    setDemandCriteria((current) => ({
+      ...current,
+      powerSupplies: current.powerSupplies.includes(phase)
+        ? current.powerSupplies.filter((value) => value !== phase)
+        : [...current.powerSupplies, phase],
+    }));
+  };
+  const resetDemandCriteria = () => {
+    setDemandCriteria(EMPTY_DEMAND_CRITERIA);
+    setSubmittedDemandCriteria(null);
+  };
 
   const activeProposalManifest = useMemo(
     () =>
@@ -844,7 +899,7 @@ export function PropertyDecksView() {
                 ))}
               </div>
 
-              <div className="flex items-center gap-1.5 text-xs text-slate-600">
+              <div className="flex flex-wrap items-center justify-end gap-1.5 text-xs text-slate-600">
                 <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
                   GLA (sqm):
                 </span>
@@ -868,8 +923,90 @@ export function PropertyDecksView() {
                 <span className="ml-2 text-[11px] font-semibold text-[#31577D]">
                   {filteredSlides.length} slide{filteredSlides.length === 1 ? "" : "s"}
                 </span>
+                <button
+                  type="button"
+                  aria-expanded={demandPanelOpen}
+                  aria-controls="demand-matching-panel"
+                  onClick={() => setDemandPanelOpen((open) => !open)}
+                  className={`ml-1 inline-flex min-h-8 items-center justify-center gap-1.5 border px-2.5 text-[10px] font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#C9A84C] ${demandPanelOpen ? "border-[#003366] bg-[#003366] text-white" : "border-[#003366] bg-white text-[#003366] hover:bg-slate-50"}`}
+                >
+                  Demand Matching
+                  {submittedDemandCriteria && <span className="bg-[#C9A84C] px-1.5 py-0.5 text-[9px] text-[#003366]">Active</span>}
+                </button>
               </div>
             </div>
+
+            {demandPanelOpen && (
+              <section id="demand-matching-panel" role="region" aria-label="Demand matching requirements" className="mt-3 border border-slate-200 bg-slate-50/70 p-3">
+                <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <h2 className="text-xs font-semibold text-[#003366]">Client demand</h2>
+                    <p className="mt-0.5 text-[10px] text-slate-500">Set requirements to rank properties in the current catalog view.</p>
+                  </div>
+                  <button type="button" onClick={resetDemandCriteria} className="min-h-7 border border-slate-300 bg-white px-2 text-[10px] font-semibold text-[#31577D] underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#C9A84C]">Reset criteria</button>
+                </div>
+
+                <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
+                  <fieldset className="min-w-0 border-0 p-0 sm:col-span-2 lg:col-span-4">
+                    <legend className="mb-1.5 text-[10px] font-semibold text-[#31577D]">Preferred locations <span className="font-normal text-slate-500">Select any that work</span></legend>
+                    <div className="flex flex-wrap gap-1.5">
+                      {locationOptions.map(({ city }) => (
+                        <label key={city} className={`inline-flex min-h-7 cursor-pointer items-center gap-1.5 border px-2 text-[10px] ${demandCriteria.locations.includes(city) ? "border-[#C9A84C] bg-[#FBF7E9] text-[#003366]" : "border-slate-200 bg-white text-slate-600"}`}>
+                          <input type="checkbox" aria-label={`Prefer ${city}`} checked={demandCriteria.locations.includes(city)} onChange={() => toggleDemandLocation(city)} className="accent-[#003366]" />
+                          {city}
+                        </label>
+                      ))}
+                      {locationOptions.length === 0 && <span className="text-[10px] text-slate-500">Locations appear after a catalog is loaded.</span>}
+                    </div>
+                  </fieldset>
+
+                  <label className="min-w-0 text-[10px] font-semibold text-[#31577D]">Leasable area (sqm)
+                    <span className="mt-1 grid grid-cols-[1fr_auto_1fr] items-center gap-1 text-slate-400">
+                      <input type="number" min="0" aria-label="Minimum leasable area (sqm)" placeholder="Min" value={demandCriteria.minGla} onChange={(event) => setDemandCriteria((current) => ({ ...current, minGla: event.target.value }))} className="h-8 w-full border border-slate-300 bg-white px-2 text-xs font-normal text-[#003366]" />
+                      <span>to</span>
+                      <input type="number" min="0" aria-label="Maximum leasable area (sqm)" placeholder="Max" value={demandCriteria.maxGla} onChange={(event) => setDemandCriteria((current) => ({ ...current, maxGla: event.target.value }))} className="h-8 w-full border border-slate-300 bg-white px-2 text-xs font-normal text-[#003366]" />
+                    </span>
+                  </label>
+
+                  <label className="min-w-0 text-[10px] font-semibold text-[#31577D]">Lease rate (Php/sqm)
+                    <span className="mt-1 grid grid-cols-[1fr_auto_1fr] items-center gap-1 text-slate-400">
+                      <input type="number" min="0" aria-label="Minimum lease rate (Php/sqm)" placeholder="Min" value={demandCriteria.minLeaseRate} onChange={(event) => setDemandCriteria((current) => ({ ...current, minLeaseRate: event.target.value }))} className="h-8 w-full border border-slate-300 bg-white px-2 text-xs font-normal text-[#003366]" />
+                      <span>to</span>
+                      <input type="number" min="0" aria-label="Maximum lease rate (Php/sqm)" placeholder="Max" value={demandCriteria.maxLeaseRate} onChange={(event) => setDemandCriteria((current) => ({ ...current, maxLeaseRate: event.target.value }))} className="h-8 w-full border border-slate-300 bg-white px-2 text-xs font-normal text-[#003366]" />
+                    </span>
+                  </label>
+
+                  <label className="min-w-0 text-[10px] font-semibold text-[#31577D]">Minimum clear height (m)
+                    <input type="number" min="0" aria-label="Minimum clear height (m)" placeholder="Any" value={demandCriteria.minClearHeight} onChange={(event) => setDemandCriteria((current) => ({ ...current, minClearHeight: event.target.value }))} className="mt-1 h-8 w-full border border-slate-300 bg-white px-2 text-xs font-normal text-[#003366]" />
+                  </label>
+
+                  <fieldset className="min-w-0 border-0 p-0">
+                    <legend className="mb-1.5 text-[10px] font-semibold text-[#31577D]">Power supply</legend>
+                    <div className="flex flex-wrap gap-x-3 gap-y-1">
+                      <label className="inline-flex items-center gap-1.5 text-[10px] text-slate-700"><input type="checkbox" aria-label="Three-phase power" checked={demandCriteria.powerSupplies.includes("three-phase")} onChange={() => toggleDemandPower("three-phase")} className="accent-[#003366]" />Three-phase</label>
+                      <label className="inline-flex items-center gap-1.5 text-[10px] text-slate-700"><input type="checkbox" aria-label="Single-phase power" checked={demandCriteria.powerSupplies.includes("single-phase")} onChange={() => toggleDemandPower("single-phase")} className="accent-[#003366]" />Single-phase</label>
+                    </div>
+                  </fieldset>
+                </div>
+
+                <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-slate-200 pt-2.5">
+                  <span className="text-[10px] font-semibold text-[#31577D]">Required access</span>
+                  <label className="inline-flex items-center gap-1.5 text-[10px] text-slate-700"><input type="checkbox" aria-label="Loading dock or bay" checked={demandCriteria.requiresLoadingDock} onChange={(event) => setDemandCriteria((current) => ({ ...current, requiresLoadingDock: event.target.checked }))} className="accent-[#003366]" />Loading dock or bay</label>
+                  <label className="inline-flex items-center gap-1.5 text-[10px] text-slate-700"><input type="checkbox" aria-label="Truck access" checked={demandCriteria.requiresTruckAccess} onChange={(event) => setDemandCriteria((current) => ({ ...current, requiresTruckAccess: event.target.checked }))} className="accent-[#003366]" />Truck access</label>
+                </div>
+
+                <label className="mt-3 block text-[10px] font-semibold text-[#31577D]" htmlFor="demand-other-requirements">Other requirements
+                  <span className="ml-1 font-normal text-slate-500">Included in the match request</span>
+                  <textarea id="demand-other-requirements" aria-label="Other requirements" value={demandCriteria.otherRequirements} onChange={(event) => setDemandCriteria((current) => ({ ...current, otherRequirements: event.target.value }))} placeholder="For requirements beyond these filters, such as 24/7 access, proximity to a port, or trailer parking." className="mt-1 min-h-16 w-full resize-y border border-slate-300 bg-white px-2.5 py-2 text-xs font-normal text-[#003366] placeholder:text-slate-400" />
+                  <span className="mt-1 block font-normal text-slate-500">Compared with indexed slide details; criteria without evidence are shown as not confirmed.</span>
+                </label>
+
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 pt-2.5">
+                  <p className="text-[10px] text-slate-500">Exact matches appear first. Partial matches show which details are missing or unconfirmed.</p>
+                  <button type="button" onClick={() => setSubmittedDemandCriteria({ ...demandCriteria, locations: [...demandCriteria.locations], powerSupplies: [...demandCriteria.powerSupplies] })} className="inline-flex min-h-8 items-center justify-center border border-[#003366] bg-[#003366] px-3 text-[10px] font-semibold text-white hover:bg-[#174778] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#C9A84C]">Find matching properties</button>
+                </div>
+              </section>
+            )}
           </section>
 
           {/* Slide Cards Gallery */}
@@ -916,10 +1053,24 @@ export function PropertyDecksView() {
                 )}
               </div>
             </div>
+          ) : submittedDemandCriteria && demandMatches?.length === 0 ? (
+            <div role="status" className="border border-dashed border-slate-300 bg-white px-6 py-10 text-center">
+              <h2 className="text-sm font-semibold text-[#003366]">No properties match these requirements</h2>
+              <p className="mx-auto mt-1 max-w-md text-xs text-slate-600">Try widening the area or lease range, selecting more locations, or removing a requirement. Your catalog filters and proposal selection are unchanged.</p>
+              <button type="button" onClick={resetDemandCriteria} className="mt-3 min-h-8 border border-slate-300 bg-white px-3 text-[10px] font-semibold text-[#003366] hover:border-[#003366]">Reset demand criteria</button>
+            </div>
           ) : (
-            <div className="grid gap-3.5 sm:grid-cols-2">
-              {slideGroups.map((group) => {
+            <>
+              {demandMatches && (
+                <div className="border border-slate-200 bg-white px-3 py-2.5">
+                  <p className="text-xs font-semibold text-[#003366]">Demand match results <span className="font-normal text-slate-500">{demandMatches.length} properties · {demandMatches.filter((match) => match.matchKind === "exact").length} exact · {demandMatches.filter((match) => match.matchKind === "partial").length} partial</span></p>
+                  {submittedDemandCriteria?.otherRequirements && <p className="mt-1 border-l-2 border-[#C9A84C] bg-[#FBF7E9] px-2 py-1 text-[10px] text-[#5F573F]">Other requirement included in match request: “{submittedDemandCriteria.otherRequirements}”</p>}
+                </div>
+              )}
+            <div className="grid gap-3.5 sm:grid-cols-2" role={demandMatches ? "region" : undefined} aria-label={demandMatches ? "Demand match results" : undefined}>
+              {displayedSlideGroups.map((group) => {
                 const isMultiSlide = group.slides.length > 1;
+                const demandMatch = demandMatchBySlideId.get(group.leadSlide.id);
                 const groupSlideIds = group.slides.map((s) => s.id);
                 const selectedCountInGroup = groupSlideIds.filter((id) =>
                   selectedSlideIds.includes(id),
@@ -1042,6 +1193,7 @@ export function PropertyDecksView() {
                           >
                             {group.title}
                           </h2>
+                          {demandMatch && <span className={`mt-1 inline-flex items-center border px-1.5 py-0.5 text-[9px] font-semibold ${demandMatch.matchKind === "exact" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-[#FBF7E9] text-[#735600]"}`}>{demandMatch.matchKind === "exact" ? "Exact match" : "Partial match"} · {demandMatch.matchedCount}/{demandMatch.requirementCount} criteria</span>}
                         </div>
                       </div>
 
@@ -1080,6 +1232,18 @@ export function PropertyDecksView() {
                           </span>
                         </div>
                       </div>
+
+                      {demandMatch && (
+                        <ul aria-label={`${demandMatch.matchKind} match criteria for ${group.title}`} className="mt-2 space-y-0.5 border-t border-slate-100 pt-2 text-[9px] text-slate-600">
+                          {demandMatch.criteria.map((criterion) => (
+                            <li key={criterion.key} className="flex min-w-0 gap-1.5">
+                              <span className={criterion.matched ? "font-semibold text-emerald-800" : "font-semibold text-amber-800"}>{criterion.matched ? "Meets" : "Not met"}</span>
+                              <span className="font-semibold text-[#31577D]">{criterion.label}:</span>
+                              <span className="min-w-0 break-words">{criterion.evidence}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
 
                       {previewSlide.specs.notes && (
                         <p className="mt-2 border-l-2 border-[#C9A84C] bg-[#FBF7E9] px-2 py-1 text-[11px] text-[#003366]">
@@ -1148,6 +1312,7 @@ export function PropertyDecksView() {
                 );
               })}
             </div>
+            </>
           )}
         </div>
 

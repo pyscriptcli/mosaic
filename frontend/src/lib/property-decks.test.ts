@@ -1,10 +1,12 @@
 import JSZip from "jszip";
 import { describe, expect, it } from "vitest";
+import { rankDemandMatches } from "./property-deck-demand-matching";
 import { compileCopiedPptx } from "./property-deck-export";
 import {
   applySlideOverrides,
   buildCompilationManifest,
   extractSpecsFromSlideText,
+  extractTextFromSlideXml,
   filterPropertySlides,
   groupPropertyLocationsByCity,
   getOrderedSlidePathsFromZip,
@@ -56,6 +58,88 @@ describe("Property Decks specification extractor", () => {
     expect(parseNumericGla("4,250 sqm")).toBe(4250);
     expect(parseNumericGla("12,000.50 sq.m.")).toBe(12000.5);
     expect(parseNumericGla("TBD")).toBeNull();
+  });
+});
+
+describe("Property Decks demand matching", () => {
+  const slides: PropertySlideItem[] = [
+    {
+      id: "demand-pasig",
+      deckId: "demand-pasig",
+      deckFileName: "Pasig.pptx",
+      deckFilePath: "C:/OneDrive/Pasig.pptx",
+      slideNumber: 1,
+      slideRole: "property",
+      title: "Pasig Distribution Hub",
+      rawText: "Pasig City 2,100 sqm 10m Php 420/sqm 3-Phase Loading Bays 3 Truck access near port",
+      thumbnailUrl: "",
+      specs: { propertyName: "Pasig Distribution Hub", location: "Pasig City", gla: "2,100 sqm", ceilingHeight: "10m", leaseRate: "Php 420/sqm", powerSupply: "3-Phase", loadingBays: "3 Bays", notes: "Truck access" },
+    },
+    {
+      id: "demand-binan",
+      deckId: "demand-binan",
+      deckFileName: "Biñan.pptx",
+      deckFilePath: "C:/OneDrive/Biñan.pptx",
+      slideNumber: 1,
+      slideRole: "property",
+      title: "Biñan Logistics Center",
+      rawText: "Biñan, Laguna 4,800 sqm 12m Php 360/sqm 3-phase 6 loading bays; near port",
+      thumbnailUrl: "",
+      specs: { propertyName: "Biñan Logistics Center", location: "Biñan, Laguna", gla: "4,800 sqm", ceilingHeight: "12m", leaseRate: "Php 360/sqm", powerSupply: "3-phase", loadingBays: "6 loading bays", notes: "Near port" },
+    },
+  ];
+
+  it("ranks exact matches ahead of partial matches and explains every requested criterion", () => {
+    const matches = rankDemandMatches(slides, {
+      locations: ["Pasig"],
+      minGla: "2,000",
+      maxGla: "2,500",
+      minLeaseRate: "350",
+      maxLeaseRate: "450",
+      minClearHeight: "9",
+      powerSupplies: ["three-phase"],
+      requiresLoadingDock: true,
+      requiresTruckAccess: true,
+      otherRequirements: "near port",
+    });
+
+    expect(matches.map((match) => match.property.id)).toEqual(["demand-pasig", "demand-binan"]);
+    expect(matches[0]).toMatchObject({ matchKind: "exact", matchedCount: 8, requirementCount: 8 });
+    expect(matches[0].criteria.find((criterion) => criterion.label === "Truck access")?.matched).toBe(true);
+    expect(matches[0].criteria.find((criterion) => criterion.label === "Other requirements")?.matched).toBe(true);
+    expect(matches[1]).toMatchObject({ matchKind: "partial", matchedCount: 5, requirementCount: 8 });
+    expect(matches[1].criteria.find((criterion) => criterion.label === "Other requirements")?.evidence).toContain("port");
+  });
+
+  it("returns no ranked properties when requirements are not met and accepts either requested power phase", () => {
+    const phaseMatches = rankDemandMatches(slides, {
+      locations: [],
+      minGla: "",
+      maxGla: "",
+      minLeaseRate: "",
+      maxLeaseRate: "",
+      minClearHeight: "",
+      powerSupplies: ["three-phase", "single-phase"],
+      requiresLoadingDock: false,
+      requiresTruckAccess: false,
+      otherRequirements: "",
+    });
+    expect(phaseMatches.map((match) => match.property.id)).toEqual(["demand-binan", "demand-pasig"]);
+
+    const matches = rankDemandMatches(slides, {
+      locations: ["Cebu"],
+      minGla: "20,000",
+      maxGla: "",
+      minLeaseRate: "",
+      maxLeaseRate: "",
+      minClearHeight: "",
+      powerSupplies: ["single-phase"],
+      requiresLoadingDock: false,
+      requiresTruckAccess: false,
+      otherRequirements: "",
+    });
+
+    expect(matches).toHaveLength(0);
   });
 });
 
@@ -167,6 +251,65 @@ describe("Property Decks filtering, overrides, and cart sequencing", () => {
       sampleSlides[1].id,
       "deck-pasig:slide:4",
     ]);
+  });
+
+  it("exports the client cover, included facility divider, selected property, source CTA, and contact CTA together", async () => {
+    const deckPath = "C:/OneDrive/Antipolo_Options.pptx";
+    const deckName = "Antipolo_Options.pptx";
+    const slideTexts = [
+      "Client Proposal Cover",
+      "2. Industrial Facility Proposal\nAntipolo\nUpon Request\nUpon Request",
+      "Antipolo Warehouse\n4,200 sqm\nPhp 350/sqm",
+      "For more information and to schedule a viewing, contact us",
+    ];
+    const source = new JSZip();
+    const slideOverrides = slideTexts.map((_, index) => `<Override PartName="/ppt/slides/slide${index + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>`).join("");
+    const slideIds = slideTexts.map((_, index) => `<p:sldId id="${256 + index}" r:id="rId${index + 1}"/>`).join("");
+    const slideRels = slideTexts.map((_, index) => `<Relationship Id="rId${index + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide${index + 1}.xml"/>`).join("");
+    source.file("[Content_Types].xml", `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/>${slideOverrides}<Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/></Types>`);
+    source.file("ppt/presentation.xml", `<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:sldIdLst>${slideIds}</p:sldIdLst></p:presentation>`);
+    source.file("ppt/_rels/presentation.xml.rels", `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${slideRels}</Relationships>`);
+    slideTexts.forEach((text, index) => {
+      const paragraphs = text.split("\n").map((line) => `<a:p><a:r><a:t>${line}</a:t></a:r></a:p>`).join("");
+      source.file(`ppt/slides/slide${index + 1}.xml`, `<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:txBody>${paragraphs}</p:txBody></p:sp></p:spTree></p:cSld></p:sld>`);
+      source.file(`ppt/slides/_rels/slide${index + 1}.xml.rels`, '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdLayout" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/></Relationships>');
+    });
+    source.file("ppt/slideLayouts/slideLayout1.xml", '<p:sldLayout xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" type="blank"><p:cSld name="Blank"><p:spTree/></p:cSld></p:sldLayout>');
+
+    const deckSlides: PropertySlideItem[] = slideTexts.map((text, index) => ({
+      ...sampleSlides[0],
+      id: `antipolo-deck:slide:${index + 1}`,
+      deckId: "antipolo-deck",
+      deckFileName: deckName,
+      deckFilePath: deckPath,
+      slideNumber: index + 1,
+      slideRole: index === 0 || index === 1 ? "cover" : index === 2 ? "property" : "closing",
+      title: index === 0 ? "Client Proposal Cover" : index === 1 ? "2. Industrial Facility Proposal" : index === 2 ? "Antipolo Warehouse" : "Contact us",
+      rawText: text,
+      specs: { ...sampleSlides[0].specs, propertyName: "Antipolo Warehouse", location: "Antipolo", gla: "4,200 sqm", leaseRate: "Php 350/sqm" },
+    }));
+    const manifest = buildCompilationManifest({
+      selectedSlideIds: ["antipolo-deck:slide:3"],
+      catalogSlides: deckSlides,
+      proposal: {
+        clientName: "Client", projectTitle: "", brokerName: "", brokerEmail: "", brokerPhone: "", date: "2026-10-22", mode: "standard",
+        ctaContacts: [{ id: "sondi", name: "Sondi Tuazon", title: "Sr. Head", phone: "+63 917 845 6128", email: "sondi@primephilippines.com" }],
+      },
+    });
+    const compiled = await compileCopiedPptx(manifest, new Map([[deckPath, { name: deckName, relativePath: deckName, data: await source.generateAsync({ type: "uint8array" }) }]]));
+    const output = await JSZip.loadAsync(compiled.buffer);
+    const orderedSlides = await getOrderedSlidePathsFromZip(output);
+    const exportedText = await Promise.all(orderedSlides.map(async (slidePath) => extractTextFromSlideXml(await output.file(slidePath)!.async("string"))));
+
+    expect(exportedText).toHaveLength(5);
+    expect(exportedText[0]).toContain("Client Proposal Cover");
+    expect(exportedText[1]).toContain("2. Industrial Facility Proposal");
+    expect(exportedText[1]).toContain("Antipolo");
+    expect(exportedText[2]).toContain("Antipolo Warehouse");
+    expect(exportedText[3]).toContain("schedule a viewing");
+    expect(exportedText[4]).toContain("Sondi Tuazon");
+    expect(exportedText[4]).toContain("sondi@primephilippines.com");
+    expect(compiled.slideCount).toBe(5);
   });
 
   it("uses the selected property's location on its Industrial Facility Proposal slide", () => {

@@ -142,6 +142,64 @@ describe("PropertyDecksView component", () => {
     expect(proposal.ctaContacts[2].photoDataUrl).toMatch(/^data:image\/png;base64,/);
   });
 
+  it("opens demand matching, ranks exact before partial, explains criteria, and resets", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === `${helperUrl}/health`) return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      if (url === `${helperUrl}/api/property-decks`) return new Response(JSON.stringify({ catalog: mockCatalog }), { status: 200 });
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }));
+    render(<PropertyDecksView />);
+    await waitFor(() => expect(screen.getByText("Biñan Logistics Center — Warehouse 4")).toBeDefined());
+
+    const toggle = screen.getByRole("button", { name: "Demand Matching" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    const panel = screen.getByRole("region", { name: "Demand matching requirements" });
+    fireEvent.click(within(panel).getByRole("checkbox", { name: "Prefer Pasig" }));
+    fireEvent.change(within(panel).getByLabelText("Minimum leasable area (sqm)"), { target: { value: "2,000" } });
+    fireEvent.change(within(panel).getByLabelText("Maximum leasable area (sqm)"), { target: { value: "2,500" } });
+    fireEvent.change(within(panel).getByLabelText("Minimum lease rate (Php/sqm)"), { target: { value: "350" } });
+    fireEvent.change(within(panel).getByLabelText("Maximum lease rate (Php/sqm)"), { target: { value: "450" } });
+    fireEvent.change(within(panel).getByLabelText("Minimum clear height (m)"), { target: { value: "9" } });
+    fireEvent.click(within(panel).getByRole("checkbox", { name: "Three-phase power" }));
+    fireEvent.click(within(panel).getByRole("checkbox", { name: "Loading dock or bay" }));
+    fireEvent.change(within(panel).getByLabelText("Other requirements"), { target: { value: "Pasig" } });
+    fireEvent.click(within(panel).getByRole("button", { name: "Find matching properties" }));
+
+    const resultList = screen.getByRole("region", { name: "Demand match results" });
+    const exactCard = within(resultList).getByText(/Exact match/).closest("article");
+    const partialCard = within(resultList).getByText(/Partial match/).closest("article");
+    expect(exactCard?.textContent).toContain("MSCS Pasig Distribution Hub");
+    expect(exactCard?.textContent).toContain("Other requirements");
+    expect(exactCard?.textContent).toContain("Pasig");
+    expect(partialCard?.textContent).toContain("Biñan Logistics Center — Warehouse 4");
+    expect(partialCard?.textContent).toContain("Meets");
+    expect(partialCard?.textContent).toContain("Not met");
+
+    fireEvent.click(within(panel).getByRole("button", { name: "Reset criteria" }));
+    expect((within(panel).getByLabelText("Minimum leasable area (sqm)") as HTMLInputElement).value).toBe("");
+    expect(screen.queryByRole("region", { name: "Demand match results" })).toBeNull();
+  });
+
+  it("shows a clear empty state when no property meets the demand criteria", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === `${helperUrl}/health`) return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      if (url === `${helperUrl}/api/property-decks`) return new Response(JSON.stringify({ catalog: mockCatalog }), { status: 200 });
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }));
+    render(<PropertyDecksView />);
+    await waitFor(() => expect(screen.getByText("Biñan Logistics Center — Warehouse 4")).toBeDefined());
+    fireEvent.click(screen.getByRole("button", { name: "Demand Matching" }));
+    const panel = screen.getByRole("region", { name: "Demand matching requirements" });
+    fireEvent.change(within(panel).getByLabelText("Minimum leasable area (sqm)"), { target: { value: "20000" } });
+    fireEvent.click(within(panel).getByRole("button", { name: "Find matching properties" }));
+    expect(screen.getByText("No properties match these requirements")).toBeDefined();
+    expect(screen.queryByText("Biñan Logistics Center — Warehouse 4")).toBeNull();
+  });
+
   it("loads the catalog, allows spec overrides, and exports the selected source slides", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
