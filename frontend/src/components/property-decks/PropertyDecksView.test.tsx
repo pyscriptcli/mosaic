@@ -111,6 +111,12 @@ describe("PropertyDecksView component", () => {
       expect(screen.getByText("Biñan Logistics Center — Warehouse 4")).toBeDefined();
     });
 
+    const thumbnail = screen.getByAltText("Biñan Logistics Center — Warehouse 4");
+    expect(thumbnail.getAttribute("src")).toBe(
+      `${helperUrl}/api/property-decks/thumbnail?id=deck-laguna:slide:2`,
+    );
+    expect(thumbnail.getAttribute("crossorigin")).toBe("anonymous");
+
     // Open Spec Override Modal for the first warehouse
     const editButtons = screen.getAllByRole("button", { name: /edit specs/i });
     fireEvent.click(editButtons[0]);

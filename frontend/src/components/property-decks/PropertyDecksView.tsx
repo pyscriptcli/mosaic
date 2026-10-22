@@ -746,6 +746,7 @@ export function PropertyDecksView() {
                       <img
                         src={leadSlide.thumbnailUrl}
                         alt={leadSlide.title}
+                        crossOrigin="anonymous"
                         loading="lazy"
                         className="h-full w-full object-cover"
                       />
@@ -959,6 +960,7 @@ export function PropertyDecksView() {
                                   <img
                                     src={subSlide.thumbnailUrl}
                                     alt={subSlide.title}
+                                    crossOrigin="anonymous"
                                     loading="lazy"
                                     className="h-full w-full object-cover"
                                   />
