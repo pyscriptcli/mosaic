@@ -79,5 +79,21 @@ describe("/api/property-decks API routes", () => {
     const compilePayload = await compileRes.json();
     expect(fs.existsSync(compilePayload.outputPath)).toBe(true);
     expect(compilePayload.slideCount).toBe(1);
+    expect(compilePayload.outputPath).toContain(outputDir);
+    const compiled = await JSZip.loadAsync(await fs.promises.readFile(compilePayload.outputPath));
+    expect(compiled.file("ppt/slides/slide1.xml")).not.toBeNull();
+  });
+
+  it("rejects a local source path that this Mosaic server cannot access", async () => {
+    const postReq = new Request("http://127.0.0.1:3000/api/property-decks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sourceFolder: path.join(tempDir, "missing-folder"), outputFolder: outputDir }),
+    });
+
+    const response = await POST(postReq);
+    const payload = await response.json();
+    expect(response.status).toBe(400);
+    expect(payload.error).toMatch(/source folder not found/i);
   });
 });

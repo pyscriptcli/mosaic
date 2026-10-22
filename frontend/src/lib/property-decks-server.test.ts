@@ -114,16 +114,17 @@ describe("Property Decks server indexer and compiler", () => {
     );
   });
 
-  it("falls back to the bundled Converted seed catalog when a Windows OneDrive path is requested on a cloud/non-existent filesystem", async () => {
-    const cloudCatalog = await scanOneDriveFolder(
+  it("reports an empty source folder instead of creating an empty index", async () => {
+    const emptyDir = path.join(tempDir, "empty-source");
+    await fs.promises.mkdir(emptyDir);
+
+    await expect(scanOneDriveFolder(emptyDir, outputDir)).rejects.toThrow(/no .pptx files/i);
+  });
+
+  it("rejects a configured source folder that the Mosaic server cannot access", async () => {
+    await expect(scanOneDriveFolder(
       "Z:\\Users\\PRIME_Dave\\OneDrive - Jet Innovisions\\Sondi Tuazon's files - CRD 2026 COMPILED ONE DRIVE\\Industrial\\Property Deck\\Converted",
       "Z:\\Users\\PRIME_Dave\\OneDrive - Jet Innovisions\\Sondi Tuazon's files - CRD 2026 COMPILED ONE DRIVE\\Industrial\\Property Deck\\Proposals",
-    );
-
-    expect(cloudCatalog.decksCount).toBe(5);
-    expect(cloudCatalog.slides.length).toBe(39);
-    expect(
-      cloudCatalog.slides.some((s) => /Bataan|Zabarte|Malabon|Sandoval|Elisco|Benry|Tariji/i.test(s.title)),
-    ).toBe(true);
+    )).rejects.toThrow(/OneDrive source folder not found/);
   });
 });

@@ -1,5 +1,4 @@
 // @vitest-environment jsdom
-import JSZip from "jszip";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { clearBrowserPageCache } from "@/lib/browserPageCache";
@@ -131,120 +130,44 @@ describe("PropertyDecksView component", () => {
     fireEvent.click(screen.getByRole("button", { name: /export selected slides/i }));
 
     await waitFor(() => {
-      expect(screen.getByText(/PRIME_Proposal_FastCargo Logistics\.pptx/i)).toBeDefined();
+      expect(screen.getByText("PRIME_Proposal_FastCargo Logistics.pptx")).toBeDefined();
     });
   });
 
-  it("indexes local OneDrive PPTX files in the browser and compiles client-side when running on cloud/Vercel", async () => {
-    let exportedBlob: Blob | null = null;
-    vi.stubGlobal("URL", {
-      ...URL,
-      createObjectURL: vi.fn((blob: Blob) => {
-        exportedBlob = blob;
-        return "blob:exported-pptx";
-      }),
-    });
-
+  it("rescans the configured local path through the server and refreshes the gallery", async () => {
+    const updatedCatalog = {
+      ...mockCatalog,
+      indexedAt: "2026-10-22T01:00:00.000Z",
+      slides: mockCatalog.slides.map((slide, index) => ({
+        ...slide,
+        title: index === 0 ? "Updated Warehouse Name" : slide.title,
+        specs: index === 0 ? { ...slide.specs, propertyName: "Updated Warehouse Name" } : slide.specs,
+      })),
+    };
+    localStorage.setItem(
+      "mosaic_property_decks_config_v1",
+      JSON.stringify({ sourceFolder: mockCatalog.sourceFolder, outputFolder: mockCatalog.outputFolder }),
+    );
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      if (url === "/api/property-decks" && init?.method === "POST") {
-        return new Response(
-          JSON.stringify({
-            error:
-              "OneDrive source folder not found: /var/task/frontend/C:\\Users\\PRIME_Dave\\OneDrive - Jet Innovisions\\Converted",
-          }),
-          { status: 400 },
-        );
+      if (String(input) === "/api/property-decks" && init?.method === "POST") {
+        return new Response(JSON.stringify({ catalog: updatedCatalog }), { status: 200 });
       }
-      if (url === "/api/property-decks") {
-        return new Response(
-          JSON.stringify({
-            catalog: null,
-            suggestedDefaultFolder:
-              "C:\\Users\\PRIME_Dave\\OneDrive - Jet Innovisions\\Sondi Tuazon's files - CRD 2026 COMPILED ONE DRIVE\\Industrial\\Property Deck\\Converted",
-          }),
-          { status: 200 },
-        );
-      }
-      if (url === "/api/property-decks/compile") {
-        return new Response(JSON.stringify({ error: "Server cannot access local path" }), {
-          status: 400,
-        });
-      }
-      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      return new Response(JSON.stringify({ catalog: mockCatalog }), { status: 200 });
     });
-
     vi.stubGlobal("fetch", fetchMock);
 
     render(<PropertyDecksView />);
+    await waitFor(() => expect(screen.getByText("Biñan Logistics Center — Warehouse 4")).toBeDefined());
 
-    await waitFor(() => {
-      expect(screen.getByText(/Configure OneDrive Deck Folders/i)).toBeDefined();
-    });
+    expect(screen.queryByTestId("onedrive-folder-input")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /rescan folder/i }));
 
-    // Build an in-memory PPTX file and feed it to the local folder file input
-    const zip = new JSZip();
-    zip.file(
-      "ppt/slides/slide1.xml",
-      `<p:sld><a:p><a:t>PLARIDEL INDUSTRIAL PARK - WAREHOUSE A</a:t></a:p><a:p><a:t>Location: Plaridel, Bulacan</a:t></a:p><a:p><a:t>GLA: 6,000 sqm</a:t></a:p><a:p><a:t>Lease Rate: Php 280 / sqm</a:t></a:p></p:sld>`,
-    );
-    const originalSlideOne = await zip.file("ppt/slides/slide1.xml")!.async("string");
-    const originalSlideTwo = `<p:sld><a:p><a:t>SECOND ORIGINAL SLIDE, KEEP THIS EXACT</a:t></a:p></p:sld>`;
-    zip.file("ppt/slides/slide2.xml", originalSlideTwo);
-    zip.file(
-      "[Content_Types].xml",
-      `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/><Override PartName="/ppt/slides/slide2.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/></Types>`,
-    );
-    zip.file(
-      "ppt/presentation.xml",
-      `<p:presentation xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:sldIdLst><p:sldId id="256" r:id="rId1"/><p:sldId id="257" r:id="rId2"/></p:sldIdLst></p:presentation>`,
-    );
-    zip.file(
-      "ppt/_rels/presentation.xml.rels",
-      `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide2.xml"/></Relationships>`,
-    );
-    const pptxBytes = await zip.generateAsync({ type: "uint8array" });
-    const mockFile = new File([pptxBytes as unknown as BlobPart], "Bulacan_Warehouses.pptx", {
-      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    await waitFor(() => expect(screen.getByText("Updated Warehouse Name")).toBeDefined());
+    const scanRequest = fetchMock.mock.calls.find(([url, init]) => String(url) === "/api/property-decks" && init?.method === "POST");
+    expect(JSON.parse(String(scanRequest?.[1]?.body))).toEqual({
+      sourceFolder: mockCatalog.sourceFolder,
+      outputFolder: mockCatalog.outputFolder,
     });
-    Object.defineProperty(mockFile, "webkitRelativePath", {
-      value: "Converted/Bulacan_Warehouses.pptx",
-    });
-    Object.defineProperty(mockFile, "arrayBuffer", {
-      value: async () => pptxBytes.buffer.slice(pptxBytes.byteOffset, pptxBytes.byteOffset + pptxBytes.byteLength),
-    });
-
-    const folderInput = screen.getByTestId("onedrive-folder-input") as HTMLInputElement;
-    fireEvent.change(folderInput, {
-      target: { files: [mockFile] },
-    });
-
-    await waitFor(() => {
-      expect(screen.getByText("PLARIDEL INDUSTRIAL PARK - WAREHOUSE A")).toBeDefined();
-    });
-
-    // Add both original slides to the proposal and export their unmodified contents.
-    fireEvent.click(screen.getAllByRole("button", { name: /add to deck/i })[0]);
-    fireEvent.click(screen.getAllByRole("button", { name: /add to deck/i })[0]);
-    fireEvent.change(screen.getByLabelText(/client name/i), {
-      target: { value: "Lazada Logistics" },
-    });
-    const downloadClick = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
-    fireEvent.click(screen.getByRole("button", { name: /export selected slides/i }));
-
-    await waitFor(() => {
-      expect(
-        screen.getByText(/PRIME_Proposal_Lazada_Logistics_/i),
-      ).toBeDefined();
-    });
-
-    expect(exportedBlob).toBeInstanceOf(Blob);
-    expect(downloadClick).toHaveBeenCalledOnce();
-    const exportedZip = await JSZip.loadAsync(exportedBlob!);
-    const exportedSlideOne = await exportedZip.file("ppt/slides/slide1.xml")!.async("string");
-    const exportedSlideTwo = await exportedZip.file("ppt/slides/slide2.xml")!.async("string");
-    expect(exportedSlideOne).toBe(originalSlideOne);
-    expect(exportedSlideTwo).toBe(originalSlideTwo);
   });
 
   it("simplifies filter tabs and groups same-title warehouse slides into collapsed cards with partial and full selection", async () => {

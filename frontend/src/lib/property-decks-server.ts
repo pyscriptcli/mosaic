@@ -19,7 +19,6 @@ const CACHE_ROOT = process.env.VITEST
   : path.join(process.cwd(), ".cache", "property-decks");
 const THUMBNAILS_DIR = path.join(CACHE_ROOT, "thumbnails");
 const CATALOG_CACHE_PATH = path.join(CACHE_ROOT, "catalog.json");
-const SEED_CATALOG_PATH = path.join(process.cwd(), "src", "data", "property-decks-seed.json");
 
 function resolveExistingFolderFuzzy(rawInput: string): string | null {
   const trimmed = rawInput.trim();
@@ -61,23 +60,6 @@ function resolveExistingFolderFuzzy(rawInput: string): string | null {
   }
 
   return fs.existsSync(current) ? current : null;
-}
-
-export function readSeedCatalog(
-  overrideSourceFolder?: string,
-  overrideOutputFolder?: string,
-): PropertyDeckCatalog | null {
-  try {
-    if (!fs.existsSync(SEED_CATALOG_PATH)) return null;
-    const parsed = JSON.parse(fs.readFileSync(SEED_CATALOG_PATH, "utf-8")) as PropertyDeckCatalog;
-    return {
-      ...parsed,
-      sourceFolder: overrideSourceFolder?.trim() || parsed.sourceFolder,
-      outputFolder: overrideOutputFolder?.trim() || parsed.outputFolder,
-    };
-  } catch {
-    return null;
-  }
 }
 
 async function findPptxFiles(rootDir: string, maxFiles = 35): Promise<string[]> {
@@ -157,10 +139,6 @@ export async function scanOneDriveFolder(
 ): Promise<PropertyDeckCatalog> {
   const resolvedSource = resolveExistingFolderFuzzy(sourceFolder);
   if (!resolvedSource) {
-    const seed = readSeedCatalog(sourceFolder, outputFolder);
-    if (seed) {
-      return seed;
-    }
     throw new Error(`OneDrive source folder not found: ${sourceFolder.trim()}`);
   }
 
@@ -169,6 +147,10 @@ export async function scanOneDriveFolder(
     : path.join(resolvedSource, "Compiled Proposals");
 
   const pptxFiles = await findPptxFiles(resolvedSource, maxDecks);
+  if (pptxFiles.length === 0) {
+    throw new Error(`No .pptx files found in source folder: ${resolvedSource}`);
+  }
+
   const slides: PropertySlideItem[] = [];
   let indexedDecksCount = 0;
 
@@ -273,9 +255,9 @@ export async function readCachedCatalog(): Promise<PropertyDeckCatalog | null> {
       if (parsed?.slides?.length) return parsed;
     }
   } catch {
-    // Fallback to seed catalog
+    // Ignore an invalid cache so the user can run a fresh scan.
   }
-  return readSeedCatalog();
+  return null;
 }
 
 export async function resolveSlideThumbnailFile(slideId: string): Promise<string | null> {

@@ -1,14 +1,13 @@
 import JSZip from "jszip";
 import { describe, expect, it } from "vitest";
+import { compileCopiedPptx } from "./property-deck-export";
 import {
   applySlideOverrides,
   buildCompilationManifest,
-  compilePptxInBrowser,
   extractSpecsFromSlideText,
   filterPropertySlides,
   getOrderedSlidePathsFromZip,
   groupPropertySlidesByTitle,
-  indexPptxFilesInBrowser,
   parseNumericGla,
   reorderSelectedSlides,
   type PropertySlideItem,
@@ -199,38 +198,6 @@ describe("Property Decks filtering, overrides, and cart sequencing", () => {
     });
   });
 
-  it("indexes PPTX buffers directly in the browser without requiring server filesystem access", async () => {
-    const zip = new JSZip();
-    zip.file(
-      "ppt/slides/slide1.xml",
-      `<p:sld><a:p><a:t>PROPERTY INFORMATION SHEET</a:t></a:p><a:p><a:t>Prepared Exclusively For: Nestle</a:t></a:p></p:sld>`,
-    );
-    zip.file(
-      "ppt/slides/slide2.xml",
-      `<p:sld><a:p><a:t>CABUYAO LOGISTICS PARK - BLDG 3</a:t></a:p><a:p><a:t>Location: Cabuyao, Laguna</a:t></a:p><a:p><a:t>GLA: 5,400 sqm</a:t></a:p><a:p><a:t>Ceiling Height: 12 meters</a:t></a:p><a:p><a:t>Lease Rate: Php 350 / sqm</a:t></a:p></p:sld>`,
-    );
-    const buffer = await zip.generateAsync({ type: "arraybuffer" });
-
-    const catalog = await indexPptxFilesInBrowser(
-      [
-        {
-          name: "Laguna_Industrial_2026.pptx",
-          relativePath: "Converted/Laguna_Industrial_2026.pptx",
-          data: buffer,
-        },
-      ],
-      "C:\\Users\\PRIME_Dave\\OneDrive - Jet Innovisions\\Converted",
-    );
-
-    expect(catalog.decksCount).toBe(1);
-    expect(catalog.slides).toHaveLength(2);
-    expect(catalog.slides[0].slideRole).toBe("cover");
-    expect(catalog.slides[1].slideRole).toBe("property");
-    expect(catalog.slides[1].specs.location).toContain("Laguna");
-    expect(catalog.slides[1].specs.gla).toBe("5,400 sqm");
-    expect(catalog.slides[1].thumbnailUrl).toMatch(/^data:image\//);
-  });
-
   it("exports exact selected source slides in cart order", async () => {
     const manifest = buildCompilationManifest({
       selectedSlideIds: ["deck-1:slide:2", "deck-2:slide:3"],
@@ -289,7 +256,7 @@ describe("Property Decks filtering, overrides, and cart sequencing", () => {
       [sampleSlides[1].deckFilePath, await makeSourceDeck(sampleSlides[1].deckFileName, 3, originalTwo)],
     ]);
 
-    const compiled = await compilePptxInBrowser(manifest, sourceFiles);
+    const compiled = await compileCopiedPptx(manifest, sourceFiles);
     expect(compiled.fileName).toBe("PRIME_Proposal_Shopee_Express_2026-10-21.pptx");
     expect(compiled.slideCount).toBe(2);
 

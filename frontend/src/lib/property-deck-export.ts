@@ -1,5 +1,5 @@
 import JSZip from "jszip";
-import { getOrderedSlidePathsFromZip, type BrowserPptxFileInput, type CompilationManifest } from "@/lib/property-decks";
+import { getOrderedSlidePathsFromZip, type CompilationManifest, type PptxSourceFile } from "@/lib/property-decks";
 
 const REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships";
 
@@ -149,7 +149,7 @@ async function copySlideParts(
 
 async function makeCopiedSlideDeck(
   manifest: CompilationManifest,
-  sourceFiles: ReadonlyMap<string, BrowserPptxFileInput>,
+  sourceFiles: ReadonlyMap<string, PptxSourceFile>,
 ): Promise<{ blob: Blob; buffer: Uint8Array; fileName: string; slideCount: number }> {
   if (manifest.slides.length === 0) throw new Error("Select at least one slide to export.");
 
@@ -256,7 +256,7 @@ async function makeCopiedSlideDeck(
 
 export async function compileCopiedPptx(
   manifest: CompilationManifest,
-  sourceFiles: ReadonlyMap<string, BrowserPptxFileInput>,
+  sourceFiles: ReadonlyMap<string, PptxSourceFile>,
 ) {
   return makeCopiedSlideDeck(manifest, sourceFiles);
 }
