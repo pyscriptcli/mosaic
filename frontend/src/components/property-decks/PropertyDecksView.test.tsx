@@ -224,6 +224,58 @@ describe("PropertyDecksView component", () => {
     expect(screen.queryByRole("button", { name: "Download PDF" })).toBeNull();
   });
 
+  it("shows both export stages, elapsed time, and prevents duplicate exports while requests are pending", async () => {
+    let resolvePptx!: (response: Response) => void;
+    let resolvePdf!: (response: Response) => void;
+    let pptxRequestCount = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === `${helperUrl}/health`) return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      if (url === `${helperUrl}/api/property-decks` && (!init || init.method !== "POST")) {
+        return new Response(JSON.stringify({ catalog: mockCatalog }), { status: 200 });
+      }
+      if (url === `${helperUrl}/api/property-decks/compile` && init?.method === "POST") {
+        pptxRequestCount += 1;
+        return new Promise<Response>((resolve) => { resolvePptx = resolve; });
+      }
+      if (url === `${helperUrl}/api/property-decks/compile` && init?.method === "PUT") {
+        return new Promise<Response>((resolve) => { resolvePdf = resolve; });
+      }
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<PropertyDecksView />);
+    await waitFor(() => expect(screen.getByText("Biñan Logistics Center — Warehouse 4")).toBeDefined());
+    fireEvent.click(screen.getAllByRole("button", { name: /add to deck/i })[0]);
+    fireEvent.click(screen.getByRole("button", { name: /export selected slides/i }));
+
+    const exportButton = screen.getByRole("button", { name: /building powerpoint/i });
+    expect(exportButton.hasAttribute("disabled")).toBe(true);
+    const pptxProgress = screen.getByText(/Compiling 1 selected slide into PowerPoint/).parentElement?.parentElement;
+    expect(pptxProgress?.textContent).toContain("Elapsed 0:");
+    await waitFor(() => expect(pptxProgress?.textContent).toContain("Elapsed 0:01"), { timeout: 1500 });
+    fireEvent.click(exportButton);
+    expect(pptxRequestCount).toBe(1);
+
+    resolvePptx(new Response(JSON.stringify({
+      downloadId: "8a5ab5c2-f4b4-41a0-9199-9ed6a4a53f75",
+      outputPath: `${mockCatalog.outputFolder}\\PRIME_Proposal_Client.pptx`,
+      fileName: "PRIME_Proposal_Client.pptx",
+      slideCount: 1,
+      engine: "microsoft-powerpoint",
+    }), { status: 200 }));
+
+    const pdfButton = await screen.findByRole("button", { name: /converting to pdf/i });
+    expect(pdfButton.hasAttribute("disabled")).toBe(true);
+    const pdfProgress = screen.getByText(/Converting PowerPoint to PDF/).parentElement?.parentElement;
+    expect(pdfProgress?.textContent).toContain("Elapsed 0:");
+    expect(screen.getByRole("button", { name: "Download PPTX" })).toBeDefined();
+
+    resolvePdf(new Response(JSON.stringify({ pdfFileName: "PRIME_Proposal_Client.pdf" }), { status: 200 }));
+    await waitFor(() => expect(screen.getByText("PPTX and PDF ready to download.")).toBeDefined());
+  });
+
   it("simplifies filter tabs and groups same-title warehouse slides into collapsed cards with partial and full selection", async () => {
     const multiSlideCatalog = {
       sourceFolder: "C:\\OneDrive\\Converted",

@@ -57,6 +57,12 @@ function helperRequestError(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
 
+function formatElapsedTime(totalSeconds: number): string {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = String(totalSeconds % 60).padStart(2, "0");
+  return `${minutes}:${seconds}`;
+}
+
 interface StoredFolderConfig {
   sourceFolder: string;
   outputFolder: string;
@@ -129,6 +135,17 @@ export function PropertyDecksView() {
   const [clientName, setClientName] = useState("");
   const [compiledResult, setCompiledResult] = useState<CompiledResult | null>(null);
   const [exportStage, setExportStage] = useState<"idle" | "pptx" | "pdf" | "ready" | "pdf-error">("idle");
+
+  const [exportElapsedSeconds, setExportElapsedSeconds] = useState(0);
+
+  useEffect(() => {
+    if (!compiling) return;
+    const startedAt = Date.now();
+    const intervalId = window.setInterval(() => {
+      setExportElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000));
+    }, 1000);
+    return () => window.clearInterval(intervalId);
+  }, [compiling]);
 
   // Load saved browser config and initial catalog
   useEffect(() => {
@@ -390,6 +407,7 @@ export function PropertyDecksView() {
       return;
     }
     setCompiling(true);
+    setExportElapsedSeconds(0);
     setError(null);
     setCompiledResult(null);
     setExportStage("pptx");
@@ -1134,13 +1152,26 @@ export function PropertyDecksView() {
           >
             <Layers className="h-4 w-4 text-[#C9A84C]" />
             {compiling
-              ? exportStage === "pdf" ? "Converting PDF…" : "Preparing PPTX…"
+              ? exportStage === "pdf" ? "Converting to PDF…" : "Building PowerPoint…"
               : `Export Selected Slides (${activeProposalManifest.slides.length})`}
           </button>
           {compiling && (
-            <p role="status" aria-live="polite" className="text-[11px] text-slate-600">
-              {exportStage === "pdf" ? "Converting PPTX to PDF with Microsoft PowerPoint…" : "Preparing selected slides as PPTX…"}
-            </p>
+            <div className="flex items-start gap-2 border-l-2 border-[#C9A84C] bg-[#FBF7E9] px-3 py-2 text-[11px] text-[#003366]">
+              <LoaderCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden="true" />
+              <div className="space-y-0.5">
+                <p role="status" aria-live="polite" className="font-semibold">
+                  {exportStage === "pdf"
+                    ? "Converting PowerPoint to PDF with Microsoft PowerPoint…"
+                    : `Compiling ${selectedSlideIds.length} selected slide${selectedSlideIds.length === 1 ? "" : "s"} into PowerPoint…`}
+                </p>
+                <p aria-live="off" className="text-slate-600">
+                  Elapsed {formatElapsedTime(exportElapsedSeconds)} · Large decks may take a few minutes. Keep this page open.
+                </p>
+                {exportStage === "pdf" && compiledResult && (
+                  <p className="text-slate-600">The PowerPoint file is ready; PDF conversion is still running.</p>
+                )}
+              </div>
+            </div>
           )}
           {exportStage === "ready" && <p role="status" className="text-[11px] text-green-700">PPTX and PDF ready to download.</p>}
 
