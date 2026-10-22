@@ -271,6 +271,22 @@ export async function resolveSlideThumbnailFile(slideId: string): Promise<string
   return null;
 }
 
+export async function findAvailableProposalPath(outputFolder: string, fileName: string): Promise<string> {
+  const extension = path.extname(fileName);
+  const baseName = fileName.slice(0, -extension.length);
+  for (let suffix = 0; suffix < 10_000; suffix += 1) {
+    const candidateName = `${baseName}${suffix === 0 ? "" : ` (${suffix})`}${extension}`;
+    const candidatePath = path.join(outputFolder, candidateName);
+    const candidatePdfPath = candidatePath.replace(/\.pptx$/i, ".pdf");
+    const [pptxExists, pdfExists] = await Promise.all([
+      fs.promises.access(candidatePath).then(() => true, () => false),
+      fs.promises.access(candidatePdfPath).then(() => true, () => false),
+    ]);
+    if (!pptxExists && !pdfExists) return candidatePath;
+  }
+  throw new Error("Could not find an unused proposal filename. Move or rename older exports and try again.");
+}
+
 export async function compilePropertyDeck(params: {
   manifest: CompilationManifest;
   outputFolder: string;
@@ -297,8 +313,9 @@ export async function compilePropertyDeck(params: {
     /[^0-9-]/g,
     "",
   );
-  const fileName = `PRIME_Proposal_${safeClient}_${datePart}.pptx`;
-  const outputPath = path.join(resolvedOutputFolder, fileName);
+  const requestedFileName = `PRIME_Proposal_${safeClient}_${datePart}.pptx`;
+  const outputPath = await findAvailableProposalPath(resolvedOutputFolder, requestedFileName);
+  const fileName = path.basename(outputPath);
 
   let slideCount = params.manifest.slides.length;
   let engine = "microsoft-powerpoint";

@@ -4,7 +4,7 @@ import path from "node:path";
 import JSZip from "jszip";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildCompilationManifest } from "./property-decks";
-import { compilePropertyDeck, scanPropertyDeckFolder } from "./property-decks-server";
+import { compilePropertyDeck, findAvailableProposalPath, scanPropertyDeckFolder } from "./property-decks-server";
 
 async function createSamplePptx(filePath: string, slidesXml: string[]) {
   const zip = new JSZip();
@@ -111,6 +111,19 @@ describe("Property Decks server indexer and compiler", () => {
     const output = await JSZip.loadAsync(await fs.promises.readFile(compiled.outputPath));
     expect(await output.file("ppt/slides/slide1.xml")!.async("string")).toBe(
       await source.file("ppt/slides/slide2.xml")!.async("string"),
+    );
+  });
+
+  it("increments proposal filenames when a PPTX or its paired PDF already exists", async () => {
+    const baseName = "PRIME_Proposal_Client_2026-10-22.pptx";
+    await fs.promises.writeFile(path.join(outputDir, baseName), "existing pptx");
+    expect(await findAvailableProposalPath(outputDir, baseName)).toBe(
+      path.join(outputDir, "PRIME_Proposal_Client_2026-10-22 (1).pptx"),
+    );
+
+    await fs.promises.writeFile(path.join(outputDir, "PRIME_Proposal_Client_2026-10-22 (1).pdf"), "existing pdf");
+    expect(await findAvailableProposalPath(outputDir, baseName)).toBe(
+      path.join(outputDir, "PRIME_Proposal_Client_2026-10-22 (2).pptx"),
     );
   });
 
