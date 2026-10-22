@@ -21,7 +21,7 @@ export async function convertPptxToPdf(pptxPath: string, pdfPath: string): Promi
     "try {",
     "  $powerPoint = New-Object -ComObject PowerPoint.Application",
     "  $presentation = $powerPoint.Presentations.Open($InputPath, $true, $false, $false)",
-    "  $presentation.ExportAsFixedFormat($OutputPath, 2)",
+    "  $presentation.SaveAs($OutputPath, 32)",
     "} finally {",
     "  if ($presentation -ne $null) { $presentation.Close() }",
     "  if ($powerPoint -ne $null) { $powerPoint.Quit() }",

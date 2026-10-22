@@ -35,7 +35,7 @@ describe("/api/property-decks API routes", () => {
     await fs.promises.rm(tempDir, { recursive: true, force: true });
   });
 
-  it("indexes a folder via POST and returns the catalog via GET", async () => {
+  it.skipIf(process.platform === "win32")("indexes a folder via POST and returns the catalog via GET", async () => {
     const postReq = new Request("http://127.0.0.1:3000/api/property-decks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

@@ -14,13 +14,20 @@ For manual foreground operation, run:
 npm run mosaic-helper
 ```
 
-The helper listens only on `127.0.0.1:43127`. It accepts browser requests from `https://mosaic-workspace.online` only. It indexes the selected local folder, copies the selected slides into a PPTX, uses installed Microsoft PowerPoint to make the PDF, and serves the generated files back to the browser.
+The helper listens only on `127.0.0.1:43127`. It accepts browser requests from `https://mosaic-workspace.online` only. It uses installed Microsoft PowerPoint to copy the selected slides into a validated PPTX, make the PDF, and serve both files back to the browser.
 
 Logs are stored in `%LOCALAPPDATA%\Mosaic\Helper`. The startup task checks for the helper every 15 seconds and restarts it if it exits.
 
 The browser may ask whether Mosaic can access the local network. Allow it so the hosted page can reach the helper. If it was denied, change the site permission in the browser and reload Property Decks.
 
 The helper requires Node.js and the dependencies installed for this repository. A standalone Windows installer can package the same helper after this first version is validated.
+
+To verify PPTX and PDF export on a Windows computer with PowerPoint installed, run this from the `frontend` folder:
+
+```powershell
+$env:MOSAIC_TEST_POWERPOINT = "1"
+npm run test:helper:powerpoint
+```
 
 ## Development site
 

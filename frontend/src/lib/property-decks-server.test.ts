@@ -75,7 +75,7 @@ describe("Property Decks server indexer and compiler", () => {
     expect(warehouseSlide.specs.leaseRate).toContain("340");
   });
 
-  it("copies only the selected source slide to the output folder", async () => {
+  it.skipIf(process.platform === "win32")("copies only the selected source slide to the output folder", async () => {
     const catalog = await scanPropertyDeckFolder(sourceDir, outputDir);
     const warehouseSlide = catalog.slides[1];
 

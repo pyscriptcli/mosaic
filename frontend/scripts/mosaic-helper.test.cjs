@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 const { after, before, describe, it } = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
@@ -95,7 +96,9 @@ describe("Mosaic Helper local HTTP boundary", () => {
     assert.equal(rejected.status, 403);
   });
 
-  it("indexes a local folder and exports the selected slide as a downloadable PPTX", async () => {
+  it("indexes a local folder and exports the selected slide as a downloadable PPTX", {
+    skip: process.platform === "win32" ? "The synthetic fixture is not a PowerPoint-authored file; use test:helper:powerpoint on Windows." : false,
+  }, async () => {
     const sourceFolder = path.join(tempDir, "source");
     const outputFolder = path.join(tempDir, "output");
     const scanResponse = response();

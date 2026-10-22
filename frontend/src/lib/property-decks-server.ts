@@ -5,6 +5,7 @@ import path from "node:path";
 import JSZip from "jszip";
 import { compileCopiedPptx } from "./property-deck-export";
 import { convertPptxToPdf } from "./property-deck-pdf";
+import { assemblePropertyDeckWithPowerPoint } from "./property-deck-powerpoint";
 import {
   enrichDeckSlidesWithSharedWarehouseSpecs,
   extractSpecsFromSlideText,
@@ -299,22 +300,30 @@ export async function compilePropertyDeck(params: {
   const fileName = `PRIME_Proposal_${safeClient}_${datePart}.pptx`;
   const outputPath = path.join(resolvedOutputFolder, fileName);
 
-  const sourceFiles = new Map<string, { name: string; relativePath: string; data: Buffer }>();
-  for (const slide of params.manifest.slides) {
-    if (sourceFiles.has(slide.deckFilePath)) continue;
-    sourceFiles.set(slide.deckFilePath, {
-      name: slide.deckFileName,
-      relativePath: slide.deckFilePath,
-      data: await fs.promises.readFile(slide.deckFilePath),
-    });
+  let slideCount = params.manifest.slides.length;
+  let engine = "microsoft-powerpoint";
+  if (process.platform === "win32") {
+    await assemblePropertyDeckWithPowerPoint(params.manifest, outputPath);
+  } else {
+    const sourceFiles = new Map<string, { name: string; relativePath: string; data: Buffer }>();
+    for (const slide of params.manifest.slides) {
+      if (sourceFiles.has(slide.deckFilePath)) continue;
+      sourceFiles.set(slide.deckFilePath, {
+        name: slide.deckFileName,
+        relativePath: slide.deckFilePath,
+        data: await fs.promises.readFile(slide.deckFilePath),
+      });
+    }
+    const copiedDeck = await compileCopiedPptx(params.manifest, sourceFiles);
+    await fs.promises.writeFile(outputPath, copiedDeck.buffer);
+    slideCount = copiedDeck.slideCount;
+    engine = "openxml-slide-copy";
   }
-  const copiedDeck = await compileCopiedPptx(params.manifest, sourceFiles);
-  await fs.promises.writeFile(outputPath, copiedDeck.buffer);
   return {
     outputPath,
     fileName,
-    slideCount: copiedDeck.slideCount,
-    engine: "openxml-slide-copy",
+    slideCount,
+    engine,
   };
 }
 

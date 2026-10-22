@@ -8,6 +8,7 @@
     "start": "next start",
     "mosaic-helper": "node scripts/mosaic-helper.cjs",
     "test:helper": "node --test scripts/mosaic-helper.test.cjs",
+    "test:helper:powerpoint": "node --test scripts/mosaic-helper.powerpoint.test.cjs",
     "lint": "eslint",
     "test": "vitest run"
   },
