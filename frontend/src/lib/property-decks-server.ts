@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import JSZip from "jszip";
-import { compileCopiedPptx } from "./property-deck-export";
+import { appendProposalContactsToPptx, compileCopiedPptx } from "./property-deck-export";
 import { convertPptxToPdf } from "./property-deck-pdf";
 import { assemblePropertyDeckWithPowerPoint } from "./property-deck-powerpoint";
 import {
@@ -321,6 +321,13 @@ export async function compilePropertyDeck(params: {
   let engine = "microsoft-powerpoint";
   if (process.platform === "win32") {
     await assemblePropertyDeckWithPowerPoint(params.manifest, outputPath);
+    const contacts = params.manifest.proposal.ctaContacts || [];
+    if (contacts.length) {
+      const assembled = await fs.promises.readFile(outputPath);
+      const withContacts = await appendProposalContactsToPptx(assembled, contacts);
+      await fs.promises.writeFile(outputPath, withContacts);
+      slideCount += 1;
+    }
   } else {
     const sourceFiles = new Map<string, { name: string; relativePath: string; data: Buffer }>();
     for (const slide of params.manifest.slides) {

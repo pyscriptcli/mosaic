@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
 import {
   ArrowDown,
   ArrowUp,
@@ -32,6 +32,7 @@ import {
   type PropertySlideGroup,
   type PropertySlideItem,
   type PropertySlideOverride,
+  type ProposalContact,
   type SlideRole,
 } from "@/lib/property-decks";
 
@@ -41,8 +42,15 @@ const CART_STORAGE_KEY = "mosaic_property_decks_cart_v1";
 const MOSAIC_HELPER_URL = "http://127.0.0.1:43127";
 const PREPARED_BY_PRESETS = {
   cedtrix: { name: "Cedtrix Rena", designation: "Sr. Leasing Advisor", company: "PRIME Philippines" },
-  sondi: { name: "Sondi Tuazon", designation: "Leasing Advisor", company: "PRIME Philippines" },
+  sondi: { name: "Sondi Tuazon", designation: "Sr. Head · Retail and Industrial Markets", company: "PRIME Philippines" },
 } as const;
+
+const CTA_CONTACT_PRESETS: ProposalContact[] = [
+  { id: "sondi", name: "Sondi Tuazon", title: "Sr. Head · Retail and Industrial Markets", phone: "+63 917 845 6128", email: "sondi.tuazon@primephilippines.com" },
+  { id: "cedtrix", name: "Cedtrix Rena", title: "Sr. Leasing Advisor", phone: "+63 968 880 5399", email: "cedtrix.rena@primephilippines.com" },
+];
+
+const EMPTY_CUSTOM_CONTACT = { name: "", title: "", phone: "", email: "" };
 
 function helperCatalog(catalog: PropertyDeckCatalog): PropertyDeckCatalog {
   return {
@@ -139,7 +147,14 @@ export function PropertyDecksView() {
   const [preparedByName, setPreparedByName] = useState<string>(PREPARED_BY_PRESETS.cedtrix.name);
   const [preparedByDesignation, setPreparedByDesignation] = useState<string>(PREPARED_BY_PRESETS.cedtrix.designation);
   const [preparedByCompany, setPreparedByCompany] = useState<string>(PREPARED_BY_PRESETS.cedtrix.company);
+  const [preparedByDetailsOpen, setPreparedByDetailsOpen] = useState(false);
   const [clientLogoDataUrl, setClientLogoDataUrl] = useState("");
+  const [selectedCtaContactIds, setSelectedCtaContactIds] = useState<string[]>(["sondi", "cedtrix"]);
+  const [presetCtaPhotoDataUrls, setPresetCtaPhotoDataUrls] = useState<Record<string, string>>({});
+  const [customCtaContacts, setCustomCtaContacts] = useState<ProposalContact[]>([]);
+  const [customContactDraft, setCustomContactDraft] = useState(EMPTY_CUSTOM_CONTACT);
+  const [customContactPhotoDataUrl, setCustomContactPhotoDataUrl] = useState("");
+  const [customContactFormOpen, setCustomContactFormOpen] = useState(false);
   const [compiledResult, setCompiledResult] = useState<CompiledResult | null>(null);
   const [exportStage, setExportStage] = useState<"idle" | "pptx" | "pdf" | "ready" | "pdf-error">("idle");
   const [exportElapsedSeconds, setExportElapsedSeconds] = useState(0);
@@ -203,6 +218,23 @@ export function PropertyDecksView() {
     }
 
     void bootstrap();
+  }, []);
+
+  useEffect(() => {
+    const reference = new Image();
+    reference.onload = () => {
+      const cropPhoto = (x: number, y: number) => {
+        const canvas = document.createElement("canvas");
+        canvas.width = 120;
+        canvas.height = 120;
+        const context = canvas.getContext("2d");
+        context?.drawImage(reference, x, y, 60, 60, 0, 0, 120, 120);
+        return canvas.toDataURL("image/png");
+      };
+      setPresetCtaPhotoDataUrls({ sondi: cropPhoto(23, 21), cedtrix: cropPhoto(23, 94) });
+    };
+    reference.src = "/property-decks/cta-contact-reference.png";
+    return () => { reference.onload = null; };
   }, []);
 
   const persistOverrides = (next: Record<string, PropertySlideOverride>) => {
@@ -336,6 +368,10 @@ export function PropertyDecksView() {
           preparedByDesignation,
           preparedByCompany,
           clientLogoDataUrl,
+          ctaContacts: selectedCtaContactIds
+            .map((id) => [...CTA_CONTACT_PRESETS, ...customCtaContacts].find((contact) => contact.id === id))
+            .filter((contact): contact is ProposalContact => Boolean(contact))
+            .map((contact) => ({ ...contact, photoDataUrl: contact.photoDataUrl || presetCtaPhotoDataUrls[contact.id] })),
           projectTitle: "",
           brokerName: "",
           brokerEmail: "",
@@ -355,6 +391,9 @@ export function PropertyDecksView() {
       preparedByDesignation,
       preparedByCompany,
       clientLogoDataUrl,
+      selectedCtaContactIds,
+      customCtaContacts,
+      presetCtaPhotoDataUrls,
     ],
   );
 
@@ -448,6 +487,7 @@ export function PropertyDecksView() {
               preparedByDesignation: preparedByDesignation.trim(),
               preparedByCompany: preparedByCompany.trim(),
               clientLogoDataUrl,
+              ctaContacts: activeProposalManifest.proposal.ctaContacts || [],
               projectTitle: "",
               brokerName: "",
               brokerEmail: "",
@@ -574,6 +614,41 @@ export function PropertyDecksView() {
     setPreparedByName(PREPARED_BY_PRESETS[preset].name);
     setPreparedByDesignation(PREPARED_BY_PRESETS[preset].designation);
     setPreparedByCompany(PREPARED_BY_PRESETS[preset].company);
+  };
+  const handleCustomContactPhotoChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (!/^image\/(png|jpeg)$/.test(file.type)) {
+      setError("Use a PNG or JPG photo for a contact.");
+      event.target.value = "";
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setError("Contact photos must be 5 MB or smaller.");
+      event.target.value = "";
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => setCustomContactPhotoDataUrl(String(reader.result || ""));
+    reader.readAsDataURL(file);
+  };
+  const addCustomCtaContact = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const name = customContactDraft.name.trim();
+    if (!name) return;
+    const contact: ProposalContact = {
+      id: `custom-${Date.now()}`,
+      name,
+      title: customContactDraft.title.trim(),
+      phone: customContactDraft.phone.trim(),
+      email: customContactDraft.email.trim(),
+      photoDataUrl: customContactPhotoDataUrl || undefined,
+    };
+    setCustomCtaContacts((current) => [...current, contact]);
+    setSelectedCtaContactIds((current) => [...current, contact.id]);
+    setCustomContactDraft(EMPTY_CUSTOM_CONTACT);
+    setCustomContactPhotoDataUrl("");
+    setCustomContactFormOpen(false);
   };
   const handleClientLogoChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -1125,21 +1200,26 @@ export function PropertyDecksView() {
             <section id="assembler-panel-coverpage" role="tabpanel" aria-labelledby="assembler-tab-coverpage" tabIndex={0} hidden={activeAssemblerTab !== "coverpage"} className="min-w-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#C9A84C]">
               {activeAssemblerTab === "coverpage" && <div className="space-y-2.5">
                 <div className="mb-3 flex items-baseline justify-between gap-2"><h3 className="text-sm font-semibold text-[#003366]">Coverpage details</h3><span className="text-[10px] text-slate-500">Client &amp; prepared by</span></div>
-                <label className="block text-[10px] font-semibold text-[#31577D]">Client name<input aria-label="Client name" type="text" value={clientName} onChange={(e) => setClientName(e.target.value)} placeholder="Contact person" className="mt-1 h-8 w-full border border-slate-300 bg-white px-2 text-xs font-normal text-[#003366] focus:border-[#003366] focus:outline-none" /></label>
-                <div className="grid grid-cols-2 gap-2">
-                  <label className="block text-[10px] font-semibold text-[#31577D]">Designation<input aria-label="Client designation" type="text" value={clientDesignation} onChange={(e) => setClientDesignation(e.target.value)} placeholder="Job title" className="mt-1 h-8 w-full border border-slate-300 bg-white px-2 text-xs font-normal text-[#003366] focus:border-[#003366] focus:outline-none" /></label>
-                  <label className="block text-[10px] font-semibold text-[#31577D]">Company<input aria-label="Client company" type="text" value={clientCompany} onChange={(e) => setClientCompany(e.target.value)} placeholder="Company name" className="mt-1 h-8 w-full border border-slate-300 bg-white px-2 text-xs font-normal text-[#003366] focus:border-[#003366] focus:outline-none" /></label>
+                <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-3">
+                  <label className="min-w-0 block text-[10px] font-semibold text-[#31577D]">Contact person<input aria-label="Contact person" type="text" value={clientName} onChange={(e) => setClientName(e.target.value)} placeholder="Full name" className="mt-1 h-8 w-full min-w-0 border border-slate-300 bg-white px-2 text-xs font-normal text-[#003366] focus:border-[#003366] focus:outline-none" /></label>
+                  <label className="min-w-0 block text-[10px] font-semibold text-[#31577D]">Job title<input aria-label="Job title" type="text" value={clientDesignation} onChange={(e) => setClientDesignation(e.target.value)} placeholder="Title" className="mt-1 h-8 w-full min-w-0 border border-slate-300 bg-white px-2 text-xs font-normal text-[#003366] focus:border-[#003366] focus:outline-none" /></label>
+                  <label className="min-w-0 block text-[10px] font-semibold text-[#31577D]">Company<input aria-label="Company" type="text" value={clientCompany} onChange={(e) => setClientCompany(e.target.value)} placeholder="Company name" className="mt-1 h-8 w-full min-w-0 border border-slate-300 bg-white px-2 text-xs font-normal text-[#003366] focus:border-[#003366] focus:outline-none" /></label>
                 </div>
-                <label htmlFor="proposal-client-logo" className="flex cursor-pointer items-center gap-2 border border-dashed border-slate-300 bg-slate-50 px-2.5 py-2 text-[10px] font-semibold text-[#003366] hover:bg-slate-100 focus-within:outline focus-within:outline-2 focus-within:outline-offset-1 focus-within:outline-[#C9A84C]">
-                  <Presentation className="h-4 w-4 shrink-0" />
-                  <span className="min-w-0 flex-1 truncate">{clientLogoDataUrl ? "Company logo selected" : "Upload company logo"}<span className="block font-normal text-slate-500">PNG or JPG · client brand area</span></span>
+                <label htmlFor="proposal-client-logo" className="flex cursor-pointer items-center gap-2 border border-slate-200 bg-white px-2.5 py-2 text-[10px] font-semibold text-[#003366] hover:bg-slate-50 focus-within:outline focus-within:outline-2 focus-within:outline-offset-1 focus-within:outline-[#C9A84C]">
+                  <Presentation className="h-4 w-4 shrink-0 text-[#31577D]" />
+                  <span className="min-w-0 flex-1 truncate">{clientLogoDataUrl ? "Company logo selected" : "Company logo"}<span className="block font-normal text-slate-500">Optional · PNG or JPG</span></span>
+                  <span className="shrink-0 border border-slate-300 px-2 py-1 text-[9px] font-semibold">{clientLogoDataUrl ? "Replace" : "Upload"}</span>
                   {clientLogoDataUrl && <img src={clientLogoDataUrl} alt="Client logo preview" className="h-8 w-12 object-contain" />}
                 </label>
                 <input id="proposal-client-logo" aria-label="Upload company logo" type="file" accept="image/png,image/jpeg" onChange={handleClientLogoChange} className="sr-only" />
-                {coverSlides.length > 0 && <div className="pt-1"><p className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Cover page</p>{renderAssemblerSlides(coverSlides)}</div>}
                 <div className="border-t border-slate-100 pt-2.5">
-                  <div className="mb-2 flex items-center justify-between"><span className="text-[10px] font-semibold text-[#31577D]">Prepared by</span><div className="flex gap-1"><button type="button" aria-pressed={preparedByPreset === "cedtrix"} onClick={() => choosePreparedByPreset("cedtrix")} className={`border px-2 py-1 text-[10px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#C9A84C] ${preparedByPreset === "cedtrix" ? "border-[#003366] bg-[#003366] text-white" : "border-slate-300 text-[#003366]"}`}>Cedtrix</button><button type="button" aria-pressed={preparedByPreset === "sondi"} onClick={() => choosePreparedByPreset("sondi")} className={`border px-2 py-1 text-[10px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#C9A84C] ${preparedByPreset === "sondi" ? "border-[#003366] bg-[#003366] text-white" : "border-slate-300 text-[#003366]"}`}>Sondi</button></div></div>
-                  <div className="space-y-2"><label className="block text-[10px] font-semibold text-[#31577D]">Name<input aria-label="Prepared by name" value={preparedByName} onChange={(e) => setPreparedByName(e.target.value)} className="mt-1 h-8 w-full border border-slate-300 px-2 text-xs font-normal text-[#003366]" /></label><div className="grid grid-cols-2 gap-2"><label className="block text-[10px] font-semibold text-[#31577D]">Designation<input aria-label="Prepared by designation" value={preparedByDesignation} onChange={(e) => setPreparedByDesignation(e.target.value)} className="mt-1 h-8 w-full border border-slate-300 px-2 text-xs font-normal text-[#003366]" /></label><label className="block text-[10px] font-semibold text-[#31577D]">Company<input aria-label="Prepared by company" value={preparedByCompany} onChange={(e) => setPreparedByCompany(e.target.value)} className="mt-1 h-8 w-full border border-slate-300 px-2 text-xs font-normal text-[#003366]" /></label></div></div>
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2"><span className="text-[10px] font-semibold text-[#31577D]">Prepared by</span><div role="group" aria-label="Choose prepared by representative" className="flex gap-1"><button type="button" aria-pressed={preparedByPreset === "cedtrix"} onClick={() => choosePreparedByPreset("cedtrix")} className={`border px-2 py-1 text-[10px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#C9A84C] ${preparedByPreset === "cedtrix" ? "border-[#003366] bg-[#003366] text-white" : "border-slate-300 text-[#003366]"}`}>Cedtrix</button><button type="button" aria-pressed={preparedByPreset === "sondi"} onClick={() => choosePreparedByPreset("sondi")} className={`border px-2 py-1 text-[10px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#C9A84C] ${preparedByPreset === "sondi" ? "border-[#003366] bg-[#003366] text-white" : "border-slate-300 text-[#003366]"}`}>Sondi</button></div></div>
+                  <div className="flex min-w-0 items-center gap-2 border border-slate-200 bg-slate-50 px-2 py-2">
+                    {presetCtaPhotoDataUrls[preparedByPreset] ? <img src={presetCtaPhotoDataUrls[preparedByPreset]} alt="" className="h-9 w-9 shrink-0 rounded-full object-cover" /> : <span aria-hidden="true" className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#003366] text-[10px] font-semibold text-white">{preparedByName.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase()}</span>}
+                    <span className="min-w-0 flex-1"><strong className="block truncate text-[11px] text-[#003366]">{preparedByName || "Prepared by"}</strong><span className="block truncate text-[9px] text-slate-500">{[preparedByDesignation, preparedByCompany].filter(Boolean).join(" · ")}</span></span>
+                    <button type="button" aria-expanded={preparedByDetailsOpen} aria-controls="prepared-by-details" onClick={() => setPreparedByDetailsOpen((open) => !open)} className="min-h-8 shrink-0 border border-slate-300 bg-white px-2 text-[9px] font-semibold text-[#31577D] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#C9A84C]">{preparedByDetailsOpen ? "Hide details" : "Edit details"}</button>
+                  </div>
+                  {preparedByDetailsOpen && <div id="prepared-by-details" className="mt-2 grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-3"><label className="min-w-0 block text-[10px] font-semibold text-[#31577D]">Name<input aria-label="Prepared by name" value={preparedByName} onChange={(e) => setPreparedByName(e.target.value)} className="mt-1 h-8 w-full min-w-0 border border-slate-300 px-2 text-xs font-normal text-[#003366]" /></label><label className="min-w-0 block text-[10px] font-semibold text-[#31577D]">Designation<input aria-label="Prepared by designation" value={preparedByDesignation} onChange={(e) => setPreparedByDesignation(e.target.value)} className="mt-1 h-8 w-full min-w-0 border border-slate-300 px-2 text-xs font-normal text-[#003366]" /></label><label className="min-w-0 block text-[10px] font-semibold text-[#31577D]">Company<input aria-label="Prepared by company" value={preparedByCompany} onChange={(e) => setPreparedByCompany(e.target.value)} className="mt-1 h-8 w-full min-w-0 border border-slate-300 px-2 text-xs font-normal text-[#003366]" /></label></div>}
                 </div>
               </div>}
             </section>
@@ -1153,10 +1233,58 @@ export function PropertyDecksView() {
             </section>
 
             <section id="assembler-panel-cta" role="tabpanel" aria-labelledby="assembler-tab-cta" tabIndex={0} hidden={activeAssemblerTab !== "cta"} className="min-w-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#C9A84C]">
-              {activeAssemblerTab === "cta" && <div>
+              {activeAssemblerTab === "cta" && <div className="space-y-3">
                 <div className="mb-3 flex items-baseline justify-between gap-2"><h3 className="text-sm font-semibold text-[#003366]">Call to action</h3><span className="text-[10px] text-slate-500">{ctaSlides.length} {ctaSlides.length === 1 ? "page" : "pages"} · included</span></div>
-                <p className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Call to action pages are included from the selected source decks</p>
                 {renderAssemblerSlides(ctaSlides)}
+                <p className="text-[10px] leading-4 text-slate-600">Choose who appears on the included contact slide. Selected contacts are also added to the exported proposal in this order.</p>
+                <div className="grid min-w-0 grid-cols-1 gap-3 min-[440px]:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+                  <div className="min-w-0 border border-slate-200">
+                    <div className="flex items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-2.5 py-2"><strong className="text-[10px] text-[#003366]">Contact presets</strong><span className="text-[9px] text-slate-500">{selectedCtaContactIds.length} selected</span></div>
+                    <div className="grid gap-1.5 p-2">
+                      {CTA_CONTACT_PRESETS.map((contact) => {
+                        const selected = selectedCtaContactIds.includes(contact.id);
+                        const position = contact.id === "sondi" ? "-23px -21px" : "-23px -94px";
+                        return <label key={contact.id} className={`flex min-w-0 cursor-pointer items-center gap-2 border px-2 py-2 ${selected ? "border-[#C9A84C] bg-[#FBF7E9]" : "border-slate-200 bg-white"}`}>
+                          <input type="checkbox" checked={selected} onChange={(event) => setSelectedCtaContactIds((current) => event.target.checked ? [...current, contact.id] : current.filter((id) => id !== contact.id))} aria-label={`Select ${contact.name}`} className="h-3.5 w-3.5 shrink-0 accent-[#003366]" />
+                          <span aria-hidden="true" className="h-9 w-9 shrink-0 rounded-full border border-[#C9A84C] bg-white" style={{ backgroundImage: "url('/property-decks/cta-contact-reference.png')", backgroundSize: "300px 160px", backgroundPosition: position }} />
+                          <span className="min-w-0"><strong className="block truncate text-[10px] text-[#003366]">{contact.name}</strong><span className="block text-[9px] leading-3 text-slate-500">{contact.title}</span></span>
+                        </label>;
+                      })}
+                      {customCtaContacts.map((contact) => <label key={contact.id} className={`flex min-w-0 cursor-pointer items-center gap-2 border px-2 py-2 ${selectedCtaContactIds.includes(contact.id) ? "border-[#C9A84C] bg-[#FBF7E9]" : "border-slate-200 bg-white"}`}>
+                        <input type="checkbox" checked={selectedCtaContactIds.includes(contact.id)} onChange={(event) => setSelectedCtaContactIds((current) => event.target.checked ? [...current, contact.id] : current.filter((id) => id !== contact.id))} aria-label={`Select ${contact.name}`} className="h-3.5 w-3.5 shrink-0 accent-[#003366]" />
+                        {contact.photoDataUrl ? <img src={contact.photoDataUrl} alt="" className="h-9 w-9 shrink-0 rounded-full border border-[#C9A84C] object-cover" /> : <span aria-hidden="true" className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#003366] text-[9px] font-semibold text-white">{contact.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase()}</span>}
+                        <span className="min-w-0"><strong className="block truncate text-[10px] text-[#003366]">{contact.name}</strong><span className="block truncate text-[9px] text-slate-500">{contact.title || "Custom contact"}</span></span>
+                      </label>)}
+                    </div>
+                    <div className="border-t border-slate-200 p-2">
+                      <button type="button" aria-expanded={customContactFormOpen} onClick={() => setCustomContactFormOpen((open) => !open)} className="min-h-8 w-full border border-[#003366] bg-white px-2 text-[10px] font-semibold text-[#003366] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#C9A84C]">{customContactFormOpen ? "Cancel custom contact" : "+ Add custom contact"}</button>
+                      {customContactFormOpen && <form onSubmit={addCustomCtaContact} className="mt-2 grid grid-cols-2 gap-2">
+                        <label className="col-span-2 block text-[9px] font-semibold text-[#31577D]">Name<input required aria-label="Custom contact name" value={customContactDraft.name} onChange={(event) => setCustomContactDraft({ ...customContactDraft, name: event.target.value })} className="mt-1 h-8 w-full border border-slate-300 px-2 text-[10px] font-normal text-[#003366]" /></label>
+                        <label className="col-span-2 block text-[9px] font-semibold text-[#31577D]">Title<input aria-label="Custom contact title" value={customContactDraft.title} onChange={(event) => setCustomContactDraft({ ...customContactDraft, title: event.target.value })} className="mt-1 h-8 w-full border border-slate-300 px-2 text-[10px] font-normal text-[#003366]" /></label>
+                        <label className="block text-[9px] font-semibold text-[#31577D]">Phone<input aria-label="Custom contact phone" value={customContactDraft.phone} onChange={(event) => setCustomContactDraft({ ...customContactDraft, phone: event.target.value })} className="mt-1 h-8 w-full border border-slate-300 px-2 text-[10px] font-normal text-[#003366]" /></label>
+                        <label className="block text-[9px] font-semibold text-[#31577D]">Email<input type="email" aria-label="Custom contact email" value={customContactDraft.email} onChange={(event) => setCustomContactDraft({ ...customContactDraft, email: event.target.value })} className="mt-1 h-8 w-full border border-slate-300 px-2 text-[10px] font-normal text-[#003366]" /></label>
+                        <label className="col-span-2 block text-[9px] font-semibold text-[#31577D]">Photo · optional PNG or JPG<input type="file" accept="image/png,image/jpeg" aria-label="Custom contact photo" onChange={handleCustomContactPhotoChange} className="mt-1 block w-full text-[9px] font-normal text-slate-600 file:mr-2 file:border file:border-slate-300 file:bg-white file:px-2 file:py-1" /></label>
+                        {customContactPhotoDataUrl && <img src={customContactPhotoDataUrl} alt="Custom contact photo selected" className="col-span-2 h-10 w-10 rounded-full border border-[#C9A84C] object-cover" />}
+                        <button type="submit" className="col-span-2 min-h-8 border border-[#003366] bg-[#003366] px-2 text-[10px] font-semibold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#C9A84C]">Save contact</button>
+                      </form>}
+                    </div>
+                  </div>
+                  <section aria-label="CTA contact slide preview" className="min-w-0 border border-slate-200 bg-slate-50 p-2.5">
+                    <p className="mb-2 text-[9px] font-bold uppercase tracking-wider text-slate-500">Slide preview · CTA contacts</p>
+                    <p className="mb-2 text-[11px] italic text-[#003366]">For more information and to schedule a viewing, contact us:</p>
+                    <div aria-live="polite" className="grid gap-2">
+                      {selectedCtaContactIds.map((id) => [...CTA_CONTACT_PRESETS, ...customCtaContacts].find((contact) => contact.id === id)).filter((contact): contact is ProposalContact => Boolean(contact)).map((contact) => {
+                        const photo = contact.photoDataUrl || presetCtaPhotoDataUrls[contact.id];
+                        return <div key={contact.id} className="flex min-w-0 items-center gap-2 border border-slate-200 bg-white p-2">
+                          {photo ? <img src={photo} alt="" className="h-10 w-10 shrink-0 rounded-full border border-[#C9A84C] object-cover" /> : <span aria-hidden="true" className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#003366] text-[10px] font-semibold text-white">{contact.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase()}</span>}
+                          <span className="min-w-0 text-[9px] leading-4 text-slate-600"><strong className="block truncate text-[10px] text-[#003366]">{contact.name}</strong><span className="block truncate">{contact.title}</span>{contact.phone && <span className="block truncate">{contact.phone}</span>}{contact.email && <span className="block break-all">{contact.email}</span>}</span>
+                        </div>;
+                      })}
+                      {selectedCtaContactIds.length === 0 && <p className="border border-dashed border-slate-300 bg-white px-2 py-4 text-center text-[10px] text-slate-500">Select one or more contacts to preview them here.</p>}
+                    </div>
+                    <p className="mt-2 text-[9px] text-slate-500">Contacts appear in this order in the exported proposal.</p>
+                  </section>
+                </div>
               </div>}
             </section>
           </div>

@@ -69,6 +69,79 @@ describe("PropertyDecksView component", () => {
     vi.unstubAllGlobals();
   });
 
+  it("keeps cover details compact and reveals prepared-by fields only on request", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === `${helperUrl}/health`) return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      if (url === `${helperUrl}/api/property-decks`) return new Response(JSON.stringify({ catalog: mockCatalog }), { status: 200 });
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }));
+    render(<PropertyDecksView />);
+    await waitFor(() => expect(screen.getByText("Biñan Logistics Center — Warehouse 4")).toBeDefined());
+
+    expect(screen.getByLabelText("Contact person")).toBeDefined();
+    expect(screen.getByLabelText("Job title")).toBeDefined();
+    expect(screen.getByLabelText("Company")).toBeDefined();
+    expect(screen.queryByText("Broker Name(s) / Lead Advisor")).toBeNull();
+    expect(screen.queryByLabelText("Prepared by name")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Sondi" }));
+    expect(screen.getByText("Sondi Tuazon")).toBeDefined();
+    expect(screen.getByText("Sr. Head · Retail and Industrial Markets · PRIME Philippines")).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Edit details" }));
+    expect((screen.getByLabelText("Prepared by name") as HTMLInputElement).value).toBe("Sondi Tuazon");
+    expect((screen.getByLabelText("Prepared by designation") as HTMLInputElement).value).toBe("Sr. Head · Retail and Industrial Markets");
+  });
+
+  it("selects CTA contacts in order and includes custom contact details and photo in the export request", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === `${helperUrl}/health`) return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      if (url === `${helperUrl}/api/property-decks`) return new Response(JSON.stringify({ catalog: mockCatalog }), { status: 200 });
+      if (url === `${helperUrl}/api/property-decks/compile` && init?.method === "POST") {
+        return new Response(JSON.stringify({ downloadId: "export-1", outputPath: "proposal.pptx", fileName: "proposal.pptx", slideCount: 3, engine: "test" }), { status: 200 });
+      }
+      if (url === `${helperUrl}/api/property-decks/compile` && init?.method === "PUT") return new Response(JSON.stringify({ pdfFileName: "proposal.pdf" }), { status: 200 });
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<PropertyDecksView />);
+    await waitFor(() => expect(screen.getByText("Biñan Logistics Center — Warehouse 4")).toBeDefined());
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Add This Slide" })[0]);
+    fireEvent.click(screen.getByRole("tab", { name: /CTA/ }));
+    const sondiContact = screen.getByRole("checkbox", { name: "Select Sondi Tuazon" });
+    const cedtrixContact = screen.getByRole("checkbox", { name: "Select Cedtrix Rena" });
+    fireEvent.click(sondiContact);
+    fireEvent.click(cedtrixContact);
+    fireEvent.click(sondiContact);
+    fireEvent.click(cedtrixContact);
+    const preview = screen.getByLabelText("CTA contact slide preview");
+    expect(preview.textContent?.indexOf("Sondi Tuazon")).toBeLessThan(preview.textContent?.indexOf("Cedtrix Rena") ?? -1);
+    expect(preview.textContent).toContain("+63 917 845 6128");
+    expect(preview.textContent).toContain("sondi.tuazon@primephilippines.com");
+
+    fireEvent.click(screen.getByRole("button", { name: /Add custom contact/i }));
+    fireEvent.change(screen.getByLabelText("Custom contact name"), { target: { value: "Jamie Cruz" } });
+    fireEvent.change(screen.getByLabelText("Custom contact title"), { target: { value: "Property Manager" } });
+    fireEvent.change(screen.getByLabelText("Custom contact phone"), { target: { value: "+63 900 111 2222" } });
+    fireEvent.change(screen.getByLabelText("Custom contact email"), { target: { value: "jamie@example.com" } });
+    const portrait = new File([new Uint8Array([137, 80, 78, 71])], "jamie.png", { type: "image/png" });
+    fireEvent.change(screen.getByLabelText("Custom contact photo"), { target: { files: [portrait] } });
+    await screen.findByAltText("Custom contact photo selected");
+    fireEvent.click(screen.getByRole("button", { name: "Save contact" }));
+    await waitFor(() => expect(preview.textContent).toContain("Jamie Cruz"));
+    expect(preview.querySelector("img")?.className).toContain("object-cover");
+
+    fireEvent.click(screen.getByRole("button", { name: "Export Proposal" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Download PPTX" })).toBeDefined());
+    const compileRequest = fetchMock.mock.calls.find(([url, init]) => String(url) === `${helperUrl}/api/property-decks/compile` && init?.method === "POST");
+    const proposal = JSON.parse(String(compileRequest?.[1]?.body)).proposal;
+    expect(proposal.ctaContacts.map((contact: { name: string }) => contact.name)).toEqual(["Sondi Tuazon", "Cedtrix Rena", "Jamie Cruz"]);
+    expect(proposal.ctaContacts[0]).toMatchObject({ phone: "+63 917 845 6128", email: "sondi.tuazon@primephilippines.com" });
+    expect(proposal.ctaContacts[2].photoDataUrl).toMatch(/^data:image\/png;base64,/);
+  });
+
   it("loads the catalog, allows spec overrides, and exports the selected source slides", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -140,11 +213,12 @@ describe("PropertyDecksView component", () => {
     fireEvent.click(addButtons[1]);
 
     // Fill Client Name
-    const clientInput = screen.getByLabelText(/client name/i);
+    const clientInput = screen.getByLabelText(/contact person/i);
     fireEvent.change(clientInput, { target: { value: "FastCargo Logistics" } });
-    fireEvent.change(screen.getByLabelText(/client designation/i), { target: { value: "Supply Chain Director" } });
-    fireEvent.change(screen.getByLabelText(/client company/i), { target: { value: "FastCargo Inc." } });
+    fireEvent.change(screen.getByLabelText(/job title/i), { target: { value: "Supply Chain Director" } });
+    fireEvent.change(screen.getByLabelText(/^company$/i), { target: { value: "FastCargo Inc." } });
     fireEvent.click(screen.getByRole("button", { name: "Sondi" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit details" }));
     expect((screen.getByLabelText("Prepared by name") as HTMLInputElement).value).toBe("Sondi Tuazon");
     const logo = new File([new Uint8Array([137, 80, 78, 71])], "fastcargo.png", { type: "image/png" });
     fireEvent.change(screen.getByLabelText("Upload company logo"), { target: { files: [logo] } });
@@ -436,7 +510,7 @@ describe("PropertyDecksView component", () => {
     expect(tabs[2].textContent).toContain("CTA");
     expect(screen.getAllByRole("tabpanel")).toHaveLength(1);
 
-    fireEvent.change(screen.getByLabelText("Client name"), { target: { value: "FastCargo Logistics" } });
+    fireEvent.change(screen.getByLabelText("Contact person"), { target: { value: "FastCargo Logistics" } });
     fireEvent.click(screen.getByRole("button", { name: "Sondi" }));
     fireEvent.keyDown(tabs[0], { key: "ArrowRight" });
     await waitFor(() => expect(document.activeElement).toBe(tabs[1]));
@@ -447,7 +521,8 @@ describe("PropertyDecksView component", () => {
     expect(tabs[2].getAttribute("aria-selected")).toBe("true");
     fireEvent.keyDown(tabs[2], { key: "ArrowRight" });
     expect(tabs[0].getAttribute("aria-selected")).toBe("true");
-    expect((screen.getByLabelText("Client name") as HTMLInputElement).value).toBe("FastCargo Logistics");
+    expect((screen.getByLabelText("Contact person") as HTMLInputElement).value).toBe("FastCargo Logistics");
+    fireEvent.click(screen.getByRole("button", { name: "Edit details" }));
     expect((screen.getByLabelText("Prepared by name") as HTMLInputElement).value).toBe("Sondi Tuazon");
 
     const locations = screen.getByLabelText(/filter by location/i);
@@ -508,7 +583,7 @@ describe("PropertyDecksView component", () => {
     fireEvent.click(screen.getByRole("button", { name: /add this slide/i }));
 
     expect(screen.getByText("Selected Slides (4)")).toBeDefined();
-    expect(screen.getByText(/Client Proposal Cover/)).toBeDefined();
+    expect(screen.queryByText(/Client Proposal Cover/)).toBeNull();
     fireEvent.click(screen.getByRole("tab", { name: /Properties/ }));
     expect(screen.getAllByText(/Industrial Facility Proposal/).length).toBeGreaterThan(1);
     fireEvent.click(screen.getByRole("tab", { name: /CTA/ }));

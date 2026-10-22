@@ -46,6 +46,14 @@ const ASSEMBLE_SCRIPT = [
   "    $shape.TextFrame.TextRange.Text = $text",
   "  }",
   "}",
+  "function Set-PropertySlideLocation($slide, $originalLocation, $proposalLocation) {",
+  "  if (-not $originalLocation -or -not $proposalLocation -or $originalLocation -eq $proposalLocation) { return }",
+  "  foreach ($shape in $slide.Shapes) {",
+  "    if ($shape.HasTextFrame -eq 0 -or $shape.TextFrame.HasText -eq 0) { continue }",
+  "    $text = [string]$shape.TextFrame.TextRange.Text",
+  "    if ($text.Contains([string]$originalLocation)) { $shape.TextFrame.TextRange.Text = $text.Replace([string]$originalLocation, [string]$proposalLocation); return }",
+  "  }",
+  "}",
   "function Set-IndustrialProposalLocation($slide, $originalLocation, $proposalLocation) {",
   "  if (-not $originalLocation -or -not $proposalLocation -or $originalLocation -eq $proposalLocation) { return }",
   "  $proposalTitleSeen = $false",
@@ -80,6 +88,7 @@ const ASSEMBLE_SCRIPT = [
   "    if ($presentation.Slides.Count -ne ($slideCountBefore + 1)) { throw 'PowerPoint did not import the selected source slide.' }",
   "    if ($item.slideRole -eq 'cover' -and -not $item.isIndustrialProposal) { Invoke-ComWithRetry { Set-CoverDetails $presentation.Slides.Item($slideCountBefore + 1) $items.proposal } }",
   "    if ($item.isIndustrialProposal -and $item.proposalLocation) { Invoke-ComWithRetry { Set-IndustrialProposalLocation $presentation.Slides.Item($slideCountBefore + 1) $item.originalLocation $item.proposalLocation } }",
+  "    if ($item.slideRole -eq 'property' -and $item.proposalLocation) { Invoke-ComWithRetry { Set-PropertySlideLocation $presentation.Slides.Item($slideCountBefore + 1) $item.originalLocation $item.proposalLocation } }",
   "  }",
   "  if ($presentation.Slides.Count -ne $items.slides.Count) { throw 'PowerPoint imported an unexpected number of slides.' }",
   "  Invoke-ComWithRetry { $presentation.SaveAs($StagingPath, 24) }",
@@ -127,8 +136,8 @@ export async function assemblePropertyDeckWithPowerPoint(
       slideRole: slide.slideRole,
       title: slide.title,
       isIndustrialProposal: isIndustrialFacilityProposalSlide(slide),
-      originalLocation: slide.specs.location.split(",").map((part) => part.trim()).reverse().find((part) => /\bcity\b/i.test(part)) || slide.specs.location,
-      proposalLocation: slide.proposalLocation,
+      originalLocation: slide.sourceLocation || slide.specs.location,
+      proposalLocation: slide.proposalLocation || (slide.slideRole === "property" ? slide.specs.location : undefined),
     }));
     const proposalDetails = { ...manifest.proposal };
     delete proposalDetails.clientLogoDataUrl;

@@ -1,5 +1,5 @@
 import JSZip from "jszip";
-import { getOrderedSlidePathsFromZip, isIndustrialFacilityProposalSlide, type CompilationManifest, type PptxSourceFile } from "@/lib/property-decks";
+import { cityNameFromLocation, getOrderedSlidePathsFromZip, isIndustrialFacilityProposalSlide, type CompilationManifest, type ProposalContact, type PptxSourceFile } from "@/lib/property-decks";
 
 const REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships";
 
@@ -80,6 +80,157 @@ function escapeXml(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+function escapeXmlAttribute(value: string): string {
+  return escapeXml(value).replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+}
+
+function contactImageAsset(dataUrl: string | undefined): { extension: string; contentType: string; bytes: Buffer } | null {
+  const match = dataUrl?.match(/^data:image\/(png|jpeg|jpg);base64,([A-Za-z0-9+/=]+)$/i);
+  if (!match) return null;
+  const extension = match[1].toLowerCase() === "png" ? "png" : "jpg";
+  return {
+    extension,
+    contentType: extension === "png" ? "image/png" : "image/jpeg",
+    bytes: Buffer.from(match[2], "base64"),
+  };
+}
+
+function imageCropRect(bytes: Buffer, extension: string): { left: number; top: number; right: number; bottom: number } {
+  let width = 1;
+  let height = 1;
+  if (extension === "png" && bytes.length >= 24) {
+    width = bytes.readUInt32BE(16);
+    height = bytes.readUInt32BE(20);
+  } else if (extension === "jpg") {
+    let offset = 2;
+    while (offset + 9 < bytes.length) {
+      if (bytes[offset] !== 0xff) break;
+      const marker = bytes[offset + 1];
+      const segmentLength = bytes.readUInt16BE(offset + 2);
+      if ([0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf].includes(marker)) {
+        height = bytes.readUInt16BE(offset + 5);
+        width = bytes.readUInt16BE(offset + 7);
+        break;
+      }
+      offset += 2 + segmentLength;
+    }
+  }
+  if (!width || !height) return { left: 0, top: 0, right: 0, bottom: 0 };
+  if (width > height) {
+    const crop = Math.round(((width - height) / width) * 50_000);
+    return { left: crop, top: 0, right: crop, bottom: 0 };
+  }
+  const crop = Math.round(((height - width) / height) * 50_000);
+  return { left: 0, top: crop, right: 0, bottom: crop };
+}
+
+function contactTextShape(
+  id: number,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  paragraphs: Array<{ text: string; size: number; color: string; bold?: boolean; italic?: boolean }>,
+): string {
+  const runs = paragraphs.map(({ text, size, color, bold, italic }) =>
+    `<a:p><a:pPr/><a:r><a:rPr lang="en-US" sz="${size}" b="${bold ? 1 : 0}" i="${italic ? 1 : 0}" dirty="0"><a:solidFill><a:srgbClr val="${color}"/></a:solidFill><a:latin typeface="Arial"/></a:rPr><a:t>${escapeXml(text)}</a:t></a:r><a:endParaRPr lang="en-US" sz="${size}"/></a:p>`,
+  ).join("");
+  return `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="Contact text ${id}"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="${x}" y="${y}"/><a:ext cx="${width}" cy="${height}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/><a:ln><a:noFill/></a:ln></p:spPr><p:txBody><a:bodyPr wrap="square" lIns="0" rIns="0" tIns="0" bIns="0"/><a:lstStyle/>${runs}</p:txBody></p:sp>`;
+}
+
+function contactAvatarShape(contact: ProposalContact, id: number, x: number, y: number, relId?: string): string {
+  if (relId) {
+    return `<p:pic><p:nvPicPr><p:cNvPr id="${id}" name="${escapeXmlAttribute(contact.name)} portrait"/><p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="${relId}"/><a:srcRect/><a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr><a:xfrm><a:off x="${x}" y="${y}"/><a:ext cx="900000" cy="900000"/></a:xfrm><a:prstGeom prst="ellipse"><a:avLst/></a:prstGeom><a:ln w="12700"><a:solidFill><a:srgbClr val="C9A84C"/></a:solidFill></a:ln></p:spPr></p:pic>`;
+  }
+  const initials = contact.name.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
+  return `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="${escapeXmlAttribute(contact.name)} initials"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="${x}" y="${y}"/><a:ext cx="900000" cy="900000"/></a:xfrm><a:prstGeom prst="ellipse"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="003366"/></a:solidFill><a:ln w="12700"><a:solidFill><a:srgbClr val="C9A84C"/></a:solidFill></a:ln></p:spPr></p:sp><p:sp><p:nvSpPr><p:cNvPr id="${id + 1}" name="${escapeXmlAttribute(contact.name)} initials label"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="${x}" y="${y + 330000}"/><a:ext cx="900000" cy="250000"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/><a:ln><a:noFill/></a:ln></p:spPr><p:txBody><a:bodyPr wrap="none" lIns="0" rIns="0" tIns="0" bIns="0"/><a:lstStyle/><a:p><a:pPr algn="ctr"/><a:r><a:rPr lang="en-US" sz="1400" b="1"><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill><a:latin typeface="Arial"/></a:rPr><a:t>${escapeXml(initials)}</a:t></a:r><a:endParaRPr lang="en-US" sz="1400"/></a:p></p:txBody></p:sp>`;
+}
+
+async function appendContactSlide(output: JSZip, contacts: ProposalContact[]): Promise<void> {
+  if (!contacts.length) return;
+  const presentationXml = await output.file("ppt/presentation.xml")?.async("string");
+  const presentationRelsXml = await output.file("ppt/_rels/presentation.xml.rels")?.async("string");
+  const contentTypesXml = await output.file("[Content_Types].xml")?.async("string");
+  if (!presentationXml || !presentationRelsXml || !contentTypesXml) {
+    throw new Error("The PowerPoint package is missing presentation metadata required to add CTA contacts.");
+  }
+
+  const slideIds = [...presentationXml.matchAll(/<p:sldId\b[^>]*\bid="(\d+)"[^>]*\br:id="([^"]+)"[^>]*\/>/gi)];
+  if (!slideIds.length) throw new Error("The PowerPoint presentation has no slides to attach CTA contacts to.");
+  const lastSlideTarget = presentationRelsXml.match(new RegExp(`<Relationship\\b(?=[^>]*\\bId="${slideIds.at(-1)?.[2]}")(?=[^>]*\\bType="[^"]*\\/slide")[^>]*\\bTarget="([^"]+)"[^>]*/?>`, "i"))?.[1];
+  const lastSlidePath = lastSlideTarget ? normalizePackagePath(`ppt/${lastSlideTarget}`) : "ppt/slides/slide1.xml";
+  const sourceSlideRels = await output.file(relationshipsPath(lastSlidePath))?.async("string");
+  const sourceLayoutTarget = sourceSlideRels?.match(/<Relationship\b(?=[^>]*\bType="[^"]*\/slideLayout")[^>]*\bTarget="([^"]+)"[^>]*\/?\s*>/i)?.[1];
+  if (!sourceLayoutTarget) throw new Error("The final PowerPoint slide is missing its layout relationship; CTA contacts could not be added.");
+
+  const nextSlideNumber = Math.max(...slideIds.map((match) => Number(match[1]))) - 255 + 1;
+  const slidePath = `ppt/slides/slide${nextSlideNumber}.xml`;
+  const relsPath = relationshipsPath(slidePath);
+  const layoutPath = relationshipTargetPath(lastSlidePath, sourceLayoutTarget);
+  const layoutTarget = relativePackagePath(packageDirectory(slidePath), layoutPath);
+  const nextRelId = nextRelationshipId(presentationRelsXml);
+  const nextSlideId = Math.max(...slideIds.map((match) => Number(match[1]))) + 1;
+  const slideWidth = Number(presentationXml.match(/<p:presentation\b[^>]*>[\s\S]*?<p:sldSz\b[^>]*\bcx="(\d+)"/)?.[1] || 12192000);
+  const slideHeight = Number(presentationXml.match(/<p:presentation\b[^>]*>[\s\S]*?<p:sldSz\b[^>]*\bcy="(\d+)"/)?.[1] || 6858000);
+  const contentStartX = 900000;
+  const contentWidth = slideWidth - contentStartX * 2;
+  const columns = contacts.length > 1 ? 2 : 1;
+  const rows = Math.ceil(contacts.length / columns);
+  const cardWidth = columns === 1 ? contentWidth : Math.floor((contentWidth - 500000) / 2);
+  const top = Math.max(1600000, Math.floor((slideHeight - rows * 1500000) / 2));
+  let shapeId = 2;
+  let relationshipId = 2;
+  const contactShapes: string[] = [];
+  const imageRelationships: string[] = [];
+  const imageContentTypes: Array<{ path: string; contentType: string }> = [];
+  for (const [index, contact] of contacts.entries()) {
+    const row = Math.floor(index / columns);
+    const column = index % columns;
+    const x = contentStartX + column * (cardWidth + 500000);
+    const y = top + row * 1500000;
+    const image = contactImageAsset(contact.photoDataUrl);
+    const contactRelId = image ? `rIdContact${relationshipId++}` : undefined;
+    if (image && contactRelId) {
+      const imagePath = `ppt/media/proposal-contact-${index + 1}.${image.extension}`;
+      output.file(imagePath, image.bytes);
+      const crop = imageCropRect(image.bytes, image.extension);
+      const path = imagePath.replaceAll("&", "&amp;");
+      imageRelationships.push(`<Relationship Id="${contactRelId}" Type="${REL_NS}/image" Target="../media/proposal-contact-${index + 1}.${image.extension}"/>`);
+      imageContentTypes.push({ path, contentType: image.contentType });
+      contactShapes.push(contactAvatarShape(contact, shapeId++, x, y, contactRelId).replace("<a:srcRect/>", `<a:srcRect l="${crop.left}" t="${crop.top}" r="${crop.right}" b="${crop.bottom}"/>`));
+    } else {
+      contactShapes.push(contactAvatarShape(contact, shapeId, x, y));
+      shapeId += 2;
+    }
+    const detailsX = x + 1120000;
+    const detailsWidth = cardWidth - 1250000;
+    contactShapes.push(contactTextShape(shapeId++, detailsX, y + 20000, detailsWidth, 280000, [{ text: contact.name, size: 1800, color: "003366", bold: true }]));
+    contactShapes.push(contactTextShape(shapeId++, detailsX, y + 300000, detailsWidth, 580000, [
+      { text: contact.title, size: 1250, color: "31577D" },
+      { text: contact.phone, size: 1150, color: "31577D" },
+      { text: contact.email, size: 1050, color: "31577D" },
+    ]));
+  }
+  const root = `<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld><p:bg><p:bgPr><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill><a:effectLst/></p:bgPr></p:bg><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>${contactTextShape(9000, contentStartX, 460000, contentWidth, 700000, [{ text: "CONTACTS", size: 1000, color: "C9A84C", bold: true }, { text: "For more information and to schedule a viewing, contact us:", size: 1900, color: "003366", italic: true }])}${contactShapes.join("")}</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>`;
+  const allRelations = `<Relationships xmlns="${REL_NS}"><Relationship Id="rId1" Type="${REL_NS}/slideLayout" Target="${escapeXmlAttribute(layoutTarget)}"/>${imageRelationships.join("")}</Relationships>`;
+  output.file(slidePath, root);
+  output.file(relsPath, allRelations);
+  const slideRelId = `rId${nextRelId}`;
+  const target = relativePackagePath("ppt", slidePath);
+  output.file("ppt/_rels/presentation.xml.rels", presentationRelsXml.replace(/<\/Relationships>/i, `<Relationship Id="${slideRelId}" Type="${REL_NS}/slide" Target="${target}"/></Relationships>`));
+  output.file("ppt/presentation.xml", presentationXml.replace(/<\/p:sldIdLst>/i, `<p:sldId id="${nextSlideId}" r:id="${slideRelId}"/></p:sldIdLst>`));
+  let nextContentTypes = ensureContentType(contentTypesXml, slidePath, "application/vnd.openxmlformats-officedocument.presentationml.slide+xml");
+  for (const item of imageContentTypes) nextContentTypes = ensureContentType(nextContentTypes, item.path, item.contentType);
+  output.file("[Content_Types].xml", nextContentTypes);
+}
+
+export async function appendProposalContactsToPptx(buffer: Uint8Array, contacts: ProposalContact[]): Promise<Uint8Array> {
+  if (!contacts.length) return buffer;
+  const output = await JSZip.loadAsync(buffer);
+  await appendContactSlide(output, contacts);
+  return output.generateAsync({ type: "uint8array" });
+}
+
 function replacePlaceholder(xml: string, placeholder: string, value: string | undefined): string {
   return value ? xml.replaceAll(placeholder, escapeXml(value)) : xml;
 }
@@ -98,6 +249,11 @@ function personalizeIndustrialProposalLocation(xml: string, originalLocation: st
     replaced = true;
     return shapeXml.replace(textToken, `$1${escapeXml(location)}$2`);
   });
+}
+
+function personalizePropertyLocation(xml: string, originalLocation: string | undefined, location: string): string {
+  if (!originalLocation || !location || originalLocation === location) return xml;
+  return xml.replaceAll(escapeXml(originalLocation), escapeXml(location));
 }
 
 function clientLogoAsset(dataUrl: string | undefined): { extension: string; contentType: string; bytes: Buffer } | null {
@@ -289,9 +445,12 @@ async function makeCopiedSlideDeck(
     } else if (isIndustrialFacilityProposalSlide(slide) && slide.proposalLocation) {
       const slideXml = await output.file(destinationSlidePath)?.async("string");
       if (slideXml) {
-        const originalCity = slide.specs.location.split(",").map((part) => part.trim()).reverse().find((part) => /\bcity\b/i.test(part)) || slide.specs.location;
-        output.file(destinationSlidePath, personalizeIndustrialProposalLocation(slideXml, originalCity, slide.proposalLocation));
+        const originalLocation = slide.sourceLocation || slide.specs.location;
+        output.file(destinationSlidePath, personalizeIndustrialProposalLocation(slideXml, originalLocation, slide.proposalLocation));
       }
+    } else if (slide.slideRole === "property" && slide.sourceLocation) {
+      const slideXml = await output.file(destinationSlidePath)?.async("string");
+      if (slideXml) output.file(destinationSlidePath, personalizePropertyLocation(slideXml, slide.sourceLocation, cityNameFromLocation(slide.specs.location)));
     }
     const slideContentType = relationshipContentType(sourceContentTypes, sourceSlidePath);
     const outputTypes = (await output.file("[Content_Types].xml")?.async("string")) || "";
@@ -331,6 +490,8 @@ async function makeCopiedSlideDeck(
   output.file("ppt/presentation.xml", presentationXml);
   output.file("ppt/_rels/presentation.xml.rels", presentationRelsXml);
 
+  await appendContactSlide(output, manifest.proposal.ctaContacts || []);
+
   const safeClient = (manifest.proposal.clientName || "Client")
     .replace(/[^a-zA-Z0-9_-]+/g, "_")
     .replace(/^_+|_+$/g, "");
@@ -347,7 +508,7 @@ async function makeCopiedSlideDeck(
     }),
     buffer,
     fileName,
-    slideCount: manifest.slides.length,
+    slideCount: manifest.slides.length + (manifest.proposal.ctaContacts?.length ? 1 : 0),
   };
 }
 

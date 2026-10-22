@@ -28,6 +28,7 @@ export interface PropertySlideItem {
   thumbnailUrl: string;
   specs: PropertySlideSpecs;
   proposalLocation?: string;
+  sourceLocation?: string;
   hasOverrides?: boolean;
 }
 
@@ -49,12 +50,22 @@ export interface PitchProposalDetails {
   preparedByDesignation?: string;
   preparedByCompany?: string;
   clientLogoDataUrl?: string;
+  ctaContacts?: ProposalContact[];
   projectTitle: string;
   brokerName: string;
   brokerEmail: string;
   brokerPhone: string;
   date: string;
   mode: DeckCompilationMode;
+}
+
+export interface ProposalContact {
+  id: string;
+  name: string;
+  title: string;
+  phone: string;
+  email: string;
+  photoDataUrl?: string;
 }
 
 export interface ComparisonTableRow {
@@ -175,6 +186,18 @@ const KNOWN_CITIES = [
 
 const NON_CITY_LOCATION_LABELS = new Set(["sandoval", "zabarte", "santulan"]);
 
+export function cityNameFromLocation(location: string): string {
+  const value = location.trim();
+  if (!value || value === "Metro Manila / Luzon") return value;
+  const normalized = value.toLocaleLowerCase();
+  const matches = KNOWN_CITIES
+    .filter((candidate) => !NON_CITY_LOCATION_LABELS.has(candidate.toLocaleLowerCase()))
+    .map((candidate) => ({ city: candidate, index: normalized.indexOf(candidate.toLocaleLowerCase()) }))
+    .filter((match) => match.index >= 0)
+    .sort((a, b) => a.index - b.index || b.city.length - a.city.length);
+  return matches[0]?.city || value.split(",")[0].trim() || value;
+}
+
 export function isIndustrialFacilityProposalSlide(slide: Pick<PropertySlideItem, "title" | "rawText" | "slideRole">): boolean {
   return slide.slideRole === "cover" && /industrial\s+facility\s+proposal/i.test(`${slide.title}\n${slide.rawText}`);
 }
@@ -185,13 +208,7 @@ export function groupPropertyLocationsByCity(locations: string[]): Array<{ city:
     const location = rawLocation.trim();
     if (!location || location === "Metro Manila / Luzon") continue;
 
-    const normalizedLocation = location.toLocaleLowerCase();
-    const cityMatches = KNOWN_CITIES
-      .filter((candidate) => !NON_CITY_LOCATION_LABELS.has(candidate.toLocaleLowerCase()))
-      .map((candidate) => ({ city: candidate, index: normalizedLocation.indexOf(candidate.toLocaleLowerCase()) }))
-      .filter((match) => match.index >= 0)
-      .sort((a, b) => a.index - b.index || b.city.length - a.city.length);
-    const city = cityMatches[0]?.city || location.split(",")[0].trim() || "Other locations";
+    const city = cityNameFromLocation(location) || "Other locations";
     const cityLocations = grouped.get(city) || new Set<string>();
     cityLocations.add(location);
     grouped.set(city, cityLocations);
@@ -536,6 +553,8 @@ export function buildCompilationManifest(params: {
         const header = applySlideOverrides(sectionTitle, params.overrides);
         presentationSlides.push({
           ...header,
+          sourceLocation: header.specs.location,
+          specs: { ...header.specs, location: proposalCityLabel(slide.specs.location) },
           id: insertedPropertyHeaders.size === 0
             ? header.id
             : `${header.id}:location:${hashString(locationKey)}`,
@@ -569,7 +588,7 @@ export function buildCompilationManifest(params: {
         optionNumber: index + 1,
         slideId: slide.id,
         propertyName: slide.specs.propertyName || slide.title,
-        location: slide.specs.location,
+        location: cityNameFromLocation(slide.specs.location),
         gla: slide.specs.gla,
         ceilingHeight: slide.specs.ceilingHeight,
         leaseRate: slide.specs.leaseRate,
@@ -579,19 +598,27 @@ export function buildCompilationManifest(params: {
       }))
     : [];
 
+  const exportSlides = presentationSlides.map((slide) => {
+    if (slide.slideRole !== "property") return slide;
+    return {
+      ...slide,
+      sourceLocation: slide.specs.location,
+      specs: { ...slide.specs, location: cityNameFromLocation(slide.specs.location) },
+    };
+  });
+
   return {
     mode: params.proposal.mode,
     proposal: params.proposal,
     includeSummaryTable: isComprehensive,
     includeCredentials: isComprehensive,
-    slides: presentationSlides,
+    slides: exportSlides,
     comparisonRows,
   };
 }
 
 function proposalCityLabel(location: string): string {
-  const citySegment = location.split(",").map((part) => part.trim()).reverse().find((part) => /\bcity\b/i.test(part));
-  return citySegment || location.trim();
+  return cityNameFromLocation(location);
 }
 
 function decodeXmlEntities(text: string): string {

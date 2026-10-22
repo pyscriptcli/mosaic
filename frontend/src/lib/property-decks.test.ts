@@ -202,15 +202,17 @@ describe("Property Decks filtering, overrides, and cart sequencing", () => {
     });
 
     expect(manifest.slides[0].id).toBe(divider.id);
-    expect(manifest.slides[0].proposalLocation).toBe("Parañaque City");
+    expect(manifest.slides[0].proposalLocation).toBe("Parañaque");
   });
 
   it("personalizes the proposal cover and places an uploaded client logo in its cover logo slot", async () => {
     const source = new JSZip();
-    source.file("[Content_Types].xml", '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/></Types>');
+    source.file("[Content_Types].xml", '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/><Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/></Types>');
     source.file("ppt/presentation.xml", '<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:sldIdLst><p:sldId id="256" r:id="rId1"/></p:sldIdLst></p:presentation>');
     source.file("ppt/_rels/presentation.xml.rels", '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/></Relationships>');
-    source.file("ppt/slides/slide1.xml", '<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="8" name="Client logo slot"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="10" y="20"/><a:ext cx="300" cy="160"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr><p:txBody><a:p><a:r><a:t>[ INSERT CLIENT LOGO OR PROJECT TITLE ]</a:t></a:r></a:p></p:txBody></p:sp><p:sp><p:nvSpPr><p:cNvPr id="9" name="Client name"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr/><p:txBody><a:p><a:r><a:t>[ Client Representative / Contact Name ]</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>');
+    source.file("ppt/slides/slide1.xml", '<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="8" name="Client logo slot"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="10" y="20"/><a:ext cx="300" cy="160"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr><p:txBody><a:p><a:r><a:t>[ INSERT CLIENT LOGO OR PROJECT TITLE ]</a:t></a:r></a:p></p:txBody></p:sp><p:sp><p:nvSpPr><p:cNvPr id="9" name="Client name"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr/><p:txBody><a:p><a:r><a:t>[ Client Representative / Contact Name ]</a:t></a:r></a:p></p:txBody></p:sp><p:sp><p:txBody><a:p><a:r><a:t>[ Broker Name(s) / Lead Advisor ]</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>');
+    source.file("ppt/slides/_rels/slide1.xml.rels", '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdLayout" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/></Relationships>');
+    source.file("ppt/slideLayouts/slideLayout1.xml", '<p:sldLayout xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" type="blank"><p:cSld name="Blank"><p:spTree/></p:cSld></p:sldLayout>');
     const slide: PropertySlideItem = {
       ...sampleSlides[0],
       id: "cover-deck:slide:1",
@@ -233,6 +235,7 @@ describe("Property Decks filtering, overrides, and cart sequencing", () => {
         preparedByDesignation: "Sr. Leasing Advisor",
         preparedByCompany: "PRIME Philippines",
         clientLogoDataUrl: logoData,
+        ctaContacts: [{ id: "sondi", name: "Sondi Tuazon", title: "Sr. Head · Retail and Industrial Markets", phone: "+63 917 845 6128", email: "sondi.tuazon@primephilippines.com", photoDataUrl: logoData }],
         projectTitle: "",
         brokerName: "",
         brokerEmail: "",
@@ -256,10 +259,19 @@ describe("Property Decks filtering, overrides, and cart sequencing", () => {
     const logoRelXml = await output.file("ppt/slides/_rels/slide1.xml.rels")!.async("string");
 
     expect(coverXml).toContain("Charlene Magnaye");
+    expect(coverXml).toContain("Cedtrix Rena");
+    expect(coverXml).not.toContain("Broker Name(s)");
     expect(coverXml).not.toContain("INSERT CLIENT LOGO");
     expect(coverXml).toContain('r:embed="rId1"');
     expect(logoRelXml).toContain('Type="http://schemas.openxmlformats.org/package/2006/relationships/image"');
     expect(output.file("ppt/slides/assets/client-logo.png")).not.toBeNull();
+    const contactXml = await output.file("ppt/slides/slide2.xml")!.async("string");
+    expect(contactXml).toContain("Sondi Tuazon");
+    expect(contactXml).toContain("Sr. Head · Retail and Industrial Markets");
+    expect(contactXml).toContain("sondi.tuazon@primephilippines.com");
+    expect(contactXml).toContain("+63 917 845 6128");
+    expect(contactXml).toContain("a:srcRect");
+    expect(output.file("ppt/media/proposal-contact-1.png")).not.toBeNull();
   });
 
   it("exports the selected location on an Industrial Facility Proposal divider", async () => {
@@ -278,7 +290,7 @@ describe("Property Decks filtering, overrides, and cart sequencing", () => {
       slideRole: "cover",
       title: "Industrial Facility Proposal",
       rawText: "Industrial Facility Proposal\nPasig City",
-      proposalLocation: "Parañaque City",
+      proposalLocation: "Parañaque",
       specs: { ...sampleSlides[1].specs, location: "Pasig City" },
     };
     const compiled = await compileCopiedPptx({
@@ -296,8 +308,52 @@ describe("Property Decks filtering, overrides, and cart sequencing", () => {
     const output = await JSZip.loadAsync(compiled.buffer);
     const slideXml = await output.file("ppt/slides/slide1.xml")!.async("string");
 
-    expect(slideXml).toContain("Parañaque City");
+    expect(slideXml).toContain("Parañaque");
     expect(slideXml).not.toContain("Pasig City");
+  });
+
+  it("writes only the city name into exported property slides", async () => {
+    const source = new JSZip();
+    source.file("[Content_Types].xml", '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/><Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/></Types>');
+    source.file("ppt/presentation.xml", '<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:sldIdLst><p:sldId id="256" r:id="rId1"/></p:sldIdLst></p:presentation>');
+    source.file("ppt/_rels/presentation.xml.rels", '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/></Relationships>');
+    source.file("ppt/slides/_rels/slide1.xml.rels", '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdLayout" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/></Relationships>');
+    source.file("ppt/slideLayouts/slideLayout1.xml", '<p:sldLayout xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" type="blank"><p:cSld name="Blank"><p:spTree/></p:cSld></p:sldLayout>');
+    source.file("ppt/slides/slide1.xml", '<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>Sandoval Ave., Pasig City</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>');
+    const property: PropertySlideItem = {
+      ...sampleSlides[1],
+      slideRole: "property",
+      slideNumber: 1,
+      deckFileName: "Pasig_Deck.pptx",
+      deckFilePath: "C:/OneDrive/Pasig_Deck.pptx",
+      sourceLocation: "Sandoval Ave., Pasig City",
+      specs: { ...sampleSlides[1].specs, location: "Pasig" },
+    };
+    const manifest = {
+      mode: "standard" as const,
+      proposal: { clientName: "Client", projectTitle: "", brokerName: "", brokerEmail: "", brokerPhone: "", date: "2026-10-22", mode: "standard" as const },
+      includeSummaryTable: false,
+      includeCredentials: false,
+      slides: [property],
+      comparisonRows: [],
+    };
+    const compiled = await compileCopiedPptx(manifest, new Map([[property.deckFilePath, { name: property.deckFileName, relativePath: property.deckFilePath, data: await source.generateAsync({ type: "uint8array" }) }]]));
+    const output = await JSZip.loadAsync(compiled.buffer);
+    const slideXml = await output.file("ppt/slides/slide1.xml")!.async("string");
+    expect(slideXml).toContain("Pasig");
+    expect(slideXml).not.toContain("Sandoval Ave.");
+    expect(slideXml).not.toContain("Pasig City");
+  });
+
+  it("keeps proposal slide locations to city names and preserves their source location for export rewriting", () => {
+    const manifest = buildCompilationManifest({
+      selectedSlideIds: [sampleSlides[0].id],
+      catalogSlides: sampleSlides,
+      proposal: { clientName: "Client", projectTitle: "", brokerName: "", brokerEmail: "", brokerPhone: "", date: "2026-10-22", mode: "standard" },
+    });
+    const property = manifest.slides.find((slide) => slide.id === sampleSlides[0].id);
+    expect(property?.specs.location).toBe("Cabuyao");
+    expect(property?.sourceLocation).toBe("Cabuyao, Laguna");
   });
 
   it("merges broker spec overrides over original extracted specs", () => {
@@ -381,14 +437,14 @@ describe("Property Decks filtering, overrides, and cart sequencing", () => {
     expect(comprehensiveManifest.comparisonRows[0]).toMatchObject({
       optionNumber: 1,
       propertyName: "MSCS Pasig Distribution Center",
-      location: "Pasig City",
+      location: "Pasig",
       gla: "1,500 sqm",
       leaseRate: "₱450/sqm",
     });
     expect(comprehensiveManifest.comparisonRows[1]).toMatchObject({
       optionNumber: 2,
       propertyName: "Cabuyao Cold Storage & Dry Hub",
-      location: "Cabuyao, Laguna",
+      location: "Cabuyao",
       gla: "3,200 sqm",
       leaseRate: "₱350/sqm",
     });

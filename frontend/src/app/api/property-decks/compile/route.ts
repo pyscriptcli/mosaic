@@ -76,6 +76,9 @@ export async function POST(request: Request) {
     const rawProposal = body.proposal || {};
     const mode: DeckCompilationMode =
       rawProposal.mode === "comprehensive" ? "comprehensive" : "standard";
+    const rawCtaContacts: unknown[] = Array.isArray(rawProposal.ctaContacts)
+      ? rawProposal.ctaContacts.slice(0, 8)
+      : [];
 
     const proposal: PitchProposalDetails = {
       clientName: String(rawProposal.clientName || "Valued Client").trim(),
@@ -85,6 +88,18 @@ export async function POST(request: Request) {
       preparedByDesignation: String(rawProposal.preparedByDesignation || "").trim(),
       preparedByCompany: String(rawProposal.preparedByCompany || "").trim(),
       clientLogoDataUrl: typeof rawProposal.clientLogoDataUrl === "string" ? rawProposal.clientLogoDataUrl : "",
+      ctaContacts: rawCtaContacts
+        .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
+        .map((item, index) => ({
+            id: String(item.id || `contact-${index + 1}`).slice(0, 80),
+            name: String(item.name || "").trim().slice(0, 120),
+            title: String(item.title || "").trim().slice(0, 160),
+            phone: String(item.phone || "").trim().slice(0, 60),
+            email: String(item.email || "").trim().slice(0, 160),
+            photoDataUrl: typeof item.photoDataUrl === "string" && item.photoDataUrl.length <= 7 * 1024 * 1024
+              ? item.photoDataUrl
+              : undefined,
+          })).filter((contact) => contact.name),
       projectTitle: String(
         rawProposal.projectTitle || "Industrial Warehouse Property Options",
       ).trim(),
