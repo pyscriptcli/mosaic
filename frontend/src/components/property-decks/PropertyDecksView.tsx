@@ -600,14 +600,20 @@ export function PropertyDecksView() {
   };
 
   const triggerWindowsOpen = async (targetPath: string) => {
+    setError(null);
+    setStatusMessage(null);
     try {
-      await fetch(`${MOSAIC_HELPER_URL}/api/property-decks/open`, {
+      const response = await fetch(`${MOSAIC_HELPER_URL}/api/property-decks/open`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ targetPath, action: "reveal-folder" }),
       });
-    } catch {
-      // Ignore desktop open failure in browser-only test environments
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "The local helper could not open the export location.");
+      setStatusMessage("Opened the proposal location in File Explorer.");
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : "The local helper could not open the export location.";
+      setError(`Could not open the proposal in File Explorer: ${detail}`);
     }
   };
 

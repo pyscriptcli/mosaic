@@ -3,9 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import JSZip from "jszip";
-import { appendProposalContactsToPptx, compileCopiedPptx } from "./property-deck-export";
+import { compileCopiedPptx } from "./property-deck-export";
 import { convertPptxToPdf } from "./property-deck-pdf";
-import { assemblePropertyDeckWithPowerPoint } from "./property-deck-powerpoint";
 import {
   enrichDeckSlidesWithSharedWarehouseSpecs,
   extractSpecsFromSlideText,
@@ -317,37 +316,22 @@ export async function compilePropertyDeck(params: {
   const outputPath = await findAvailableProposalPath(resolvedOutputFolder, requestedFileName);
   const fileName = path.basename(outputPath);
 
-  let slideCount = params.manifest.slides.length;
-  let engine = "microsoft-powerpoint";
-  if (process.platform === "win32") {
-    await assemblePropertyDeckWithPowerPoint(params.manifest, outputPath);
-    const contacts = params.manifest.proposal.ctaContacts || [];
-    if (contacts.length) {
-      const assembled = await fs.promises.readFile(outputPath);
-      const withContacts = await appendProposalContactsToPptx(assembled, contacts);
-      await fs.promises.writeFile(outputPath, withContacts);
-      slideCount += 1;
-    }
-  } else {
-    const sourceFiles = new Map<string, { name: string; relativePath: string; data: Buffer }>();
-    for (const slide of params.manifest.slides) {
-      if (sourceFiles.has(slide.deckFilePath)) continue;
-      sourceFiles.set(slide.deckFilePath, {
-        name: slide.deckFileName,
-        relativePath: slide.deckFilePath,
-        data: await fs.promises.readFile(slide.deckFilePath),
-      });
-    }
-    const copiedDeck = await compileCopiedPptx(params.manifest, sourceFiles);
-    await fs.promises.writeFile(outputPath, copiedDeck.buffer);
-    slideCount = copiedDeck.slideCount;
-    engine = "openxml-slide-copy";
+  const sourceFiles = new Map<string, { name: string; relativePath: string; data: Buffer }>();
+  for (const slide of params.manifest.slides) {
+    if (sourceFiles.has(slide.deckFilePath)) continue;
+    sourceFiles.set(slide.deckFilePath, {
+      name: slide.deckFileName,
+      relativePath: slide.deckFilePath,
+      data: await fs.promises.readFile(slide.deckFilePath),
+    });
   }
+  const copiedDeck = await compileCopiedPptx(params.manifest, sourceFiles);
+  await fs.promises.writeFile(outputPath, copiedDeck.buffer);
   return {
     outputPath,
     fileName,
-    slideCount,
-    engine,
+    slideCount: copiedDeck.slideCount,
+    engine: "openxml-slide-copy",
   };
 }
 

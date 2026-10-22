@@ -142,6 +142,43 @@ describe("PropertyDecksView component", () => {
     expect(proposal.ctaContacts[2].photoDataUrl).toMatch(/^data:image\/png;base64,/);
   });
 
+  it("sends the compiled file to Explorer and reports when the helper cannot open it", async () => {
+    let failOpen = true;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === `${helperUrl}/health`) return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      if (url === `${helperUrl}/api/property-decks`) return new Response(JSON.stringify({ catalog: mockCatalog }), { status: 200 });
+      if (url === `${helperUrl}/api/property-decks/compile` && init?.method === "POST") {
+        return new Response(JSON.stringify({ downloadId: "export-1", outputPath: "C:\\Proposals\\proposal.pptx", fileName: "proposal.pptx", slideCount: 4 }), { status: 200 });
+      }
+      if (url === `${helperUrl}/api/property-decks/compile` && init?.method === "PUT") return new Response(JSON.stringify({ pdfFileName: "proposal.pdf" }), { status: 200 });
+      if (url === `${helperUrl}/api/property-decks/open`) {
+        return failOpen
+          ? new Response(JSON.stringify({ error: "Explorer launch failed." }), { status: 500 })
+          : new Response(JSON.stringify({ opened: true }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<PropertyDecksView />);
+    await waitFor(() => expect(screen.getByText("Biñan Logistics Center — Warehouse 4")).toBeDefined());
+    fireEvent.click(screen.getAllByRole("button", { name: "Add This Slide" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Export Proposal" }));
+    const showButton = await screen.findByRole("button", { name: "Show in Explorer" });
+
+    fireEvent.click(showButton);
+    expect(await screen.findByText("Could not open the proposal in File Explorer: Explorer launch failed.")).toBeDefined();
+    const openRequest = fetchMock.mock.calls.find(([url]) => String(url) === `${helperUrl}/api/property-decks/open`);
+    expect(JSON.parse(String(openRequest?.[1]?.body))).toMatchObject({
+      targetPath: "C:\\Proposals\\proposal.pptx",
+      action: "reveal-folder",
+    });
+
+    failOpen = false;
+    fireEvent.click(showButton);
+    expect(await screen.findByText("Opened the proposal location in File Explorer.")).toBeDefined();
+  });
+
   it("opens demand matching, ranks exact before partial, explains criteria, and resets", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);

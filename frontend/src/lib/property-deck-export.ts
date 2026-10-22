@@ -282,6 +282,14 @@ async function personalizeCoverSlide(
     .replaceAll("[ Company / Organization Name ]", escapeXml(proposal.clientCompany || ""))
     .replaceAll("Retail &amp; Industrial Markets Division", escapeXml(proposal.preparedByDesignation || "Retail & Industrial Markets Division"));
 
+  if (proposal.preparedByName && proposal.preparedByCompany) {
+    personalizedXml = personalizedXml.replace(/<p:sp\b[\s\S]*?<\/p:sp>/gi, (shapeXml) =>
+      shapeXml.includes(escapeXml(proposal.preparedByName!))
+        ? shapeXml.replaceAll("PRIME Philippines", escapeXml(proposal.preparedByCompany!))
+        : shapeXml,
+    );
+  }
+
   if (!logo) {
     return personalizedXml.replaceAll("[ INSERT CLIENT LOGO OR PROJECT TITLE ]", escapeXml(proposal.clientCompany || proposal.clientName || ""));
   }

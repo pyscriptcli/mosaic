@@ -104,9 +104,33 @@ describe("Mosaic Helper local HTTP boundary", () => {
     assert.equal(rejected.status, 403);
   });
 
-  it("indexes a local folder and exports the selected slide as a downloadable PPTX", {
-    skip: process.platform === "win32" ? "The synthetic fixture is not a PowerPoint-authored file; use test:helper:powerpoint on Windows." : false,
-  }, async () => {
+  it("opens a compiled proposal in File Explorer and returns launch failures", async () => {
+    const targetPath = path.join(tempDir, "proposal.pptx");
+    await fs.writeFile(targetPath, "pptx");
+    let receivedArgs;
+    const res = response();
+    await handleRequest(jsonRequest("POST", "/api/property-decks/open", {
+      targetPath,
+      action: "reveal-folder",
+    }), res, {
+      openInExplorer: async (args) => { receivedArgs = args; },
+    });
+    assert.equal(res.status, 200);
+    assert.deepEqual(receivedArgs, [`/select,${targetPath}`]);
+    assert.equal(JSON.parse(res.body).opened, true);
+
+    const failed = response();
+    await handleRequest(jsonRequest("POST", "/api/property-decks/open", {
+      targetPath,
+      action: "reveal-folder",
+    }), failed, {
+      openInExplorer: async () => { throw new Error("Explorer launch failed."); },
+    });
+    assert.equal(failed.status, 500);
+    assert.match(JSON.parse(failed.body).error, /Explorer launch failed/);
+  });
+
+  it("indexes a local folder and exports the selected slide as a downloadable PPTX", async () => {
     const sourceFolder = path.join(tempDir, "source");
     const outputFolder = path.join(tempDir, "output");
     const scanResponse = response();

@@ -99,7 +99,7 @@ function sendFile(response, file) {
   response.end(file.content);
 }
 
-async function handleRequest(request, response) {
+async function handleRequest(request, response, dependencies = {}) {
   if (request.method === "OPTIONS") {
     if (!isAllowedRequest(request, response)) return;
     response.writeHead(204);
@@ -147,7 +147,9 @@ async function handleRequest(request, response) {
       }
       const stat = await fs.promises.stat(resolvedPath);
       const args = stat.isDirectory() ? [resolvedPath] : [`/select,${resolvedPath}`];
-      await execFileAsync("explorer.exe", args, { windowsHide: true, timeout: 10_000 });
+      const openInExplorer = dependencies.openInExplorer || ((targetArgs) =>
+        execFileAsync("explorer.exe", targetArgs, { windowsHide: true, timeout: 10_000 }));
+      await openInExplorer(args);
       sendJson(response, 200, { opened: true });
       return;
     }
