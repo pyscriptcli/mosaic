@@ -27,6 +27,7 @@ export interface PropertySlideItem {
   rawText: string;
   thumbnailUrl: string;
   specs: PropertySlideSpecs;
+  proposalLocation?: string;
   hasOverrides?: boolean;
 }
 
@@ -524,16 +525,25 @@ export function buildCompilationManifest(params: {
 
   const insertedPropertyHeaders = new Set<string>();
   for (const slide of resolvedSlides) {
-    if (slide.slideRole === "property" && !insertedPropertyHeaders.has(slide.deckId)) {
+    const locationKey = slide.specs.location.trim().toLocaleLowerCase();
+    const propertyHeaderKey = `${slide.deckId}:${locationKey}`;
+    if (slide.slideRole === "property" && !insertedPropertyHeaders.has(propertyHeaderKey)) {
       const sectionTitle = params.catalogSlides.find((candidate) =>
         candidate.deckId === slide.deckId &&
         isIndustrialFacilityProposalSlide(candidate),
       );
-      if (sectionTitle && !selectedIds.has(sectionTitle.id) && !includedIds.has(sectionTitle.id)) {
-        presentationSlides.push(applySlideOverrides(sectionTitle, params.overrides));
+      if (sectionTitle && !selectedIds.has(sectionTitle.id)) {
+        const header = applySlideOverrides(sectionTitle, params.overrides);
+        presentationSlides.push({
+          ...header,
+          id: insertedPropertyHeaders.size === 0
+            ? header.id
+            : `${header.id}:location:${hashString(locationKey)}`,
+          proposalLocation: proposalCityLabel(slide.specs.location),
+        });
         includedIds.add(sectionTitle.id);
       }
-      insertedPropertyHeaders.add(slide.deckId);
+      insertedPropertyHeaders.add(propertyHeaderKey);
     }
     if (!includedIds.has(slide.id)) {
       presentationSlides.push(slide);
@@ -577,6 +587,11 @@ export function buildCompilationManifest(params: {
     slides: presentationSlides,
     comparisonRows,
   };
+}
+
+function proposalCityLabel(location: string): string {
+  const citySegment = location.split(",").map((part) => part.trim()).reverse().find((part) => /\bcity\b/i.test(part));
+  return citySegment || location.trim();
 }
 
 function decodeXmlEntities(text: string): string {

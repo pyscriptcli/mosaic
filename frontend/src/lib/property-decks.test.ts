@@ -169,6 +169,42 @@ describe("Property Decks filtering, overrides, and cart sequencing", () => {
     ]);
   });
 
+  it("uses the selected property's location on its Industrial Facility Proposal slide", () => {
+    const property = {
+      ...sampleSlides[1],
+      id: "paranaque:property:1",
+      deckId: "paranaque-deck",
+      slideRole: "property" as const,
+      specs: { ...sampleSlides[1].specs, location: "Sucat, Parañaque City" },
+    };
+    const divider = {
+      ...property,
+      id: "paranaque:divider:1",
+      slideNumber: 2,
+      slideRole: "cover" as const,
+      title: "Industrial Facility Proposal",
+      rawText: "Industrial Facility Proposal\nPasig City",
+      specs: { ...property.specs, location: "Pasig City" },
+    };
+
+    const manifest = buildCompilationManifest({
+      selectedSlideIds: [property.id],
+      catalogSlides: [divider, property],
+      proposal: {
+        clientName: "Client",
+        projectTitle: "",
+        brokerName: "",
+        brokerEmail: "",
+        brokerPhone: "",
+        date: "2026-10-22",
+        mode: "standard",
+      },
+    });
+
+    expect(manifest.slides[0].id).toBe(divider.id);
+    expect(manifest.slides[0].proposalLocation).toBe("Parañaque City");
+  });
+
   it("personalizes the proposal cover and places an uploaded client logo in its cover logo slot", async () => {
     const source = new JSZip();
     source.file("[Content_Types].xml", '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/></Types>');
@@ -224,6 +260,44 @@ describe("Property Decks filtering, overrides, and cart sequencing", () => {
     expect(coverXml).toContain('r:embed="rId1"');
     expect(logoRelXml).toContain('Type="http://schemas.openxmlformats.org/package/2006/relationships/image"');
     expect(output.file("ppt/slides/assets/client-logo.png")).not.toBeNull();
+  });
+
+  it("exports the selected location on an Industrial Facility Proposal divider", async () => {
+    const source = new JSZip();
+    source.file("[Content_Types].xml", '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/></Types>');
+    source.file("ppt/presentation.xml", '<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:sldIdLst><p:sldId id="256" r:id="rId1"/></p:sldIdLst></p:presentation>');
+    source.file("ppt/_rels/presentation.xml.rels", '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/></Relationships>');
+    source.file("ppt/slides/slide1.xml", '<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>Industrial Facility Proposal</a:t></a:r></a:p></p:txBody></p:sp><p:sp><p:txBody><a:p><a:r><a:t>Pasig City</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>');
+    const divider: PropertySlideItem = {
+      ...sampleSlides[1],
+      id: "paranaque:divider:1",
+      deckId: "paranaque-deck",
+      deckFileName: "Paranaque_Deck.pptx",
+      deckFilePath: "C:/OneDrive/Paranaque_Deck.pptx",
+      slideNumber: 1,
+      slideRole: "cover",
+      title: "Industrial Facility Proposal",
+      rawText: "Industrial Facility Proposal\nPasig City",
+      proposalLocation: "Parañaque City",
+      specs: { ...sampleSlides[1].specs, location: "Pasig City" },
+    };
+    const compiled = await compileCopiedPptx({
+      mode: "standard",
+      proposal: { clientName: "Client", projectTitle: "", brokerName: "", brokerEmail: "", brokerPhone: "", date: "2026-10-22", mode: "standard" },
+      includeSummaryTable: false,
+      includeCredentials: false,
+      slides: [divider],
+      comparisonRows: [],
+    }, new Map([[divider.deckFilePath, {
+      name: divider.deckFileName,
+      relativePath: divider.deckFilePath,
+      data: await source.generateAsync({ type: "uint8array" }),
+    }]]));
+    const output = await JSZip.loadAsync(compiled.buffer);
+    const slideXml = await output.file("ppt/slides/slide1.xml")!.async("string");
+
+    expect(slideXml).toContain("Parañaque City");
+    expect(slideXml).not.toContain("Pasig City");
   });
 
   it("merges broker spec overrides over original extracted specs", () => {

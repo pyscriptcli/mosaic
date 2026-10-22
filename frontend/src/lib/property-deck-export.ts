@@ -84,6 +84,22 @@ function replacePlaceholder(xml: string, placeholder: string, value: string | un
   return value ? xml.replaceAll(placeholder, escapeXml(value)) : xml;
 }
 
+function personalizeIndustrialProposalLocation(xml: string, originalLocation: string, location: string): string {
+  if (!originalLocation || !location || originalLocation === location) return xml;
+  let proposalTitleSeen = false;
+  let replaced = false;
+  return xml.replace(/<p:sp\b[\s\S]*?<\/p:sp>/gi, (shapeXml) => {
+    if (replaced) return shapeXml;
+    if (/industrial\s+facility\s+proposal/i.test(shapeXml)) proposalTitleSeen = true;
+    if (!proposalTitleSeen) return shapeXml;
+    const escapedOriginal = escapeXml(originalLocation).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const textToken = new RegExp(`(<a:t(?:\\s[^>]*)?>)${escapedOriginal}(</a:t>)`, "i");
+    if (!textToken.test(shapeXml)) return shapeXml;
+    replaced = true;
+    return shapeXml.replace(textToken, `$1${escapeXml(location)}$2`);
+  });
+}
+
 function clientLogoAsset(dataUrl: string | undefined): { extension: string; contentType: string; bytes: Buffer } | null {
   const match = dataUrl?.match(/^data:image\/(png|jpeg|jpg);base64,([A-Za-z0-9+/=]+)$/i);
   if (!match) return null;
@@ -269,6 +285,12 @@ async function makeCopiedSlideDeck(
       const slideXml = await output.file(destinationSlidePath)?.async("string");
       if (slideXml) {
         output.file(destinationSlidePath, await personalizeCoverSlide(output, destinationSlidePath, slideXml, manifest.proposal, index + 1));
+      }
+    } else if (isIndustrialFacilityProposalSlide(slide) && slide.proposalLocation) {
+      const slideXml = await output.file(destinationSlidePath)?.async("string");
+      if (slideXml) {
+        const originalCity = slide.specs.location.split(",").map((part) => part.trim()).reverse().find((part) => /\bcity\b/i.test(part)) || slide.specs.location;
+        output.file(destinationSlidePath, personalizeIndustrialProposalLocation(slideXml, originalCity, slide.proposalLocation));
       }
     }
     const slideContentType = relationshipContentType(sourceContentTypes, sourceSlidePath);
