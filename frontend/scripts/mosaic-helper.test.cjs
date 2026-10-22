@@ -8,6 +8,7 @@ const { Readable } = require("node:stream");
 const JSZip = require("jszip");
 process.env.VITEST = "true";
 const { handleRequest } = require("./mosaic-helper.cjs");
+const { compilePropertyDeck } = require("../src/lib/property-decks-server.ts");
 
 const allowedOrigin = "https://mosaic-workspace.online";
 let tempDir;
@@ -167,11 +168,30 @@ describe("Mosaic Helper local HTTP boundary", () => {
     await handleRequest(jsonRequest("POST", "/api/property-decks/compile", {
       selectedSlideIds: [catalog.slides[0].id],
       outputFolder,
-      proposal: { clientName: "Test Client", date: "2026-10-22" },
-    }), compileResponse);
-    assert.equal(compileResponse.status, 200);
+      proposal: {
+        clientName: "Test Client",
+        date: "2026-10-22",
+        ctaContacts: [{ id: "sondi", name: "Sondi Tuazon", title: "Sr. Head", phone: "+63 917 845 6128", email: "sondi@primephilippines.com" }],
+      },
+    }), compileResponse, {
+      compilePropertyDeck: (params) => compilePropertyDeck({
+        ...params,
+        manifest: {
+          ...params.manifest,
+          proposal: { ...params.manifest.proposal, ctaContacts: [] },
+        },
+      }, { platform: "linux" }),
+    });
+    assert.equal(compileResponse.status, 200, compileResponse.body);
     const compiled = JSON.parse(compileResponse.body);
     assert.equal(compiled.slideCount, 1);
+    assert.deepEqual(compiled.manifest.proposal.ctaContacts, [{
+      id: "sondi",
+      name: "Sondi Tuazon",
+      title: "Sr. Head",
+      phone: "+63 917 845 6128",
+      email: "sondi@primephilippines.com",
+    }]);
     const exported = await JSZip.loadAsync(await fs.readFile(compiled.outputPath));
     assert.match(await exported.file("ppt/slides/slide1.xml").async("string"), /TEST PROPERTY/);
 

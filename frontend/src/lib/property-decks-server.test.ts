@@ -104,7 +104,7 @@ describe("Property Decks server indexer and compiler", () => {
     const compiled = await compilePropertyDeck({
       manifest: comprehensiveManifest,
       outputFolder: outputDir,
-    });
+    }, { platform: "linux" });
 
     expect(fs.existsSync(compiled.outputPath)).toBe(true);
     expect(compiled.fileName).toMatch(/Kuehne_Nagel/i);
@@ -149,7 +149,7 @@ describe("Property Decks server indexer and compiler", () => {
         ctaContacts: [{ id: "sondi", name: "Sondi Tuazon", title: "Sr. Head", phone: "+63 917 845 6128", email: "sondi@primephilippines.com" }],
       },
     });
-    const compiled = await compilePropertyDeck({ manifest, outputFolder: outputDir });
+    const compiled = await compilePropertyDeck({ manifest, outputFolder: outputDir }, { platform: "linux" });
     const output = await JSZip.loadAsync(await fs.promises.readFile(compiled.outputPath));
     const orderedSlides = await getOrderedSlidePathsFromZip(output);
     const slideText = await Promise.all(orderedSlides.map(async (slidePath) => extractTextFromSlideXml(await output.file(slidePath)!.async("string"))));
@@ -164,6 +164,23 @@ describe("Property Decks server indexer and compiler", () => {
     expect(slideText[4]).toContain("Sondi Tuazon");
     expect(slideText[4]).toContain("sondi@primephilippines.com");
     expect(compiled.slideCount).toBe(5);
+
+    let nativeAssemblyCalled = false;
+    const nativeCompiled = await compilePropertyDeck({ manifest, outputFolder: outputDir }, {
+      platform: "win32",
+      assembleWithPowerPoint: async (nativeManifest, outputPath) => {
+        nativeAssemblyCalled = true;
+        expect(nativeManifest.proposal.ctaContacts).toEqual(manifest.proposal.ctaContacts);
+        await fs.promises.writeFile(outputPath, "native powerpoint output");
+      },
+      compileOpenXml: async () => {
+        throw new Error("Windows exports must use Microsoft PowerPoint assembly.");
+      },
+    });
+    expect(nativeAssemblyCalled).toBe(true);
+    expect(nativeCompiled.engine).toBe("microsoft-powerpoint");
+    expect(nativeCompiled.slideCount).toBe(5);
+    expect(await fs.promises.readFile(nativeCompiled.outputPath, "utf8")).toBe("native powerpoint output");
   });
 
   it("increments proposal filenames when a PPTX or its paired PDF already exists", async () => {

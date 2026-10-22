@@ -89,11 +89,21 @@ test("one export returns a PowerPoint-openable selected-slide deck and its PDF",
     const compile = await callHelper("POST", "/api/property-decks/compile", {
       selectedSlideIds: [catalog.slides[2].id, catalog.slides[0].id],
       outputFolder,
-      proposal: { clientName: "Mosaic Integration", date: "2026-10-22" },
+      proposal: {
+        clientName: "Mosaic Integration",
+        date: "2026-10-22",
+        ctaContacts: [{
+          id: "integration-contact",
+          name: "Integration Contact",
+          title: "Leasing Advisor",
+          phone: "+63 900 123 4567",
+          email: "integration@example.com",
+        }],
+      },
     });
     assert.equal(compile.status, 200, compile.body.toString());
     const exported = JSON.parse(compile.body.toString());
-    assert.equal(exported.slideCount, 2);
+    assert.equal(exported.slideCount, 3);
 
     const pptxDownload = await callHelper(
       "GET",
@@ -116,20 +126,27 @@ test("one export returns a PowerPoint-openable selected-slide deck and its PDF",
     assert.equal(pdfBytes.subarray(0, 5).toString(), "%PDF-");
     const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
     const pdfDocument = await pdfjs.getDocument({ data: new Uint8Array(pdfBytes) }).promise;
-    assert.equal(pdfDocument.numPages, 2);
+    assert.equal(pdfDocument.numPages, 3);
     const firstPdfPage = await pdfDocument.getPage(1);
     const secondPdfPage = await pdfDocument.getPage(2);
     const firstPdfText = (await firstPdfPage.getTextContent()).items.map((item) => item.str).join(" ");
     const secondPdfText = (await secondPdfPage.getTextContent()).items.map((item) => item.str).join(" ");
+    const thirdPdfText = (await pdfDocument.getPage(3).then((page) => page.getTextContent())).items
+      .map((item) => item.str).join(" ");
     assert.match(firstPdfText, /Selected source slide 3/);
     assert.match(secondPdfText, /Selected source slide 1/);
+    assert.match(thirdPdfText, /Integration Contact/);
+    assert.match(thirdPdfText, /integration@example.com/);
     const deck = await JSZip.loadAsync(pptxDownload.body);
     const presentation = await deck.file("ppt/presentation.xml").async("string");
-    assert.equal((presentation.match(/<p:sldId\b/g) || []).length, 2);
+    assert.equal((presentation.match(/<p:sldId\b/g) || []).length, 3);
     const firstSlide = await deck.file("ppt/slides/slide1.xml").async("string");
     const secondSlide = await deck.file("ppt/slides/slide2.xml").async("string");
+    const contactSlide = await deck.file("ppt/slides/slide3.xml").async("string");
     assert.match(firstSlide, /Selected source slide 3/);
     assert.match(secondSlide, /Selected source slide 1/);
+    assert.match(contactSlide, /Integration Contact/);
+    assert.match(contactSlide, /integration@example\.com/);
   } finally {
     await fs.rm(directory, { recursive: true, force: true });
   }

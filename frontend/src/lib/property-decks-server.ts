@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import JSZip from "jszip";
 import { compileCopiedPptx } from "./property-deck-export";
+import { assemblePropertyDeckWithPowerPoint } from "./property-deck-powerpoint";
 import { convertPptxToPdf } from "./property-deck-pdf";
 import {
   enrichDeckSlidesWithSharedWarehouseSpecs,
@@ -286,13 +287,20 @@ export async function findAvailableProposalPath(outputFolder: string, fileName: 
   throw new Error("Could not find an unused proposal filename. Move or rename older exports and try again.");
 }
 
+export interface CompilePropertyDeckDependencies {
+  platform?: NodeJS.Platform;
+  assembleWithPowerPoint?: typeof assemblePropertyDeckWithPowerPoint;
+  compileOpenXml?: typeof compileCopiedPptx;
+}
+
 export async function compilePropertyDeck(params: {
   manifest: CompilationManifest;
   outputFolder: string;
-}): Promise<{ outputPath: string; fileName: string; slideCount: number; engine: string }> {
+}, dependencies: CompilePropertyDeckDependencies = {}): Promise<{ outputPath: string; fileName: string; slideCount: number; engine: string }> {
+  const platform = dependencies.platform || process.platform;
   const rawOutput = params.outputFolder.trim();
   const isCrossPlatformUnavailable =
-    process.platform !== "win32" && /^[a-zA-Z]:[\\/]/.test(rawOutput);
+    platform !== "win32" && /^[a-zA-Z]:[\\/]/.test(rawOutput);
 
   let resolvedOutputFolder: string;
   if (isCrossPlatformUnavailable) {
@@ -316,6 +324,16 @@ export async function compilePropertyDeck(params: {
   const outputPath = await findAvailableProposalPath(resolvedOutputFolder, requestedFileName);
   const fileName = path.basename(outputPath);
 
+  if (platform === "win32") {
+    await (dependencies.assembleWithPowerPoint || assemblePropertyDeckWithPowerPoint)(params.manifest, outputPath);
+    return {
+      outputPath,
+      fileName,
+      slideCount: params.manifest.slides.length + (params.manifest.proposal.ctaContacts?.length ? 1 : 0),
+      engine: "microsoft-powerpoint",
+    };
+  }
+
   const sourceFiles = new Map<string, { name: string; relativePath: string; data: Buffer }>();
   for (const slide of params.manifest.slides) {
     if (sourceFiles.has(slide.deckFilePath)) continue;
@@ -325,7 +343,7 @@ export async function compilePropertyDeck(params: {
       data: await fs.promises.readFile(slide.deckFilePath),
     });
   }
-  const copiedDeck = await compileCopiedPptx(params.manifest, sourceFiles);
+  const copiedDeck = await (dependencies.compileOpenXml || compileCopiedPptx)(params.manifest, sourceFiles);
   await fs.promises.writeFile(outputPath, copiedDeck.buffer);
   return {
     outputPath,

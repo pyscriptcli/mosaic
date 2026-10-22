@@ -186,6 +186,9 @@ async function handleRequest(request, response, dependencies = {}) {
       }
       const catalog = await readCachedCatalog();
       const proposalInput = body.proposal || {};
+      const rawCtaContacts = Array.isArray(proposalInput.ctaContacts)
+        ? proposalInput.ctaContacts.slice(0, 8)
+        : [];
       const proposal = {
         clientName: String(proposalInput.clientName || "Valued Client").trim(),
         clientDesignation: String(proposalInput.clientDesignation || "").trim(),
@@ -194,6 +197,19 @@ async function handleRequest(request, response, dependencies = {}) {
         preparedByDesignation: String(proposalInput.preparedByDesignation || "").trim(),
         preparedByCompany: String(proposalInput.preparedByCompany || "").trim(),
         clientLogoDataUrl: typeof proposalInput.clientLogoDataUrl === "string" ? proposalInput.clientLogoDataUrl : "",
+        ctaContacts: rawCtaContacts
+          .filter((item) => item && typeof item === "object")
+          .map((item, index) => ({
+            id: String(item.id || `contact-${index + 1}`).slice(0, 80),
+            name: String(item.name || "").trim().slice(0, 120),
+            title: String(item.title || "").trim().slice(0, 160),
+            phone: String(item.phone || "").trim().slice(0, 60),
+            email: String(item.email || "").trim().slice(0, 160),
+            photoDataUrl: typeof item.photoDataUrl === "string" && item.photoDataUrl.length <= 7 * 1024 * 1024
+              ? item.photoDataUrl
+              : undefined,
+          }))
+          .filter((contact) => contact.name),
         projectTitle: String(proposalInput.projectTitle || "Industrial Warehouse Property Options").trim(),
         brokerName: String(proposalInput.brokerName || "PRIME Industrial Advisory").trim(),
         brokerEmail: String(proposalInput.brokerEmail || "industrial@primephilippines.com").trim(),
@@ -216,7 +232,7 @@ async function handleRequest(request, response, dependencies = {}) {
         sendJson(response, 400, { error: "Configure an output folder path before compiling." });
         return;
       }
-      const result = await compilePropertyDeck({ manifest, outputFolder });
+      const result = await (dependencies.compilePropertyDeck || compilePropertyDeck)({ manifest, outputFolder });
       const downloadId = registerPropertyDeckExport(result.outputPath, null);
       sendJson(response, 200, { ...result, pdfError: null, downloadId, manifest });
       return;
