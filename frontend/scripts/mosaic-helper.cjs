@@ -1,5 +1,5 @@
 const http = require("node:http");
-const { execFile } = require("node:child_process");
+const { execFile, spawn } = require("node:child_process");
 const { promisify } = require("node:util");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -111,7 +111,12 @@ async function handleRequest(request, response, dependencies = {}) {
   const url = new URL(request.url || "/", `http://${HOST}:${PORT}`);
   try {
     if (request.method === "GET" && url.pathname === "/health") {
-      sendJson(response, 200, { ok: true, helper: "Mosaic Helper" });
+      sendJson(response, 200, { ok: true, helper: "Mosaic Helper", pid: process.pid });
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/property-decks/helper/restart") {
+      sendJson(response, 202, { restarting: true, pid: process.pid });
+      dependencies.restartHelper?.();
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/property-decks") {
@@ -251,7 +256,22 @@ async function handleRequest(request, response, dependencies = {}) {
 }
 
 function createMosaicHelperServer() {
-  return http.createServer((request, response) => void handleRequest(request, response));
+  const server = http.createServer((request, response) => void handleRequest(request, response, {
+    restartHelper: () => {
+      setTimeout(() => {
+        server.close(() => {
+          const replacement = spawn(process.execPath, [__filename], {
+            cwd: __dirname,
+            detached: true,
+            stdio: "ignore",
+            windowsHide: true,
+          });
+          replacement.unref();
+        });
+      }, 100);
+    },
+  }));
+  return server;
 }
 
 if (require.main === module) {

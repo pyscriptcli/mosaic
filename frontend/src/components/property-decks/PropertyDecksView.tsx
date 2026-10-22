@@ -113,6 +113,7 @@ export function PropertyDecksView() {
   const [outputFolder, setOutputFolder] = useState("");
   const [loading, setLoading] = useState(true);
   const [helperConnected, setHelperConnected] = useState(false);
+  const [restartingHelper, setRestartingHelper] = useState(false);
   const [indexing, setIndexing] = useState(false);
   const [compiling, setCompiling] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -278,7 +279,7 @@ export function PropertyDecksView() {
         setDraftSourceFolder(sourceFolder);
         setDraftOutputFolder(outputFolder);
         setFolderModalOpen(true);
-        return;
+        return false;
       }
       setIndexing(true);
       setError(null);
@@ -315,14 +316,56 @@ export function PropertyDecksView() {
         setStatusMessage(
           `Refreshed ${nextCatalog.slides.length} slides across ${nextCatalog.decksCount} presentation decks.`,
         );
+        return true;
       } catch (err) {
         setError(helperRequestError(err, "Unable to index the local folder."));
+        return false;
       } finally {
         setIndexing(false);
       }
     },
     [outputFolder, persistCart, selectedSlideIds, sourceFolder],
   );
+
+  const restartHelper = async () => {
+    setError(null);
+    setStatusMessage(null);
+    setRestartingHelper(true);
+    try {
+      const response = await fetch(`${MOSAIC_HELPER_URL}/api/property-decks/helper/restart`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Mosaic Helper could not be restarted.");
+
+      let helperReady = false;
+      for (let attempt = 0; attempt < 24; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 500));
+        try {
+          const health = await fetch(`${MOSAIC_HELPER_URL}/health`, { cache: "no-store" });
+          const healthPayload = await health.json().catch(() => ({}));
+          if (health.ok && healthPayload.pid && healthPayload.pid !== payload.pid) {
+            helperReady = true;
+            break;
+          }
+        } catch {
+          // Wait for the replacement helper to bind its local port.
+        }
+      }
+      if (!helperReady) throw new Error("The helper did not return after restart. Start it using the installed Windows helper task or launcher.");
+
+      setHelperConnected(true);
+      const refreshed = await runFolderIndex(sourceFolder, outputFolder);
+      if (!refreshed) return;
+      setStatusMessage("Mosaic Helper restarted and catalog refreshed.");
+    } catch (err) {
+      setError(helperRequestError(err, "Unable to restart Mosaic Helper."));
+    } finally {
+      setRestartingHelper(false);
+    }
+  };
 
   const allSlides = useMemo(() => catalog?.slides || [], [catalog]);
 
@@ -784,6 +827,15 @@ export function PropertyDecksView() {
             <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${helperConnected ? "bg-emerald-600" : "bg-amber-500"}`} />
             {helperConnected ? "Mosaic Helper connected" : "Mosaic Helper offline"}
           </span>
+          <button
+            type="button"
+            onClick={() => void restartHelper()}
+            disabled={restartingHelper}
+            className="inline-flex h-8 min-h-8 items-center justify-center gap-1.5 border border-slate-300 bg-white px-2.5 text-[11px] font-semibold text-[#003366] transition-colors hover:border-[#003366] disabled:cursor-wait disabled:opacity-60"
+          >
+            <RefreshCw aria-hidden="true" className={`h-3.5 w-3.5 ${restartingHelper ? "animate-spin" : ""}`} />
+            {restartingHelper ? "Restarting…" : helperConnected ? "Restart Helper" : "Start / Restart Helper"}
+          </button>
           <button
             type="button"
             onClick={() => {

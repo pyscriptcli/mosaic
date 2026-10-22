@@ -93,6 +93,40 @@ describe("PropertyDecksView component", () => {
     expect((screen.getByLabelText("Prepared by designation") as HTMLInputElement).value).toBe("Sr. Head · Retail and Industrial Markets");
   });
 
+  it("restarts the helper from its status control and refreshes the catalog", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === `${helperUrl}/health`) return new Response(JSON.stringify({ ok: true, pid: 202 }), { status: 200 });
+      if (url === `${helperUrl}/api/property-decks/helper/restart`) {
+        return new Response(JSON.stringify({ restarting: true, pid: 101 }), { status: 202 });
+      }
+      if (url === `${helperUrl}/api/property-decks` && init?.method === "POST") {
+        return new Response(JSON.stringify({ catalog: mockCatalog }), { status: 200 });
+      }
+      if (url === `${helperUrl}/api/property-decks`) return new Response(JSON.stringify({ catalog: mockCatalog }), { status: 200 });
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<PropertyDecksView />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Restart Helper" })).toBeDefined());
+
+    fireEvent.click(screen.getByRole("button", { name: "Restart Helper" }));
+
+    await waitFor(() => expect(screen.getByText("Mosaic Helper restarted and catalog refreshed.")).toBeDefined());
+    expect(fetchMock).toHaveBeenCalledWith(`${helperUrl}/api/property-decks/helper/restart`, expect.objectContaining({ method: "POST" }));
+    expect(fetchMock).toHaveBeenCalledWith(`${helperUrl}/api/property-decks`, expect.objectContaining({ method: "POST" }));
+  });
+
+  it("explains how to start the helper when the local process is offline", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("Failed to fetch"); }));
+    render(<PropertyDecksView />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Start / Restart Helper" })).toBeDefined());
+
+    fireEvent.click(screen.getByRole("button", { name: "Start / Restart Helper" }));
+
+    await waitFor(() => expect(screen.getByText(/Start it and allow this site to access your local network/)).toBeDefined());
+  });
+
   it("selects CTA contacts in order and includes custom contact details and photo in the export request", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);

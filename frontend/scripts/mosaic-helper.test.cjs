@@ -60,7 +60,31 @@ describe("Mosaic Helper local HTTP boundary", () => {
     await handleRequest(request("GET", "/health", { origin: allowedOrigin }), res);
     assert.equal(res.status, 200);
     assert.equal(res.headers["access-control-allow-origin"], allowedOrigin);
-    assert.deepEqual(JSON.parse(res.body), { ok: true, helper: "Mosaic Helper" });
+    assert.deepEqual(JSON.parse(res.body), { ok: true, helper: "Mosaic Helper", pid: process.pid });
+  });
+
+  it("accepts a helper restart request from the hosted Mosaic origin", async () => {
+    let restartRequested = false;
+    const res = response();
+    await handleRequest(jsonRequest("POST", "/api/property-decks/helper/restart", {}), res, {
+      restartHelper: () => { restartRequested = true; },
+    });
+    assert.equal(res.status, 202);
+    assert.deepEqual(JSON.parse(res.body), { restarting: true, pid: process.pid });
+    assert.equal(restartRequested, true);
+  });
+
+  it("rejects helper restart requests from other website origins", async () => {
+    let restartRequested = false;
+    const req = Object.assign(Readable.from(["{}"]), {
+      method: "POST",
+      url: "/api/property-decks/helper/restart",
+      headers: { origin: "https://attacker.example", "content-type": "application/json" },
+    });
+    const res = response();
+    await handleRequest(req, res, { restartHelper: () => { restartRequested = true; } });
+    assert.equal(res.status, 403);
+    assert.equal(restartRequested, false);
   });
 
   it("rejects calls from other website origins", async () => {
