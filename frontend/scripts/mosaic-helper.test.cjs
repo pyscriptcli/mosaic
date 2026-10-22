@@ -82,6 +82,14 @@ describe("Mosaic Helper local HTTP boundary", () => {
   });
 
   it("serves image-tag thumbnail requests only when they come from Mosaic", async () => {
+    const corsRequest = response();
+    await handleRequest(request("GET", "/api/property-decks/thumbnail?id=unknown", {
+      origin: allowedOrigin,
+    }), corsRequest);
+    assert.equal(corsRequest.status, 200);
+    assert.equal(corsRequest.headers["access-control-allow-origin"], allowedOrigin);
+    assert.match(corsRequest.headers["content-type"], /image\/svg\+xml/);
+
     const allowed = response();
     await handleRequest(request("GET", "/api/property-decks/thumbnail?id=unknown", {
       referer: `${allowedOrigin}/property-decks`,
