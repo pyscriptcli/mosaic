@@ -1,5 +1,5 @@
 import JSZip from "jszip";
-import { getOrderedSlidePathsFromZip, type CompilationManifest, type PptxSourceFile } from "@/lib/property-decks";
+import { getOrderedSlidePathsFromZip, isIndustrialFacilityProposalSlide, type CompilationManifest, type PptxSourceFile } from "@/lib/property-decks";
 
 const REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships";
 
@@ -74,6 +74,75 @@ function nextRelationshipId(xml: string): number {
   let max = 0;
   for (const match of xml.matchAll(/\bId="rId(\d+)"/g)) max = Math.max(max, Number(match[1]));
   return max + 1;
+}
+
+function escapeXml(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function replacePlaceholder(xml: string, placeholder: string, value: string | undefined): string {
+  return value ? xml.replaceAll(placeholder, escapeXml(value)) : xml;
+}
+
+function clientLogoAsset(dataUrl: string | undefined): { extension: string; contentType: string; bytes: Buffer } | null {
+  const match = dataUrl?.match(/^data:image\/(png|jpeg|jpg);base64,([A-Za-z0-9+/=]+)$/i);
+  if (!match) return null;
+  const extension = match[1].toLowerCase() === "png" ? "png" : "jpg";
+  return {
+    extension,
+    contentType: extension === "png" ? "image/png" : "image/jpeg",
+    bytes: Buffer.from(match[2], "base64"),
+  };
+}
+
+async function personalizeCoverSlide(
+  output: JSZip,
+  destinationSlidePath: string,
+  slideXml: string,
+  proposal: CompilationManifest["proposal"],
+  slideIndex: number,
+): Promise<string> {
+  const logo = clientLogoAsset(proposal.clientLogoDataUrl);
+  let personalizedXml = slideXml
+    .replaceAll("[ Broker Name(s) / Lead Advisor ]", escapeXml(proposal.preparedByName || ""))
+    .replaceAll("[ Client Representative / Contact Name ]", escapeXml(proposal.clientName || ""))
+    .replaceAll("[ Designation / Department ]", escapeXml(proposal.clientDesignation || ""))
+    .replaceAll("[ Company / Organization Name ]", escapeXml(proposal.clientCompany || ""))
+    .replaceAll("Retail &amp; Industrial Markets Division", escapeXml(proposal.preparedByDesignation || "Retail & Industrial Markets Division"));
+
+  if (!logo) {
+    return personalizedXml.replaceAll("[ INSERT CLIENT LOGO OR PROJECT TITLE ]", escapeXml(proposal.clientCompany || proposal.clientName || ""));
+  }
+
+  let logoShapeFound = false;
+  const pictureRelId = "rIdClientLogo";
+  personalizedXml = personalizedXml.replace(/<p:sp\b[\s\S]*?<\/p:sp>/gi, (shapeXml) => {
+    if (!/INSERT CLIENT LOGO OR PROJECT TITLE/i.test(shapeXml)) return shapeXml;
+    const transform = shapeXml.match(/<a:xfrm\b[^>]*>[\s\S]*?<\/a:xfrm>/i)?.[0];
+    if (!transform) return shapeXml;
+    const shapeId = shapeXml.match(/<p:cNvPr\b[^>]*\bid="(\d+)"/i)?.[1] || String(9000 + slideIndex);
+    logoShapeFound = true;
+    return `<p:pic><p:nvPicPr><p:cNvPr id="${shapeId}" name="Client logo"/><p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="${pictureRelId}"/><a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr>${transform}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>`;
+  });
+
+  if (!logoShapeFound) {
+    return personalizedXml.replaceAll("[ INSERT CLIENT LOGO OR PROJECT TITLE ]", escapeXml(proposal.clientCompany || proposal.clientName || ""));
+  }
+
+  const slideDirectory = packageDirectory(destinationSlidePath);
+  const assetPath = `${slideDirectory}/assets/client-logo.${logo.extension}`;
+  output.file(assetPath, logo.bytes);
+  const relsPath = relationshipsPath(destinationSlidePath);
+  const relsXml = await output.file(relsPath)?.async("string") || `<Relationships xmlns="${REL_NS}"></Relationships>`;
+  const imageRelationshipType = `${REL_NS}/image`;
+  const relId = `rId${nextRelationshipId(relsXml)}`;
+  const target = relativePackagePath(slideDirectory, assetPath);
+  output.file(relsPath, relsXml.replace(/<\/Relationships>/i, `<Relationship Id="${relId}" Type="${imageRelationshipType}" Target="${target}"/></Relationships>`));
+  personalizedXml = personalizedXml.replaceAll(pictureRelId, relId);
+
+  const contentTypes = await output.file("[Content_Types].xml")?.async("string") || "";
+  output.file("[Content_Types].xml", ensureContentType(contentTypes, assetPath, logo.contentType));
+  return personalizedXml;
 }
 
 async function copySlideParts(
@@ -196,6 +265,12 @@ async function makeCopiedSlideDeck(
 
     const destinationSlidePath = `ppt/slides/slide${index + 1}.xml`;
     await copySlideParts(source, sourceSlidePath, destinationSlidePath, output, index + 1, new Map(), { value: 0 }, copiedMasters);
+    if (slide.slideRole === "cover" && !isIndustrialFacilityProposalSlide(slide)) {
+      const slideXml = await output.file(destinationSlidePath)?.async("string");
+      if (slideXml) {
+        output.file(destinationSlidePath, await personalizeCoverSlide(output, destinationSlidePath, slideXml, manifest.proposal, index + 1));
+      }
+    }
     const slideContentType = relationshipContentType(sourceContentTypes, sourceSlidePath);
     const outputTypes = (await output.file("[Content_Types].xml")?.async("string")) || "";
     output.file(

@@ -181,6 +181,12 @@ async function handleRequest(request, response) {
       const proposalInput = body.proposal || {};
       const proposal = {
         clientName: String(proposalInput.clientName || "Valued Client").trim(),
+        clientDesignation: String(proposalInput.clientDesignation || "").trim(),
+        clientCompany: String(proposalInput.clientCompany || "").trim(),
+        preparedByName: String(proposalInput.preparedByName || "").trim(),
+        preparedByDesignation: String(proposalInput.preparedByDesignation || "").trim(),
+        preparedByCompany: String(proposalInput.preparedByCompany || "").trim(),
+        clientLogoDataUrl: typeof proposalInput.clientLogoDataUrl === "string" ? proposalInput.clientLogoDataUrl : "",
         projectTitle: String(proposalInput.projectTitle || "Industrial Warehouse Property Options").trim(),
         brokerName: String(proposalInput.brokerName || "PRIME Industrial Advisory").trim(),
         brokerEmail: String(proposalInput.brokerEmail || "industrial@primephilippines.com").trim(),

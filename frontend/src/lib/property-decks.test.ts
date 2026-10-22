@@ -6,6 +6,7 @@ import {
   buildCompilationManifest,
   extractSpecsFromSlideText,
   filterPropertySlides,
+  groupPropertyLocationsByCity,
   getOrderedSlidePathsFromZip,
   groupPropertySlidesByTitle,
   parseNumericGla,
@@ -103,6 +104,127 @@ describe("Property Decks filtering, overrides, and cart sequencing", () => {
       },
     },
   ];
+
+  it("groups distinct location filters under their city", () => {
+    expect(groupPropertyLocationsByCity([
+      "Pasig City",
+      "Sandoval Ave., Pasig City",
+      "Biñan, Laguna",
+      "Hermosa Ecozone Industrial Park",
+    ])).toEqual([
+      { city: "Biñan", locations: ["Biñan, Laguna"] },
+      { city: "Hermosa", locations: ["Hermosa Ecozone Industrial Park"] },
+      { city: "Pasig", locations: ["Pasig City", "Sandoval Ave., Pasig City"] },
+    ]);
+  });
+
+  it("adds one location-specific Industrial Facility Proposal page and CTA per selected deck", () => {
+    const deckSlides: PropertySlideItem[] = [
+      {
+        ...sampleSlides[1],
+        id: "deck-pasig:slide:1",
+        slideNumber: 1,
+        slideRole: "cover",
+        title: "Client Proposal Cover",
+        rawText: "Prepared for client",
+      },
+      {
+        ...sampleSlides[1],
+        id: "deck-pasig:slide:2",
+        slideNumber: 2,
+        slideRole: "cover",
+        title: "Industrial Facility Proposal",
+        rawText: "Industrial Facility Proposal\\nPasig City",
+      },
+      sampleSlides[1],
+      {
+        ...sampleSlides[1],
+        id: "deck-pasig:slide:4",
+        slideNumber: 4,
+        slideRole: "closing",
+        title: "Contact PRIME to schedule a viewing",
+        rawText: "For inquiries, contact us",
+      },
+    ];
+
+    const manifest = buildCompilationManifest({
+      selectedSlideIds: [sampleSlides[1].id],
+      catalogSlides: deckSlides,
+      proposal: {
+        clientName: "Client",
+        projectTitle: "",
+        brokerName: "",
+        brokerEmail: "",
+        brokerPhone: "",
+        date: "2026-10-22",
+        mode: "standard",
+      },
+    });
+
+    expect(manifest.slides.map((slide) => slide.id)).toEqual([
+      "deck-pasig:slide:1",
+      "deck-pasig:slide:2",
+      sampleSlides[1].id,
+      "deck-pasig:slide:4",
+    ]);
+  });
+
+  it("personalizes the proposal cover and places an uploaded client logo in its cover logo slot", async () => {
+    const source = new JSZip();
+    source.file("[Content_Types].xml", '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/></Types>');
+    source.file("ppt/presentation.xml", '<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:sldIdLst><p:sldId id="256" r:id="rId1"/></p:sldIdLst></p:presentation>');
+    source.file("ppt/_rels/presentation.xml.rels", '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/></Relationships>');
+    source.file("ppt/slides/slide1.xml", '<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="8" name="Client logo slot"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="10" y="20"/><a:ext cx="300" cy="160"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr><p:txBody><a:p><a:r><a:t>[ INSERT CLIENT LOGO OR PROJECT TITLE ]</a:t></a:r></a:p></p:txBody></p:sp><p:sp><p:nvSpPr><p:cNvPr id="9" name="Client name"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr/><p:txBody><a:p><a:r><a:t>[ Client Representative / Contact Name ]</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>');
+    const slide: PropertySlideItem = {
+      ...sampleSlides[0],
+      id: "cover-deck:slide:1",
+      deckId: "cover-deck",
+      deckFileName: "Cover_Deck.pptx",
+      deckFilePath: "C:/OneDrive/Cover_Deck.pptx",
+      slideNumber: 1,
+      slideRole: "cover",
+      title: "Client Proposal Cover",
+      rawText: "Prepared for client",
+    };
+    const logoData = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a3ioAAAAASUVORK5CYII=";
+    const manifest = {
+      mode: "standard" as const,
+      proposal: {
+        clientName: "Charlene Magnaye",
+        clientDesignation: "Business Development",
+        clientCompany: "MSCS PrimeGoods Inc.",
+        preparedByName: "Cedtrix Rena",
+        preparedByDesignation: "Sr. Leasing Advisor",
+        preparedByCompany: "PRIME Philippines",
+        clientLogoDataUrl: logoData,
+        projectTitle: "",
+        brokerName: "",
+        brokerEmail: "",
+        brokerPhone: "",
+        date: "2026-10-22",
+        mode: "standard" as const,
+      },
+      includeSummaryTable: false,
+      includeCredentials: false,
+      slides: [slide],
+      comparisonRows: [],
+    };
+
+    const compiled = await compileCopiedPptx(manifest, new Map([[slide.deckFilePath, {
+      name: slide.deckFileName,
+      relativePath: slide.deckFilePath,
+      data: await source.generateAsync({ type: "uint8array" }),
+    }]]));
+    const output = await JSZip.loadAsync(compiled.buffer);
+    const coverXml = await output.file("ppt/slides/slide1.xml")!.async("string");
+    const logoRelXml = await output.file("ppt/slides/_rels/slide1.xml.rels")!.async("string");
+
+    expect(coverXml).toContain("Charlene Magnaye");
+    expect(coverXml).not.toContain("INSERT CLIENT LOGO");
+    expect(coverXml).toContain('r:embed="rId1"');
+    expect(logoRelXml).toContain('Type="http://schemas.openxmlformats.org/package/2006/relationships/image"');
+    expect(output.file("ppt/slides/assets/client-logo.png")).not.toBeNull();
+  });
 
   it("merges broker spec overrides over original extracted specs", () => {
     const updated = applySlideOverrides(sampleSlides[0], {

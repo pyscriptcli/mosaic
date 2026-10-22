@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { clearBrowserPageCache } from "@/lib/browserPageCache";
 import { PropertyDecksView } from "./PropertyDecksView";
@@ -142,6 +142,13 @@ describe("PropertyDecksView component", () => {
     // Fill Client Name
     const clientInput = screen.getByLabelText(/client name/i);
     fireEvent.change(clientInput, { target: { value: "FastCargo Logistics" } });
+    fireEvent.change(screen.getByLabelText(/client designation/i), { target: { value: "Supply Chain Director" } });
+    fireEvent.change(screen.getByLabelText(/client company/i), { target: { value: "FastCargo Inc." } });
+    fireEvent.click(screen.getByRole("button", { name: "Sondi" }));
+    expect((screen.getByLabelText("Prepared by name") as HTMLInputElement).value).toBe("Sondi Tuazon");
+    const logo = new File([new Uint8Array([137, 80, 78, 71])], "fastcargo.png", { type: "image/png" });
+    fireEvent.change(screen.getByLabelText("Upload company logo"), { target: { files: [logo] } });
+    await screen.findByAltText("Client logo preview");
 
     // Export selected slides
     fireEvent.click(screen.getByRole("button", { name: /export selected slides/i }));
@@ -151,6 +158,14 @@ describe("PropertyDecksView component", () => {
       expect(screen.getByRole("button", { name: "Download PPTX" })).toBeDefined();
       expect(screen.getByRole("button", { name: "Download PDF" })).toBeDefined();
     });
+    const compileRequest = fetchMock.mock.calls.find(([url, init]) => String(url) === `${helperUrl}/api/property-decks/compile` && init?.method === "POST");
+    expect(JSON.parse(String(compileRequest?.[1]?.body)).proposal).toMatchObject({
+      clientName: "FastCargo Logistics",
+      clientDesignation: "Supply Chain Director",
+      clientCompany: "FastCargo Inc.",
+      preparedByName: "Sondi Tuazon",
+    });
+    expect(JSON.parse(String(compileRequest?.[1]?.body)).proposal.clientLogoDataUrl).toMatch(/^data:image\/png;base64,/);
     expect(screen.queryByRole("button", { name: /open in powerpoint/i })).toBeNull();
   });
 
@@ -278,7 +293,7 @@ describe("PropertyDecksView component", () => {
     await waitFor(() => expect(screen.getByText("PPTX and PDF ready to download.")).toBeDefined());
   });
 
-  it("simplifies filter tabs and groups same-title warehouse slides into collapsed cards with partial and full selection", async () => {
+  it("simplifies filter tabs and supports slide and bulk selection from grouped warehouse cards", async () => {
     const multiSlideCatalog = {
       sourceFolder: "C:\\OneDrive\\Converted",
       outputFolder: "C:\\OneDrive\\Proposals",
@@ -377,16 +392,8 @@ describe("PropertyDecksView component", () => {
     expect(screen.getByText(/Bataan Warehouse Space — Specifications & Access/i)).toBeDefined();
     expect(screen.getByText(/1\/2 Selected/i)).toBeDefined();
 
-    // 3. Sub-slides should be collapsed by default
-    expect(screen.queryByText(/Warehouse Slides \(2\)/i)).toBeNull();
-
-    // 4. Click Expand / Parts (2) button
-    const expandButton = screen.getByRole("button", { name: /parts \(2\)/i });
-    fireEvent.click(expandButton);
-
-    // Now sub-slides are visible
-    expect(screen.getByText(/Warehouse Slides \(2\)/i)).toBeDefined();
-    expect(screen.getAllByText(/Specifications & Access/i).length).toBeGreaterThan(0);
+    // The card keeps its bulk action without an extra Parts control.
+    expect(screen.queryByRole("button", { name: /parts \(2\)/i })).toBeNull();
 
     // Add All selects the entire warehouse, including the unpreviewed slide.
     const addAllButton = screen.getByRole("button", { name: /add all \(2\)/i });
@@ -399,9 +406,57 @@ describe("PropertyDecksView component", () => {
     expect(screen.queryByText(/All 2 Selected/i)).toBeNull();
     expect(screen.queryByText(/1\/2 Selected/i)).toBeNull();
 
-    // Individual part selection remains available and reports a partial group.
-    fireEvent.click(screen.getAllByRole("button", { name: /add part/i })[0]);
-    expect(screen.getByText("Selected Slides (1)")).toBeDefined();
-    expect(screen.getByText(/1\/2 Selected/i)).toBeDefined();
+    expect(screen.getByRole("button", { name: /add all \(2\)/i })).toBeDefined();
+  });
+
+  it("shows three expanded proposal sections and groups location options by city", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === `${helperUrl}/health`) return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      if (url === `${helperUrl}/api/property-decks`) {
+        return new Response(JSON.stringify({ catalog: mockCatalog }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }));
+
+    render(<PropertyDecksView />);
+    await waitFor(() => expect(screen.getByText("Biñan Logistics Center — Warehouse 4")).toBeDefined());
+
+    for (const section of ["Coverpage", "Properties", "CTA"]) {
+      expect(screen.getByRole("button", { name: `Collapse ${section}` }).getAttribute("aria-expanded")).toBe("true");
+    }
+
+    const coverToggle = screen.getByRole("button", { name: "Collapse Coverpage" });
+    fireEvent.click(coverToggle);
+    expect(screen.getByRole("button", { name: "Expand Coverpage" }).getAttribute("aria-expanded")).toBe("false");
+
+    const locations = screen.getByLabelText(/filter by location/i);
+    expect(within(locations).getByRole("group", { name: "Biñan" })).toBeDefined();
+    expect(within(locations).getByRole("group", { name: "Pasig" })).toBeDefined();
+  });
+
+  it("keeps the cover, location divider, property pages, and CTA together in their assembler sections", async () => {
+    const property = mockCatalog.slides[1];
+    const deckSlides = [
+      { ...property, id: "deck-pasig:slide:cover", slideNumber: 1, slideRole: "cover" as const, title: "Client Proposal Cover", rawText: "Prepared by PRIME" },
+      { ...property, id: "deck-pasig:slide:proposal", slideNumber: 2, slideRole: "cover" as const, title: "Industrial Facility Proposal", rawText: "Industrial Facility Proposal\nPasig City" },
+      property,
+      { ...property, id: "deck-pasig:slide:4", slideNumber: 4, slideRole: "closing" as const, title: "For more information and to schedule a viewing contact us", rawText: "Contact PRIME" },
+    ];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === `${helperUrl}/health`) return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      if (url === `${helperUrl}/api/property-decks`) return new Response(JSON.stringify({ catalog: { ...mockCatalog, slides: deckSlides, decksCount: 1 } }), { status: 200 });
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }));
+
+    render(<PropertyDecksView />);
+    await waitFor(() => expect(screen.getByText("MSCS Pasig Distribution Hub")).toBeDefined());
+    fireEvent.click(screen.getByRole("button", { name: /add this slide/i }));
+
+    expect(screen.getByText("Selected Slides (4)")).toBeDefined();
+    expect(screen.getByText(/Client Proposal Cover/)).toBeDefined();
+    expect(screen.getAllByText(/Industrial Facility Proposal/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/For more information and to schedule a viewing contact us/)).toBeDefined();
   });
 });

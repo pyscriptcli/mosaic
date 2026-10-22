@@ -79,6 +79,12 @@ export async function POST(request: Request) {
 
     const proposal: PitchProposalDetails = {
       clientName: String(rawProposal.clientName || "Valued Client").trim(),
+      clientDesignation: String(rawProposal.clientDesignation || "").trim(),
+      clientCompany: String(rawProposal.clientCompany || "").trim(),
+      preparedByName: String(rawProposal.preparedByName || "").trim(),
+      preparedByDesignation: String(rawProposal.preparedByDesignation || "").trim(),
+      preparedByCompany: String(rawProposal.preparedByCompany || "").trim(),
+      clientLogoDataUrl: typeof rawProposal.clientLogoDataUrl === "string" ? rawProposal.clientLogoDataUrl : "",
       projectTitle: String(
         rawProposal.projectTitle || "Industrial Warehouse Property Options",
       ).trim(),
