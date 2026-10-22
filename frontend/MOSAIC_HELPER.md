@@ -1,18 +1,22 @@
 # Mosaic Helper
 
-Mosaic Helper runs the Property Decks file work on this Windows computer. Keep it running while using the hosted Property Decks page.
+Mosaic Helper runs the Property Decks file work on this Windows computer. Install it once; it then starts hidden when you sign in and stays available to the hosted Property Decks page.
 
 ## Start it
 
-From the repository's `frontend` folder, run:
+Double-click `scripts/Start-Mosaic-Helper.cmd` once. This registers a per-user Windows logon task and starts the helper in the background. It does not require administrator access.
+
+To install from PowerShell instead, run `scripts/Install-Mosaic-Helper.ps1` from the `frontend` folder. To remove the startup task and stop the helper, run `scripts/Uninstall-Mosaic-Helper.ps1`.
+
+For manual foreground operation, run:
 
 ```powershell
 npm run mosaic-helper
 ```
 
-Or double-click `scripts/Start-Mosaic-Helper.cmd`.
-
 The helper listens only on `127.0.0.1:43127`. It accepts browser requests from `https://mosaic-workspace.online` only. It indexes the selected local folder, copies the selected slides into a PPTX, uses installed Microsoft PowerPoint to make the PDF, and serves the generated files back to the browser.
+
+Logs are stored in `%LOCALAPPDATA%\Mosaic\Helper`. The startup task checks for the helper every 15 seconds and restarts it if it exits.
 
 The browser may ask whether Mosaic can access the local network. Allow it so the hosted page can reach the helper. If it was denied, change the site permission in the browser and reload Property Decks.
 
