@@ -6,6 +6,8 @@
     "dev": "node scripts/link-atlas-dependencies.mjs && next dev --hostname 127.0.0.1",
     "build": "node scripts/link-atlas-dependencies.mjs && next build",
     "start": "next start",
+    "mosaic-helper": "node scripts/mosaic-helper.cjs",
+    "test:helper": "node --test scripts/mosaic-helper.test.cjs",
     "lint": "eslint",
     "test": "vitest run"
   },

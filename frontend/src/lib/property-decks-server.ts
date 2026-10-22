@@ -133,14 +133,14 @@ async function extractSlideMediaThumbnail(
   return outPath;
 }
 
-export async function scanOneDriveFolder(
+export async function scanPropertyDeckFolder(
   sourceFolder: string,
   outputFolder?: string,
   maxDecks = 35,
 ): Promise<PropertyDeckCatalog> {
   const resolvedSource = resolveExistingFolderFuzzy(sourceFolder);
   if (!resolvedSource) {
-    throw new Error(`OneDrive source folder not found: ${sourceFolder.trim()}`);
+    throw new Error(`Source folder not found: ${sourceFolder.trim()}`);
   }
 
   const resolvedOutput = outputFolder?.trim()

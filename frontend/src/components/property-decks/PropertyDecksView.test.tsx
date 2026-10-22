@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { clearBrowserPageCache } from "@/lib/browserPageCache";
 import { PropertyDecksView } from "./PropertyDecksView";
 
+const helperUrl = "http://127.0.0.1:43127";
+
 const mockCatalog = {
   sourceFolder: "C:\\Users\\PRIME_Dave\\OneDrive - Jet Innovisions\\Industrial",
   outputFolder: "C:\\Users\\PRIME_Dave\\OneDrive - Jet Innovisions\\Industrial\\Compiled Proposals",
@@ -70,7 +72,10 @@ describe("PropertyDecksView component", () => {
   it("loads the catalog, allows spec overrides, and exports the selected source slides", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url === "/api/property-decks" && (!init || init.method !== "POST")) {
+      if (url === `${helperUrl}/health`) {
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      }
+      if (url === `${helperUrl}/api/property-decks` && (!init || init.method !== "POST")) {
         return new Response(
           JSON.stringify({
             catalog: mockCatalog,
@@ -79,7 +84,7 @@ describe("PropertyDecksView component", () => {
           { status: 200 },
         );
       }
-      if (url === "/api/property-decks/compile" && init?.method === "POST") {
+      if (url === `${helperUrl}/api/property-decks/compile` && init?.method === "POST") {
         const body = JSON.parse(String(init.body));
         return new Response(
           JSON.stringify({
@@ -92,7 +97,7 @@ describe("PropertyDecksView component", () => {
           { status: 200 },
         );
       }
-      if (url === "/api/property-decks/compile" && init?.method === "PUT") {
+      if (url === `${helperUrl}/api/property-decks/compile` && init?.method === "PUT") {
         return new Response(JSON.stringify({ pdfFileName: "PRIME_Proposal_FastCargo Logistics.pdf" }), { status: 200 });
       }
       return new Response(JSON.stringify({ ok: true }), { status: 200 });
@@ -135,15 +140,13 @@ describe("PropertyDecksView component", () => {
 
     await waitFor(() => {
       expect(screen.getByText("PRIME_Proposal_FastCargo Logistics.pptx")).toBeDefined();
-      expect(screen.getByRole("link", { name: "Download PPTX" })).toBeDefined();
-      expect(screen.getByRole("link", { name: "Download PDF" })).toBeDefined();
+      expect(screen.getByRole("button", { name: "Download PPTX" })).toBeDefined();
+      expect(screen.getByRole("button", { name: "Download PDF" })).toBeDefined();
     });
     expect(screen.queryByRole("button", { name: /open in powerpoint/i })).toBeNull();
-    expect(screen.getByRole("link", { name: "Download PPTX" }).getAttribute("href")).toContain("format=pptx");
-    expect(screen.getByRole("link", { name: "Download PDF" }).getAttribute("href")).toContain("format=pdf");
   });
 
-  it("rescans the configured local path through the server and refreshes the gallery", async () => {
+  it("rescans the configured local path through Mosaic Helper and refreshes the gallery", async () => {
     const updatedCatalog = {
       ...mockCatalog,
       indexedAt: "2026-10-22T01:00:00.000Z",
@@ -158,10 +161,14 @@ describe("PropertyDecksView component", () => {
       JSON.stringify({ sourceFolder: mockCatalog.sourceFolder, outputFolder: mockCatalog.outputFolder }),
     );
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      if (String(input) === "/api/property-decks" && init?.method === "POST") {
+      if (String(input) === `${helperUrl}/health`) return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      if (String(input) === `${helperUrl}/api/property-decks` && init?.method === "POST") {
         return new Response(JSON.stringify({ catalog: updatedCatalog }), { status: 200 });
       }
-      return new Response(JSON.stringify({ catalog: mockCatalog }), { status: 200 });
+      if (String(input) === `${helperUrl}/api/property-decks`) {
+        return new Response(JSON.stringify({ catalog: mockCatalog }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
     });
     vi.stubGlobal("fetch", fetchMock);
 
@@ -172,7 +179,7 @@ describe("PropertyDecksView component", () => {
     fireEvent.click(screen.getByRole("button", { name: /rescan folder/i }));
 
     await waitFor(() => expect(screen.getByText("Updated Warehouse Name")).toBeDefined());
-    const scanRequest = fetchMock.mock.calls.find(([url, init]) => String(url) === "/api/property-decks" && init?.method === "POST");
+    const scanRequest = fetchMock.mock.calls.find(([url, init]) => String(url) === `${helperUrl}/api/property-decks` && init?.method === "POST");
     expect(JSON.parse(String(scanRequest?.[1]?.body))).toEqual({
       sourceFolder: mockCatalog.sourceFolder,
       outputFolder: mockCatalog.outputFolder,
@@ -181,10 +188,11 @@ describe("PropertyDecksView component", () => {
 
   it("keeps the PPTX download available and reports a PDF conversion failure", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      if (String(input) === "/api/property-decks" && (!init || init.method !== "POST")) {
+      if (String(input) === `${helperUrl}/health`) return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      if (String(input) === `${helperUrl}/api/property-decks` && (!init || init.method !== "POST")) {
         return new Response(JSON.stringify({ catalog: mockCatalog }), { status: 200 });
       }
-      if (String(input) === "/api/property-decks/compile" && init?.method === "POST") {
+      if (String(input) === `${helperUrl}/api/property-decks/compile` && init?.method === "POST") {
         return new Response(JSON.stringify({
           downloadId: "8a5ab5c2-f4b4-41a0-9199-9ed6a4a53f75",
           outputPath: `${mockCatalog.outputFolder}\\PRIME_Proposal_Client.pptx`,
@@ -193,7 +201,7 @@ describe("PropertyDecksView component", () => {
           engine: "openxml-slide-copy",
         }), { status: 200 });
       }
-      if (String(input) === "/api/property-decks/compile" && init?.method === "PUT") {
+      if (String(input) === `${helperUrl}/api/property-decks/compile` && init?.method === "PUT") {
         return new Response(JSON.stringify({ error: "PDF conversion requires Windows and Microsoft PowerPoint." }), { status: 500 });
       }
       return new Response(JSON.stringify({ ok: true }), { status: 200 });
@@ -206,8 +214,8 @@ describe("PropertyDecksView component", () => {
     fireEvent.click(screen.getByRole("button", { name: /export selected slides/i }));
 
     expect((await screen.findByRole("alert")).textContent).toContain("PPTX download is ready. PDF conversion failed");
-    expect(screen.getByRole("link", { name: "Download PPTX" })).toBeDefined();
-    expect(screen.queryByRole("link", { name: "Download PDF" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Download PPTX" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Download PDF" })).toBeNull();
   });
 
   it("simplifies filter tabs and groups same-title warehouse slides into collapsed cards with partial and full selection", async () => {
@@ -264,7 +272,10 @@ describe("PropertyDecksView component", () => {
 
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url === "/api/property-decks") {
+      if (url === `${helperUrl}/health`) {
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      }
+      if (url === `${helperUrl}/api/property-decks`) {
         return new Response(JSON.stringify({ catalog: multiSlideCatalog }), { status: 200 });
       }
       return new Response(JSON.stringify({ ok: true }), { status: 200 });

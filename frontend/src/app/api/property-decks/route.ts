@@ -1,16 +1,10 @@
 import { NextResponse } from "next/server";
-import { readCachedCatalog, scanOneDriveFolder } from "@/lib/property-decks-server";
-
-const DEFAULT_SUGGESTED_FOLDER =
-  "C:\\Users\\PRIME_Dave\\OneDrive - Jet Innovisions\\Sondi Tuazon's files - CRD 2026  COMPILED ONE DRIVE\\Industrial\\Property Deck\\Converted";
+import { readCachedCatalog, scanPropertyDeckFolder } from "@/lib/property-decks-server";
 
 export async function GET() {
   try {
     const catalog = await readCachedCatalog();
-    return NextResponse.json({
-      catalog,
-      suggestedDefaultFolder: DEFAULT_SUGGESTED_FOLDER,
-    });
+    return NextResponse.json({ catalog });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unable to load Property Decks catalog." },
@@ -28,16 +22,16 @@ export async function POST(request: Request) {
 
     if (!sourceFolder) {
       return NextResponse.json(
-        { error: "Provide a valid local OneDrive source folder path." },
+        { error: "Provide a valid local source folder path." },
         { status: 400 },
       );
     }
 
-    const catalog = await scanOneDriveFolder(sourceFolder, outputFolder, maxDecks);
+    const catalog = await scanPropertyDeckFolder(sourceFolder, outputFolder, maxDecks);
     return NextResponse.json({ catalog });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to index OneDrive folder." },
+      { error: error instanceof Error ? error.message : "Failed to index the local folder." },
       { status: 400 },
     );
   }

@@ -4,7 +4,7 @@ import path from "node:path";
 import JSZip from "jszip";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildCompilationManifest } from "./property-decks";
-import { compilePropertyDeck, scanOneDriveFolder } from "./property-decks-server";
+import { compilePropertyDeck, scanPropertyDeckFolder } from "./property-decks-server";
 
 async function createSamplePptx(filePath: string, slidesXml: string[]) {
   const zip = new JSZip();
@@ -60,8 +60,8 @@ describe("Property Decks server indexer and compiler", () => {
     await fs.promises.rm(tempDir, { recursive: true, force: true });
   });
 
-  it("scans a local OneDrive folder and indexes PPTX slides and warehouse specifications", async () => {
-    const catalog = await scanOneDriveFolder(sourceDir, outputDir);
+  it("scans a local folder and indexes PPTX slides and warehouse specifications", async () => {
+    const catalog = await scanPropertyDeckFolder(sourceDir, outputDir);
 
     expect(catalog.decksCount).toBe(1);
     expect(catalog.slides).toHaveLength(2);
@@ -76,7 +76,7 @@ describe("Property Decks server indexer and compiler", () => {
   });
 
   it("copies only the selected source slide to the output folder", async () => {
-    const catalog = await scanOneDriveFolder(sourceDir, outputDir);
+    const catalog = await scanPropertyDeckFolder(sourceDir, outputDir);
     const warehouseSlide = catalog.slides[1];
 
     const comprehensiveManifest = buildCompilationManifest({
@@ -118,13 +118,13 @@ describe("Property Decks server indexer and compiler", () => {
     const emptyDir = path.join(tempDir, "empty-source");
     await fs.promises.mkdir(emptyDir);
 
-    await expect(scanOneDriveFolder(emptyDir, outputDir)).rejects.toThrow(/no .pptx files/i);
+    await expect(scanPropertyDeckFolder(emptyDir, outputDir)).rejects.toThrow(/no .pptx files/i);
   });
 
   it("rejects a configured source folder that the Mosaic server cannot access", async () => {
-    await expect(scanOneDriveFolder(
+    await expect(scanPropertyDeckFolder(
       "Z:\\Users\\PRIME_Dave\\OneDrive - Jet Innovisions\\Sondi Tuazon's files - CRD 2026 COMPILED ONE DRIVE\\Industrial\\Property Deck\\Converted",
       "Z:\\Users\\PRIME_Dave\\OneDrive - Jet Innovisions\\Sondi Tuazon's files - CRD 2026 COMPILED ONE DRIVE\\Industrial\\Property Deck\\Proposals",
-    )).rejects.toThrow(/OneDrive source folder not found/);
+    )).rejects.toThrow(/Source folder not found/);
   });
 });

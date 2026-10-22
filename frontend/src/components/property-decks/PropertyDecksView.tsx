@@ -32,11 +32,30 @@ import {
   type PropertySlideOverride,
   type SlideRole,
 } from "@/lib/property-decks";
-import { readBrowserPageCache, writeBrowserPageCache } from "@/lib/browserPageCache";
 
 const CONFIG_STORAGE_KEY = "mosaic_property_decks_config_v1";
 const OVERRIDES_STORAGE_KEY = "mosaic_property_decks_overrides_v1";
 const CART_STORAGE_KEY = "mosaic_property_decks_cart_v1";
+const MOSAIC_HELPER_URL = "http://127.0.0.1:43127";
+
+function helperCatalog(catalog: PropertyDeckCatalog): PropertyDeckCatalog {
+  return {
+    ...catalog,
+    slides: catalog.slides.map((slide) => ({
+      ...slide,
+      thumbnailUrl: slide.thumbnailUrl.startsWith("/api/property-decks/thumbnail")
+        ? `${MOSAIC_HELPER_URL}${slide.thumbnailUrl}`
+        : slide.thumbnailUrl,
+    })),
+  };
+}
+
+function helperRequestError(error: unknown, fallback: string): string {
+  if (error instanceof TypeError && /fetch/i.test(error.message)) {
+    return "Mosaic Helper is unreachable. Start it and allow this site to access your local network in the browser.";
+  }
+  return error instanceof Error ? error.message : fallback;
+}
 
 interface StoredFolderConfig {
   sourceFolder: string;
@@ -53,15 +72,12 @@ interface CompiledResult {
   engine: string;
 }
 
-export function PropertyDecksView({
-  userId,
-}: {
-  userId?: string;
-}) {
+export function PropertyDecksView() {
   const [catalog, setCatalog] = useState<PropertyDeckCatalog | null>(null);
   const [sourceFolder, setSourceFolder] = useState("");
   const [outputFolder, setOutputFolder] = useState("");
   const [loading, setLoading] = useState(true);
+  const [helperConnected, setHelperConnected] = useState(false);
   const [indexing, setIndexing] = useState(false);
   const [compiling, setCompiling] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -128,31 +144,24 @@ export function PropertyDecksView({
       setLoading(true);
       setError(null);
       try {
-        const cachedInDb = await readBrowserPageCache<PropertyDeckCatalog>(
-          userId || "local",
-          "property-decks:catalog",
-        );
-        if (cachedInDb?.slides?.length) {
-          setCatalog(cachedInDb);
-          setSourceFolder(savedConfig?.sourceFolder || cachedInDb.sourceFolder);
-          setOutputFolder(savedConfig?.outputFolder || cachedInDb.outputFolder);
-          setDraftSourceFolder(savedConfig?.sourceFolder || cachedInDb.sourceFolder);
-          setDraftOutputFolder(savedConfig?.outputFolder || cachedInDb.outputFolder);
-        }
+        const health = await fetch(`${MOSAIC_HELPER_URL}/health`, { cache: "no-store" });
+        if (!health.ok) throw new Error("Mosaic Helper did not respond. Start the helper and reload this page.");
+        setHelperConnected(true);
 
-        const res = await fetch("/api/property-decks", { cache: "no-store" });
+        const res = await fetch(`${MOSAIC_HELPER_URL}/api/property-decks`, { cache: "no-store" });
         const payload = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(payload.error || "Unable to load Property Decks catalog.");
 
         if (payload.catalog) {
-          setCatalog(payload.catalog);
-          const nextSource = savedConfig?.sourceFolder || payload.catalog.sourceFolder;
-          const nextOutput = savedConfig?.outputFolder || payload.catalog.outputFolder;
+          const nextCatalog = helperCatalog(payload.catalog as PropertyDeckCatalog);
+          setCatalog(nextCatalog);
+          const nextSource = savedConfig?.sourceFolder || nextCatalog.sourceFolder;
+          const nextOutput = savedConfig?.outputFolder || nextCatalog.outputFolder;
           setSourceFolder(nextSource);
           setOutputFolder(nextOutput);
-          void writeBrowserPageCache(userId || "local", "property-decks:catalog", payload.catalog);
-        } else if (!cachedInDb?.slides?.length) {
-          const fallbackFolder = savedConfig?.sourceFolder || payload.suggestedDefaultFolder || "";
+        } else {
+          setCatalog(null);
+          const fallbackFolder = savedConfig?.sourceFolder || "";
           const fallbackOutput =
             savedConfig?.outputFolder ||
             (fallbackFolder ? `${fallbackFolder}\\Compiled Proposals` : "");
@@ -160,17 +169,18 @@ export function PropertyDecksView({
           setOutputFolder(fallbackOutput);
           setDraftSourceFolder(fallbackFolder);
           setDraftOutputFolder(fallbackOutput);
-          setFolderModalOpen(true);
+          if (!fallbackFolder) setFolderModalOpen(true);
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Could not load Property Decks.");
+        setHelperConnected(false);
+        setError(helperRequestError(err, "Could not load Property Decks."));
       } finally {
         setLoading(false);
       }
     }
 
     void bootstrap();
-  }, [userId]);
+  }, []);
 
   const persistOverrides = (next: Record<string, PropertySlideOverride>) => {
     setOverrides(next);
@@ -213,7 +223,7 @@ export function PropertyDecksView({
         setSourceFolder(nextConfig.sourceFolder);
         setOutputFolder(nextConfig.outputFolder);
 
-        const res = await fetch("/api/property-decks", {
+        const res = await fetch(`${MOSAIC_HELPER_URL}/api/property-decks`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -226,22 +236,22 @@ export function PropertyDecksView({
           throw new Error(String(payload.error || "Indexing failed."));
         }
 
-        const nextCatalog = payload.catalog as PropertyDeckCatalog;
+        const nextCatalog = helperCatalog(payload.catalog as PropertyDeckCatalog);
+        setHelperConnected(true);
         setCatalog(nextCatalog);
         const slideIds = new Set(nextCatalog.slides.map((slide) => slide.id));
         persistCart(selectedSlideIds.filter((id) => slideIds.has(id)));
-        void writeBrowserPageCache(userId || "local", "property-decks:catalog", nextCatalog);
         setFolderModalOpen(false);
         setStatusMessage(
           `Refreshed ${nextCatalog.slides.length} slides across ${nextCatalog.decksCount} presentation decks.`,
         );
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Unable to index OneDrive folder.");
+        setError(helperRequestError(err, "Unable to index the local folder."));
       } finally {
         setIndexing(false);
       }
     },
-    [outputFolder, persistCart, selectedSlideIds, sourceFolder, userId],
+    [outputFolder, persistCart, selectedSlideIds, sourceFolder],
   );
 
   const allSlides = useMemo(() => catalog?.slides || [], [catalog]);
@@ -385,7 +395,7 @@ export function PropertyDecksView({
     setExportStage("pptx");
     let pptxCreated = false;
     try {
-      const res = await fetch("/api/property-decks/compile", {
+      const res = await fetch(`${MOSAIC_HELPER_URL}/api/property-decks/compile`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -419,7 +429,7 @@ export function PropertyDecksView({
         pptxCreated = true;
         setExportStage("pdf");
         try {
-          const pdfRes = await fetch("/api/property-decks/compile", {
+          const pdfRes = await fetch(`${MOSAIC_HELPER_URL}/api/property-decks/compile`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ downloadId: payload.downloadId }),
@@ -435,7 +445,7 @@ export function PropertyDecksView({
         } catch (pdfError) {
           setCompiledResult({
             ...result,
-            pdfError: pdfError instanceof Error ? pdfError.message : "PDF conversion failed.",
+            pdfError: helperRequestError(pdfError, "PDF conversion failed."),
           });
           setExportStage("pdf-error");
         }
@@ -448,7 +458,7 @@ export function PropertyDecksView({
         setCompiledResult((current) => current ? { ...current, pdfError: message } : current);
         setExportStage("pdf-error");
       } else {
-        setError(err instanceof Error ? err.message : "Failed to compile presentation deck.");
+        setError(helperRequestError(err, "Failed to compile presentation deck."));
         setExportStage("idle");
       }
     } finally {
@@ -458,13 +468,33 @@ export function PropertyDecksView({
 
   const triggerWindowsOpen = async (targetPath: string) => {
     try {
-      await fetch("/api/property-decks/open", {
+      await fetch(`${MOSAIC_HELPER_URL}/api/property-decks/open`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ targetPath, action: "reveal-folder" }),
       });
     } catch {
       // Ignore desktop open failure in browser-only test environments
+    }
+  };
+
+  const downloadExport = async (downloadId: string, format: "pptx" | "pdf", fileName: string) => {
+    try {
+      const response = await fetch(
+        `${MOSAIC_HELPER_URL}/api/property-decks/compile?id=${downloadId}&format=${format}`,
+      );
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || `The ${format.toUpperCase()} download is unavailable.`);
+      }
+      const blobUrl = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = blobUrl;
+      link.download = fileName;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+    } catch (err) {
+      setError(helperRequestError(err, `The ${format.toUpperCase()} download failed.`));
     }
   };
 
@@ -488,12 +518,19 @@ export function PropertyDecksView({
             </h1>
             <p className="mt-0.5 truncate text-xs text-slate-600">
               {sourceFolder
-                ? `OneDrive: ${sourceFolder} · ${allSlides.length} indexed slides (${catalog?.decksCount || 0} decks)`
+                ? `Local folder: ${sourceFolder} · ${allSlides.length} indexed slides (${catalog?.decksCount || 0} decks)`
                 : "Set a local folder path to index warehouse slides"}
             </p>
           </div>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <span
+            role="status"
+            className={`inline-flex h-8 items-center gap-1.5 border px-2.5 text-[11px] font-semibold ${helperConnected ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-300 bg-[#FBF7E9] text-[#735600]"}`}
+          >
+            <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${helperConnected ? "bg-emerald-600" : "bg-amber-500"}`} />
+            {helperConnected ? "Mosaic Helper connected" : "Mosaic Helper offline"}
+          </span>
           <button
             type="button"
             onClick={() => {
@@ -1118,21 +1155,21 @@ export function PropertyDecksView({
                 </p>
               )}
               <div className="flex flex-wrap gap-2 pt-1">
-                <a
-                  href={`/api/property-decks/compile?id=${compiledResult.downloadId}&format=pptx`}
-                  download={compiledResult.fileName}
+                <button
+                  type="button"
+                  onClick={() => void downloadExport(compiledResult.downloadId, "pptx", compiledResult.fileName)}
                   className="inline-flex min-h-8 items-center gap-1 border border-[#003366] bg-[#003366] px-2.5 text-[11px] font-semibold text-white"
                 >
                   Download PPTX
-                </a>
+                </button>
                 {compiledResult.pdfFileName && (
-                  <a
-                    href={`/api/property-decks/compile?id=${compiledResult.downloadId}&format=pdf`}
-                    download={compiledResult.pdfFileName}
+                  <button
+                    type="button"
+                    onClick={() => void downloadExport(compiledResult.downloadId, "pdf", compiledResult.pdfFileName || "proposal.pdf")}
                     className="inline-flex min-h-8 items-center gap-1 border border-slate-300 bg-white px-2.5 text-[11px] font-semibold text-[#003366]"
                   >
                     Download PDF
-                  </a>
+                  </button>
                 )}
                 {!compiledResult.outputPath.startsWith("/tmp/") && (
                   <>
@@ -1161,7 +1198,7 @@ export function PropertyDecksView({
           <section
             role="dialog"
             aria-modal="true"
-            aria-labelledby="onedrive-path-modal-title"
+            aria-labelledby="local-folder-modal-title"
             className="w-full max-w-lg border border-slate-200 bg-white p-5 shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
@@ -1170,7 +1207,7 @@ export function PropertyDecksView({
                 <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-[#31577D]">
                   Local folder storage
                 </p>
-                <h2 id="onedrive-path-modal-title" className="mt-1 text-base font-semibold text-[#003366]">
+                <h2 id="local-folder-modal-title" className="mt-1 text-base font-semibold text-[#003366]">
                   Set source and output folders
                 </h2>
               </div>
@@ -1191,11 +1228,11 @@ export function PropertyDecksView({
                   type="text"
                   value={draftSourceFolder}
                   onChange={(e) => setDraftSourceFolder(e.target.value)}
-                  placeholder="C:\Users\PRIME_Dave\OneDrive - Jet Innovisions\..."
+                  placeholder="C:\Users\Name\Documents\Property Decks"
                   className="mt-1 h-10 w-full border border-slate-300 px-3 font-mono text-xs text-[#003366] focus:border-[#003366] focus:outline-none"
                 />
                 <span className="mt-1 block text-[11px] font-normal text-slate-600">
-                  Mosaic must be running on this computer to read the folder path.
+                  Mosaic Helper must be running on this computer to read the folder path.
                 </span>
               </label>
 
