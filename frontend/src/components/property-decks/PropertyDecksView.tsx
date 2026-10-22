@@ -5,6 +5,7 @@ import {
   ArrowDown,
   ArrowUp,
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Edit3,
@@ -126,8 +127,6 @@ export function PropertyDecksView() {
   const [locationFilter, setLocationFilter] = useState("all");
   const [deckFilter, setDeckFilter] = useState("all");
   const [roleFilter, setRoleFilter] = useState<"all" | SlideRole>("property");
-  const [minGlaInput, setMinGlaInput] = useState("");
-  const [maxGlaInput, setMaxGlaInput] = useState("");
   const [demandPanelOpen, setDemandPanelOpen] = useState(false);
   const [demandCriteria, setDemandCriteria] = useState<DemandMatchCriteria>(EMPTY_DEMAND_CRITERIA);
   const [submittedDemandCriteria, setSubmittedDemandCriteria] = useState<DemandMatchCriteria | null>(null);
@@ -349,8 +348,6 @@ export function PropertyDecksView() {
   }, [allSlides, overrides]);
 
   const filteredSlides = useMemo(() => {
-    const minGla = minGlaInput.trim() ? Number(minGlaInput) : undefined;
-    const maxGla = maxGlaInput.trim() ? Number(maxGlaInput) : undefined;
     return filterPropertySlides(
       allSlides,
       {
@@ -358,12 +355,10 @@ export function PropertyDecksView() {
         location: locationFilter,
         deckId: deckFilter,
         roleFilter,
-        minGla: Number.isFinite(minGla) ? minGla : undefined,
-        maxGla: Number.isFinite(maxGla) ? maxGla : undefined,
       },
       overrides,
     );
-  }, [allSlides, searchQuery, locationFilter, deckFilter, roleFilter, minGlaInput, maxGlaInput, overrides]);
+  }, [allSlides, searchQuery, locationFilter, deckFilter, roleFilter, overrides]);
 
   const slideGroups = useMemo(
     () => groupPropertySlidesByTitle(filteredSlides),
@@ -900,26 +895,6 @@ export function PropertyDecksView() {
               </div>
 
               <div className="flex flex-wrap items-center justify-end gap-1.5 text-xs text-slate-600">
-                <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                  GLA (sqm):
-                </span>
-                <input
-                  type="number"
-                  aria-label="Minimum GLA"
-                  placeholder="Min"
-                  value={minGlaInput}
-                  onChange={(e) => setMinGlaInput(e.target.value)}
-                  className="h-7 w-20 border border-slate-300 px-2 text-xs text-[#003366]"
-                />
-                <span>–</span>
-                <input
-                  type="number"
-                  aria-label="Maximum GLA"
-                  placeholder="Max"
-                  value={maxGlaInput}
-                  onChange={(e) => setMaxGlaInput(e.target.value)}
-                  className="h-7 w-20 border border-slate-300 px-2 text-xs text-[#003366]"
-                />
                 <span className="ml-2 text-[11px] font-semibold text-[#31577D]">
                   {filteredSlides.length} slide{filteredSlides.length === 1 ? "" : "s"}
                 </span>
@@ -948,16 +923,27 @@ export function PropertyDecksView() {
 
                 <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
                   <fieldset className="min-w-0 border-0 p-0 sm:col-span-2 lg:col-span-4">
-                    <legend className="mb-1.5 text-[10px] font-semibold text-[#31577D]">Preferred locations <span className="font-normal text-slate-500">Select any that work</span></legend>
-                    <div className="flex flex-wrap gap-1.5">
-                      {locationOptions.map(({ city }) => (
-                        <label key={city} className={`inline-flex min-h-7 cursor-pointer items-center gap-1.5 border px-2 text-[10px] ${demandCriteria.locations.includes(city) ? "border-[#C9A84C] bg-[#FBF7E9] text-[#003366]" : "border-slate-200 bg-white text-slate-600"}`}>
-                          <input type="checkbox" aria-label={`Prefer ${city}`} checked={demandCriteria.locations.includes(city)} onChange={() => toggleDemandLocation(city)} className="accent-[#003366]" />
-                          {city}
-                        </label>
-                      ))}
-                      {locationOptions.length === 0 && <span className="text-[10px] text-slate-500">Locations appear after a catalog is loaded.</span>}
-                    </div>
+                    <legend className="mb-1.5 text-[10px] font-semibold text-[#31577D]">Preferred locations</legend>
+                    <details className="group relative max-w-full">
+                      <summary aria-label={`Preferred locations${demandCriteria.locations.length ? `, ${demandCriteria.locations.length} selected` : ""}`} className="flex min-h-8 w-full max-w-sm cursor-pointer list-none items-center justify-between gap-3 border border-slate-300 bg-white px-2.5 text-left text-xs text-[#003366] marker:hidden focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#C9A84C] [&::-webkit-details-marker]:hidden">
+                        <span className="min-w-0 truncate">
+                          {demandCriteria.locations.length
+                            ? demandCriteria.locations.join(", ")
+                            : "All cities"}
+                        </span>
+                        <ChevronDown aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-slate-500 transition-transform group-open:rotate-180" />
+                      </summary>
+                      <div className="absolute left-0 top-full z-20 mt-1 max-h-56 w-full max-w-sm overflow-y-auto border border-slate-300 bg-white p-1.5 shadow-md">
+                        {locationOptions.map(({ city }) => (
+                          <label key={city} className="flex min-h-8 cursor-pointer items-center gap-2 px-2 text-xs text-[#003366] hover:bg-slate-50">
+                            <input type="checkbox" aria-label={`Prefer ${city}`} checked={demandCriteria.locations.includes(city)} onChange={() => toggleDemandLocation(city)} className="accent-[#003366]" />
+                            {city}
+                          </label>
+                        ))}
+                        {locationOptions.length === 0 && <p className="px-2 py-2 text-xs text-slate-500">Locations appear after a catalog is loaded.</p>}
+                      </div>
+                    </details>
+                    <p className="mt-1 text-[10px] text-slate-500">Select any cities that work.</p>
                   </fieldset>
 
                   <label className="min-w-0 text-[10px] font-semibold text-[#31577D]">Leasable area (sqm)
@@ -1043,8 +1029,6 @@ export function PropertyDecksView() {
                       setLocationFilter("all");
                       setDeckFilter("all");
                       setRoleFilter("all");
-                      setMinGlaInput("");
-                      setMaxGlaInput("");
                     }}
                     className="inline-flex min-h-9 items-center gap-1.5 border border-slate-300 bg-white px-3.5 text-xs font-semibold text-[#003366]"
                   >

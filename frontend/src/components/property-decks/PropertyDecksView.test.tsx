@@ -153,10 +153,13 @@ describe("PropertyDecksView component", () => {
     await waitFor(() => expect(screen.getByText("Biñan Logistics Center — Warehouse 4")).toBeDefined());
 
     const toggle = screen.getByRole("button", { name: "Demand Matching" });
+    expect(screen.queryByLabelText("Minimum GLA")).toBeNull();
+    expect(screen.queryByLabelText("Maximum GLA")).toBeNull();
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     fireEvent.click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
     const panel = screen.getByRole("region", { name: "Demand matching requirements" });
+    fireEvent.click(within(panel).getByText("All cities"));
     fireEvent.click(within(panel).getByRole("checkbox", { name: "Prefer Pasig" }));
     fireEvent.change(within(panel).getByLabelText("Minimum leasable area (sqm)"), { target: { value: "2,000" } });
     fireEvent.change(within(panel).getByLabelText("Maximum leasable area (sqm)"), { target: { value: "2,500" } });
