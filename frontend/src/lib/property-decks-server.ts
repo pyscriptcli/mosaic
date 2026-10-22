@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import JSZip from "jszip";
 import { compileCopiedPptx } from "./property-deck-export";
+import { convertPptxToPdf } from "./property-deck-pdf";
 import {
   enrichDeckSlidesWithSharedWarehouseSpecs,
   extractSpecsFromSlideText,
@@ -315,4 +316,10 @@ export async function compilePropertyDeck(params: {
     slideCount: copiedDeck.slideCount,
     engine: "openxml-slide-copy",
   };
+}
+
+export async function convertPropertyDeckPdf(pptxPath: string): Promise<{ pdfPath: string; pdfFileName: string }> {
+  const pdfPath = pptxPath.replace(/\.pptx$/i, ".pdf");
+  await convertPptxToPdf(pptxPath, pdfPath);
+  return { pdfPath, pdfFileName: path.basename(pdfPath) };
 }

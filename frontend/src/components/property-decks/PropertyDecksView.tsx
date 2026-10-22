@@ -8,7 +8,6 @@ import {
   ChevronDown,
   ChevronUp,
   Edit3,
-  ExternalLink,
   FolderOpen,
   Layers,
   LoaderCircle,
@@ -45,8 +44,11 @@ interface StoredFolderConfig {
 }
 
 interface CompiledResult {
+  downloadId: string;
   outputPath: string;
   fileName: string;
+  pdfFileName: string | null;
+  pdfError: string | null;
   slideCount: number;
   engine: string;
 }
@@ -110,6 +112,7 @@ export function PropertyDecksView({
   // Export filename
   const [clientName, setClientName] = useState("");
   const [compiledResult, setCompiledResult] = useState<CompiledResult | null>(null);
+  const [exportStage, setExportStage] = useState<"idle" | "pptx" | "pdf" | "ready" | "pdf-error">("idle");
 
   // Load saved browser config and initial catalog
   useEffect(() => {
@@ -180,6 +183,8 @@ export function PropertyDecksView({
 
   const persistCart = useCallback((next: string[]) => {
     setSelectedSlideIds(next);
+    setCompiledResult(null);
+    setExportStage("idle");
     try {
       localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(next));
     } catch {
@@ -377,6 +382,8 @@ export function PropertyDecksView({
     setCompiling(true);
     setError(null);
     setCompiledResult(null);
+    setExportStage("pptx");
+    let pptxCreated = false;
     try {
       const res = await fetch("/api/property-decks/compile", {
           method: "POST",
@@ -399,28 +406,62 @@ export function PropertyDecksView({
         });
       const payload = await res.json().catch(() => ({}));
       if (res.ok && payload.fileName) {
-        setCompiledResult({
+        const result: CompiledResult = {
+          downloadId: payload.downloadId,
           outputPath: payload.outputPath,
           fileName: payload.fileName,
+          pdfFileName: null,
+          pdfError: null,
           slideCount: payload.slideCount,
           engine: payload.engine,
-        });
+        };
+        setCompiledResult(result);
+        pptxCreated = true;
+        setExportStage("pdf");
+        try {
+          const pdfRes = await fetch("/api/property-decks/compile", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ downloadId: payload.downloadId }),
+          });
+          const pdfPayload = await pdfRes.json().catch(() => ({}));
+          if (pdfRes.ok && pdfPayload.pdfFileName) {
+            setCompiledResult({ ...result, pdfFileName: pdfPayload.pdfFileName });
+            setExportStage("ready");
+          } else {
+            setCompiledResult({ ...result, pdfError: pdfPayload.error || "PDF conversion failed." });
+            setExportStage("pdf-error");
+          }
+        } catch (pdfError) {
+          setCompiledResult({
+            ...result,
+            pdfError: pdfError instanceof Error ? pdfError.message : "PDF conversion failed.",
+          });
+          setExportStage("pdf-error");
+        }
         return;
       }
       throw new Error(payload.error || "The source slides could not be exported.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to compile presentation deck.");
+      if (pptxCreated) {
+        const message = err instanceof Error ? err.message : "PDF conversion failed.";
+        setCompiledResult((current) => current ? { ...current, pdfError: message } : current);
+        setExportStage("pdf-error");
+      } else {
+        setError(err instanceof Error ? err.message : "Failed to compile presentation deck.");
+        setExportStage("idle");
+      }
     } finally {
       setCompiling(false);
     }
   };
 
-  const triggerWindowsOpen = async (targetPath: string, action: "open-file" | "reveal-folder") => {
+  const triggerWindowsOpen = async (targetPath: string) => {
     try {
       await fetch("/api/property-decks/open", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ targetPath, action }),
+        body: JSON.stringify({ targetPath, action: "reveal-folder" }),
       });
     } catch {
       // Ignore desktop open failure in browser-only test environments
@@ -1054,31 +1095,50 @@ export function PropertyDecksView({
           >
             <Layers className="h-4 w-4 text-[#C9A84C]" />
             {compiling
-              ? "Compiling Presentation…"
+              ? exportStage === "pdf" ? "Converting PDF…" : "Preparing PPTX…"
               : `Export Selected Slides (${activeProposalManifest.slides.length})`}
           </button>
+          {compiling && (
+            <p role="status" aria-live="polite" className="text-[11px] text-slate-600">
+              {exportStage === "pdf" ? "Converting PPTX to PDF with Microsoft PowerPoint…" : "Preparing selected slides as PPTX…"}
+            </p>
+          )}
+          {exportStage === "ready" && <p role="status" className="text-[11px] text-green-700">PPTX and PDF ready to download.</p>}
 
           {compiledResult && (
             <div className="space-y-2 border border-[#C9A84C] bg-[#FBF7E9] p-3 text-xs text-[#003366]">
-              <p className="font-semibold">Slides copied to the output folder:</p>
+              <p className="font-semibold">{exportStage === "ready" ? "PPTX and PDF are ready:" : "PPTX created:"}</p>
               <p className="break-all font-mono text-[11px]">{compiledResult.fileName}</p>
               <p className="text-[10px] text-slate-600">
                 {compiledResult.slideCount} slides copied · {compiledResult.outputPath}
               </p>
+              {compiledResult.pdfError && (
+                <p role="alert" className="text-[11px] text-red-700">
+                  PPTX download is ready. PDF conversion failed: {compiledResult.pdfError}
+                </p>
+              )}
               <div className="flex flex-wrap gap-2 pt-1">
+                <a
+                  href={`/api/property-decks/compile?id=${compiledResult.downloadId}&format=pptx`}
+                  download={compiledResult.fileName}
+                  className="inline-flex min-h-8 items-center gap-1 border border-[#003366] bg-[#003366] px-2.5 text-[11px] font-semibold text-white"
+                >
+                  Download PPTX
+                </a>
+                {compiledResult.pdfFileName && (
+                  <a
+                    href={`/api/property-decks/compile?id=${compiledResult.downloadId}&format=pdf`}
+                    download={compiledResult.pdfFileName}
+                    className="inline-flex min-h-8 items-center gap-1 border border-slate-300 bg-white px-2.5 text-[11px] font-semibold text-[#003366]"
+                  >
+                    Download PDF
+                  </a>
+                )}
                 {!compiledResult.outputPath.startsWith("/tmp/") && (
                   <>
                     <button
                       type="button"
-                      onClick={() => void triggerWindowsOpen(compiledResult.outputPath, "open-file")}
-                      className="inline-flex min-h-8 items-center gap-1 border border-slate-300 bg-white px-2.5 text-[11px] font-semibold text-[#003366]"
-                    >
-                      <ExternalLink className="h-3 w-3" />
-                      Open in PowerPoint
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void triggerWindowsOpen(compiledResult.outputPath, "reveal-folder")}
+                      onClick={() => void triggerWindowsOpen(compiledResult.outputPath)}
                       className="inline-flex min-h-8 items-center gap-1 border border-slate-300 bg-white px-2.5 text-[11px] font-semibold text-[#003366]"
                     >
                       <FolderOpen className="h-3 w-3" />

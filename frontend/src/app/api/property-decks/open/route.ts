@@ -7,7 +7,10 @@ export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => ({}));
     const targetPath = path.resolve(String(body.targetPath || "").trim());
-    const action = body.action === "reveal-folder" ? "reveal-folder" : "open-file";
+    const action = body.action === "reveal-folder" ? "reveal-folder" : null;
+    if (!action) {
+      return NextResponse.json({ error: "Only output-folder reveal is supported." }, { status: 400 });
+    }
 
     if (!targetPath || !fs.existsSync(targetPath)) {
       return NextResponse.json(
@@ -16,13 +19,9 @@ export async function POST(request: Request) {
       );
     }
 
-    if (action === "reveal-folder") {
-      const stat = await fs.promises.stat(targetPath);
-      const args = stat.isDirectory() ? [targetPath] : [`/select,${targetPath}`];
-      execFile("explorer.exe", args);
-    } else {
-      execFile("cmd.exe", ["/c", "start", "", targetPath]);
-    }
+    const stat = await fs.promises.stat(targetPath);
+    const args = stat.isDirectory() ? [targetPath] : [`/select,${targetPath}`];
+    execFile("explorer.exe", args);
 
     return NextResponse.json({ ok: true, targetPath, action });
   } catch (error) {

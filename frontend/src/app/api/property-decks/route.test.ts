@@ -4,7 +4,7 @@ import path from "node:path";
 import JSZip from "jszip";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { GET, POST } from "./route";
-import { POST as compilePost } from "./compile/route";
+import { GET as compileGet, POST as compilePost, PUT as compilePdfPost } from "./compile/route";
 
 describe("/api/property-decks API routes", () => {
   let tempDir: string;
@@ -80,8 +80,30 @@ describe("/api/property-decks API routes", () => {
     expect(fs.existsSync(compilePayload.outputPath)).toBe(true);
     expect(compilePayload.slideCount).toBe(1);
     expect(compilePayload.outputPath).toContain(outputDir);
+    expect(compilePayload.downloadId).toMatch(/^[a-f0-9-]{36}$/);
+    expect(compilePayload.pdfError).toBeNull();
     const compiled = await JSZip.loadAsync(await fs.promises.readFile(compilePayload.outputPath));
     expect(compiled.file("ppt/slides/slide1.xml")).not.toBeNull();
+
+    const downloadRes = await compileGet(
+      new Request(`http://127.0.0.1:3000/api/property-decks/compile?id=${compilePayload.downloadId}&format=pptx`),
+    );
+    expect(downloadRes.status).toBe(200);
+    expect(downloadRes.headers.get("content-type")).toContain("presentationml.presentation");
+    expect((await downloadRes.arrayBuffer()).byteLength).toBe((await fs.promises.readFile(compilePayload.outputPath)).byteLength);
+
+    const conversionRes = await compilePdfPost(new Request("http://127.0.0.1:3000/api/property-decks/compile", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ downloadId: compilePayload.downloadId }),
+    }));
+    expect(conversionRes.status).toBe(500);
+    expect((await conversionRes.json()).error).toMatch(/PowerPoint|Windows/i);
+
+    const unavailablePdf = await compileGet(
+      new Request(`http://127.0.0.1:3000/api/property-decks/compile?id=${compilePayload.downloadId}&format=pdf`),
+    );
+    expect(unavailablePdf.status).toBe(404);
   });
 
   it("rejects a local source path that this Mosaic server cannot access", async () => {

@@ -7,7 +7,51 @@ import {
   type PropertySlideItem,
   type PropertySlideOverride,
 } from "@/lib/property-decks";
-import { compilePropertyDeck, readCachedCatalog } from "@/lib/property-decks-server";
+import { compilePropertyDeck, convertPropertyDeckPdf, readCachedCatalog } from "@/lib/property-decks-server";
+import { getPropertyDeckPptxPath, readPropertyDeckExport, registerPropertyDeckExport, setPropertyDeckPdf } from "@/lib/property-deck-downloads";
+
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const id = searchParams.get("id") || "";
+  const format = searchParams.get("format");
+  if (!/^[a-f0-9-]{36}$/i.test(id) || (format !== "pptx" && format !== "pdf")) {
+    return NextResponse.json({ error: "Export download is invalid or expired." }, { status: 400 });
+  }
+
+  const file = await readPropertyDeckExport(id, format);
+  if (!file) {
+    return NextResponse.json({ error: "This export file is unavailable or has expired." }, { status: 404 });
+  }
+  return new NextResponse(new Uint8Array(file.content), {
+    headers: {
+      "Content-Type": format === "pptx"
+        ? "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        : "application/pdf",
+      "Content-Disposition": `attachment; filename="${file.fileName}"`,
+      "Cache-Control": "private, no-store",
+    },
+  });
+}
+
+export async function PUT(request: Request) {
+  try {
+    const body = await request.json().catch(() => ({}));
+    const downloadId = String(body.downloadId || "");
+    if (!/^[a-f0-9-]{36}$/i.test(downloadId)) {
+      return NextResponse.json({ error: "Export session is invalid or expired." }, { status: 404 });
+    }
+    const pptxPath = getPropertyDeckPptxPath(downloadId);
+    if (!pptxPath) return NextResponse.json({ error: "Export session is invalid or expired." }, { status: 404 });
+    const pdf = await convertPropertyDeckPdf(pptxPath);
+    setPropertyDeckPdf(downloadId, pdf.pdfPath);
+    return NextResponse.json(pdf);
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "PDF conversion failed." },
+      { status: 500 },
+    );
+  }
+}
 
 export async function POST(request: Request) {
   try {
@@ -75,9 +119,12 @@ export async function POST(request: Request) {
       manifest,
       outputFolder,
     });
+    const downloadId = registerPropertyDeckExport(result.outputPath, null);
 
     return NextResponse.json({
       ...result,
+      pdfError: null,
+      downloadId,
       manifest,
     });
   } catch (error) {

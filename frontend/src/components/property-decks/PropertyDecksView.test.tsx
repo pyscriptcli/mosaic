@@ -83,6 +83,7 @@ describe("PropertyDecksView component", () => {
         const body = JSON.parse(String(init.body));
         return new Response(
           JSON.stringify({
+            downloadId: "8a5ab5c2-f4b4-41a0-9199-9ed6a4a53f75",
             outputPath: `${mockCatalog.outputFolder}\\PRIME_Proposal_${body.proposal.clientName}.pptx`,
             fileName: `PRIME_Proposal_${body.proposal.clientName}.pptx`,
             slideCount: body.proposal.mode === "comprehensive" ? 5 : 4,
@@ -90,6 +91,9 @@ describe("PropertyDecksView component", () => {
           }),
           { status: 200 },
         );
+      }
+      if (url === "/api/property-decks/compile" && init?.method === "PUT") {
+        return new Response(JSON.stringify({ pdfFileName: "PRIME_Proposal_FastCargo Logistics.pdf" }), { status: 200 });
       }
       return new Response(JSON.stringify({ ok: true }), { status: 200 });
     });
@@ -131,7 +135,12 @@ describe("PropertyDecksView component", () => {
 
     await waitFor(() => {
       expect(screen.getByText("PRIME_Proposal_FastCargo Logistics.pptx")).toBeDefined();
+      expect(screen.getByRole("link", { name: "Download PPTX" })).toBeDefined();
+      expect(screen.getByRole("link", { name: "Download PDF" })).toBeDefined();
     });
+    expect(screen.queryByRole("button", { name: /open in powerpoint/i })).toBeNull();
+    expect(screen.getByRole("link", { name: "Download PPTX" }).getAttribute("href")).toContain("format=pptx");
+    expect(screen.getByRole("link", { name: "Download PDF" }).getAttribute("href")).toContain("format=pdf");
   });
 
   it("rescans the configured local path through the server and refreshes the gallery", async () => {
@@ -168,6 +177,37 @@ describe("PropertyDecksView component", () => {
       sourceFolder: mockCatalog.sourceFolder,
       outputFolder: mockCatalog.outputFolder,
     });
+  });
+
+  it("keeps the PPTX download available and reports a PDF conversion failure", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === "/api/property-decks" && (!init || init.method !== "POST")) {
+        return new Response(JSON.stringify({ catalog: mockCatalog }), { status: 200 });
+      }
+      if (String(input) === "/api/property-decks/compile" && init?.method === "POST") {
+        return new Response(JSON.stringify({
+          downloadId: "8a5ab5c2-f4b4-41a0-9199-9ed6a4a53f75",
+          outputPath: `${mockCatalog.outputFolder}\\PRIME_Proposal_Client.pptx`,
+          fileName: "PRIME_Proposal_Client.pptx",
+          slideCount: 1,
+          engine: "openxml-slide-copy",
+        }), { status: 200 });
+      }
+      if (String(input) === "/api/property-decks/compile" && init?.method === "PUT") {
+        return new Response(JSON.stringify({ error: "PDF conversion requires Windows and Microsoft PowerPoint." }), { status: 500 });
+      }
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<PropertyDecksView />);
+    await waitFor(() => expect(screen.getByText("Biñan Logistics Center — Warehouse 4")).toBeDefined());
+    fireEvent.click(screen.getAllByRole("button", { name: /add to deck/i })[0]);
+    fireEvent.click(screen.getByRole("button", { name: /export selected slides/i }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain("PPTX download is ready. PDF conversion failed");
+    expect(screen.getByRole("link", { name: "Download PPTX" })).toBeDefined();
+    expect(screen.queryByRole("link", { name: "Download PDF" })).toBeNull();
   });
 
   it("simplifies filter tabs and groups same-title warehouse slides into collapsed cards with partial and full selection", async () => {
