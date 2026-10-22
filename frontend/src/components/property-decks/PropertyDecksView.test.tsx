@@ -151,13 +151,17 @@ describe("PropertyDecksView component", () => {
     await screen.findByAltText("Client logo preview");
 
     // Export selected slides
-    fireEvent.click(screen.getByRole("button", { name: /export selected slides/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Export Proposal" }));
 
     await waitFor(() => {
       expect(screen.getByText("PRIME_Proposal_FastCargo Logistics.pptx")).toBeDefined();
       expect(screen.getByRole("button", { name: "Download PPTX" })).toBeDefined();
       expect(screen.getByRole("button", { name: "Download PDF" })).toBeDefined();
+      expect(screen.getByRole("button", { name: "Show in Explorer" })).toBeDefined();
     });
+    fireEvent.click(screen.getByRole("tab", { name: /CTA/ }));
+    expect(screen.getByRole("button", { name: "Export Proposal" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Download PPTX" })).toBeDefined();
     const compileRequest = fetchMock.mock.calls.find(([url, init]) => String(url) === `${helperUrl}/api/property-decks/compile` && init?.method === "POST");
     expect(JSON.parse(String(compileRequest?.[1]?.body)).proposal).toMatchObject({
       clientName: "FastCargo Logistics",
@@ -234,11 +238,11 @@ describe("PropertyDecksView component", () => {
     render(<PropertyDecksView />);
     await waitFor(() => expect(screen.getByText("Biñan Logistics Center — Warehouse 4")).toBeDefined());
     fireEvent.click(screen.getAllByRole("button", { name: /add this slide/i })[0]);
-    fireEvent.click(screen.getByRole("button", { name: /export selected slides/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Export Proposal" }));
 
     expect((await screen.findByRole("alert")).textContent).toContain("PPTX download is ready. PDF conversion failed");
     expect(screen.getByRole("button", { name: "Download PPTX" })).toBeDefined();
-    expect(screen.queryByRole("button", { name: "Download PDF" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Download PDF" }).hasAttribute("disabled")).toBe(true);
   });
 
   it("shows both export stages, elapsed time, and prevents duplicate exports while requests are pending", async () => {
@@ -265,9 +269,9 @@ describe("PropertyDecksView component", () => {
     render(<PropertyDecksView />);
     await waitFor(() => expect(screen.getByText("Biñan Logistics Center — Warehouse 4")).toBeDefined());
     fireEvent.click(screen.getAllByRole("button", { name: /add this slide/i })[0]);
-    fireEvent.click(screen.getByRole("button", { name: /export selected slides/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Export Proposal" }));
 
-    const exportButton = screen.getByRole("button", { name: /building powerpoint/i });
+    const exportButton = screen.getByRole("button", { name: /preparing/i });
     expect(exportButton.hasAttribute("disabled")).toBe(true);
     const pptxProgress = screen.getByText(/Compiling 1 selected slide into PowerPoint/).parentElement?.parentElement;
     expect(pptxProgress?.textContent).toContain("Elapsed 0:");
@@ -283,7 +287,7 @@ describe("PropertyDecksView component", () => {
       engine: "microsoft-powerpoint",
     }), { status: 200 }));
 
-    const pdfButton = await screen.findByRole("button", { name: /converting to pdf/i });
+    const pdfButton = await screen.findByRole("button", { name: /preparing pdf/i });
     expect(pdfButton.hasAttribute("disabled")).toBe(true);
     const pdfProgress = screen.getByText(/Converting PowerPoint to PDF/).parentElement?.parentElement;
     expect(pdfProgress?.textContent).toContain("Elapsed 0:");
@@ -389,6 +393,7 @@ describe("PropertyDecksView component", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /add this slide/i }));
     expect(screen.getByText("Selected Slides (1)")).toBeDefined();
+    fireEvent.click(screen.getByRole("tab", { name: /Properties/ }));
     expect(screen.getByText(/Bataan Warehouse Space — Specifications & Access/i)).toBeDefined();
     expect(screen.getByText(/1\/2 Selected/i)).toBeDefined();
 
@@ -409,7 +414,7 @@ describe("PropertyDecksView component", () => {
     expect(screen.getByRole("button", { name: /add all \(2\)/i })).toBeDefined();
   });
 
-  it("shows three expanded proposal sections and groups location options by city", async () => {
+  it("shows accessible proposal tabs with dynamic page counts and preserves cover edits when switching", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url === `${helperUrl}/health`) return new Response(JSON.stringify({ ok: true }), { status: 200 });
@@ -422,17 +427,65 @@ describe("PropertyDecksView component", () => {
     render(<PropertyDecksView />);
     await waitFor(() => expect(screen.getByText("Biñan Logistics Center — Warehouse 4")).toBeDefined());
 
-    for (const section of ["Coverpage", "Properties", "CTA"]) {
-      expect(screen.getByRole("button", { name: `Collapse ${section}` }).getAttribute("aria-expanded")).toBe("true");
-    }
+    const tablist = screen.getByRole("tablist", { name: "Proposal sections" });
+    const tabs = within(tablist).getAllByRole("tab");
+    expect(tabs).toHaveLength(3);
+    expect(tabs[0].getAttribute("aria-selected")).toBe("true");
+    expect(tabs[0].textContent).toContain("Coverpage");
+    expect(tabs[1].textContent).toContain("Properties");
+    expect(tabs[2].textContent).toContain("CTA");
+    expect(screen.getAllByRole("tabpanel")).toHaveLength(1);
 
-    const coverToggle = screen.getByRole("button", { name: "Collapse Coverpage" });
-    fireEvent.click(coverToggle);
-    expect(screen.getByRole("button", { name: "Expand Coverpage" }).getAttribute("aria-expanded")).toBe("false");
+    fireEvent.change(screen.getByLabelText("Client name"), { target: { value: "FastCargo Logistics" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sondi" }));
+    fireEvent.keyDown(tabs[0], { key: "ArrowRight" });
+    await waitFor(() => expect(document.activeElement).toBe(tabs[1]));
+    expect(tabs[1].getAttribute("aria-selected")).toBe("true");
+    expect(screen.getAllByRole("tabpanel")).toHaveLength(1);
+    expect(screen.getByRole("tabpanel").getAttribute("aria-labelledby")).toBe(tabs[1].id);
+    fireEvent.keyDown(tabs[1], { key: "ArrowRight" });
+    expect(tabs[2].getAttribute("aria-selected")).toBe("true");
+    fireEvent.keyDown(tabs[2], { key: "ArrowRight" });
+    expect(tabs[0].getAttribute("aria-selected")).toBe("true");
+    expect((screen.getByLabelText("Client name") as HTMLInputElement).value).toBe("FastCargo Logistics");
+    expect((screen.getByLabelText("Prepared by name") as HTMLInputElement).value).toBe("Sondi Tuazon");
 
     const locations = screen.getByLabelText(/filter by location/i);
     expect(within(locations).getByRole("group", { name: "Biñan" })).toBeDefined();
     expect(within(locations).getByRole("group", { name: "Pasig" })).toBeDefined();
+  });
+
+  it("keeps property order and selection when moving between tabs", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === `${helperUrl}/health`) return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      if (url === `${helperUrl}/api/property-decks`) return new Response(JSON.stringify({ catalog: mockCatalog }), { status: 200 });
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }));
+
+    render(<PropertyDecksView />);
+    await waitFor(() => expect(screen.getByText("Biñan Logistics Center — Warehouse 4")).toBeDefined());
+    fireEvent.click(screen.getAllByRole("button", { name: /add this slide/i })[0]);
+    fireEvent.click(screen.getByRole("button", { name: /add this slide/i }));
+    const propertiesTab = screen.getByRole("tab", { name: /Properties/ });
+    fireEvent.click(propertiesTab);
+    const panel = screen.getByRole("tabpanel");
+    expect(within(panel).getByText("Selected properties")).toBeDefined();
+    fireEvent.click(within(panel).getByRole("button", { name: "Move MSCS Pasig Distribution Hub up" }));
+    const reordered = within(panel).getAllByRole("listitem").map((item) => item.textContent || "");
+    expect(reordered[0]).toContain("MSCS Pasig Distribution Hub");
+
+    fireEvent.click(screen.getByRole("tab", { name: /CTA/ }));
+    expect(screen.getByRole("tab", { name: /Properties/ }).getAttribute("aria-selected")).toBe("false");
+    fireEvent.click(screen.getByRole("tab", { name: /Properties/ }));
+    expect(within(screen.getByRole("tabpanel")).getAllByRole("listitem")[0].textContent).toContain("MSCS Pasig Distribution Hub");
+    expect(screen.getByText("Selected Slides (2)")).toBeDefined();
+    fireEvent.click(within(screen.getByRole("tabpanel")).getByRole("button", { name: "Remove MSCS Pasig Distribution Hub" }));
+    expect(screen.getByText("Selected Slides (1)")).toBeDefined();
+    fireEvent.click(screen.getByRole("tab", { name: /CTA/ }));
+    fireEvent.click(screen.getByRole("tab", { name: /Properties/ }));
+    expect(within(screen.getByRole("tabpanel")).getAllByRole("listitem")).toHaveLength(1);
+    expect(within(screen.getByRole("tabpanel")).getByText(/Biñan Logistics Center/)).toBeDefined();
   });
 
   it("keeps the cover, location divider, property pages, and CTA together in their assembler sections", async () => {
@@ -456,7 +509,35 @@ describe("PropertyDecksView component", () => {
 
     expect(screen.getByText("Selected Slides (4)")).toBeDefined();
     expect(screen.getByText(/Client Proposal Cover/)).toBeDefined();
-    expect(screen.getAllByText(/Industrial Facility Proposal/).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("tab", { name: /Properties/ }));
+    expect(screen.getAllByText(/Industrial Facility Proposal/).length).toBeGreaterThan(1);
+    fireEvent.click(screen.getByRole("tab", { name: /CTA/ }));
     expect(screen.getByText(/For more information and to schedule a viewing contact us/)).toBeDefined();
+  });
+
+  it("keeps all proposal tabs reachable in the compact narrow-width layout", async () => {
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 360 });
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === `${helperUrl}/health`) return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      if (url === `${helperUrl}/api/property-decks`) return new Response(JSON.stringify({ catalog: mockCatalog }), { status: 200 });
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }));
+
+    try {
+      render(<PropertyDecksView />);
+      await waitFor(() => expect(screen.getByText("Biñan Logistics Center — Warehouse 4")).toBeDefined());
+      const tablist = screen.getByRole("tablist", { name: "Proposal sections" });
+      expect(tablist.className).toContain("overflow-x-auto");
+      expect(screen.getByRole("complementary", { name: "Proposal deck compiler" }).className).toContain("min-w-0");
+      const tabs = within(tablist).getAllByRole("tab");
+      expect(tabs).toHaveLength(3);
+      expect(tabs.every((tab) => tab.className.includes("shrink-0"))).toBe(true);
+      fireEvent.click(tabs[2]);
+      expect(tabs[2].getAttribute("aria-selected")).toBe("true");
+    } finally {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
+    }
   });
 });

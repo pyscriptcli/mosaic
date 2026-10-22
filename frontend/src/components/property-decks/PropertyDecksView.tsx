@@ -1,11 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type KeyboardEvent } from "react";
 import {
   ArrowDown,
   ArrowUp,
   Check,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Edit3,
@@ -35,7 +34,6 @@ import {
   type PropertySlideOverride,
   type SlideRole,
 } from "@/lib/property-decks";
-import { PropertyDecksLayoutPrototype } from "./PropertyDecksLayoutPrototype";
 
 const CONFIG_STORAGE_KEY = "mosaic_property_decks_config_v1";
 const OVERRIDES_STORAGE_KEY = "mosaic_property_decks_overrides_v1";
@@ -87,7 +85,7 @@ interface CompiledResult {
 }
 
 export function PropertyDecksView() {
-  const [prototypeVariant, setPrototypeVariant] = useState<string | null>(null);
+  const [activeAssemblerTab, setActiveAssemblerTab] = useState<"coverpage" | "properties" | "cta">("coverpage");
   const [catalog, setCatalog] = useState<PropertyDeckCatalog | null>(null);
   const [sourceFolder, setSourceFolder] = useState("");
   const [outputFolder, setOutputFolder] = useState("");
@@ -109,7 +107,6 @@ export function PropertyDecksView() {
   const [roleFilter, setRoleFilter] = useState<"all" | SlideRole>("property");
   const [minGlaInput, setMinGlaInput] = useState("");
   const [maxGlaInput, setMaxGlaInput] = useState("");
-  const [assemblerSections, setAssemblerSections] = useState({ coverpage: true, properties: true, cta: true });
 
   // Overrides & Proposal Cart
   const [overrides, setOverrides] = useState<Record<string, PropertySlideOverride>>(() => {
@@ -155,16 +152,6 @@ export function PropertyDecksView() {
     }, 1000);
     return () => window.clearInterval(intervalId);
   }, [compiling]);
-
-  useEffect(() => {
-    const syncVariant = () => {
-      const value = new URLSearchParams(window.location.search).get("variant");
-      setPrototypeVariant(["A", "B", "C", "D"].includes(value || "") ? value : null);
-    };
-    syncVariant();
-    window.addEventListener("popstate", syncVariant);
-    return () => window.removeEventListener("popstate", syncVariant);
-  }, []);
 
   // Load saved browser config and initial catalog
   useEffect(() => {
@@ -371,16 +358,6 @@ export function PropertyDecksView() {
     ],
   );
 
-  if (process.env.NODE_ENV !== "production" && prototypeVariant && !loading && catalog) {
-    return (
-      <PropertyDecksLayoutPrototype
-        variant={prototypeVariant}
-        groups={slideGroups}
-        selectedCount={selectedSlideIds.length}
-      />
-    );
-  }
-
   const toggleSelectSlide = (slideId: string) => {
     if (selectedSlideIds.includes(slideId)) {
       persistCart(selectedSlideIds.filter((id) => id !== slideId));
@@ -571,8 +548,26 @@ export function PropertyDecksView() {
     (slide) => slide.slideRole === "property" || isIndustrialFacilityProposalSlide(slide),
   );
   const ctaSlides = activeProposalManifest.slides.filter((slide) => slide.slideRole === "closing");
-  const toggleAssemblerSection = (section: keyof typeof assemblerSections) => {
-    setAssemblerSections((current) => ({ ...current, [section]: !current[section] }));
+  const handleAssemblerTabKeyDown = (
+    event: KeyboardEvent<HTMLButtonElement>,
+    currentTab: "coverpage" | "properties" | "cta",
+  ) => {
+    const tabs = ["coverpage", "properties", "cta"] as const;
+    const currentIndex = tabs.indexOf(currentTab);
+    const nextIndex = event.key === "ArrowRight"
+      ? (currentIndex + 1) % tabs.length
+      : event.key === "ArrowLeft"
+        ? (currentIndex + tabs.length - 1) % tabs.length
+        : event.key === "Home"
+          ? 0
+          : event.key === "End"
+            ? tabs.length - 1
+            : -1;
+    if (nextIndex < 0) return;
+    event.preventDefault();
+    const nextTab = tabs[nextIndex];
+    setActiveAssemblerTab(nextTab);
+    window.requestAnimationFrame(() => document.getElementById(`assembler-tab-${nextTab}`)?.focus());
   };
   const choosePreparedByPreset = (preset: keyof typeof PREPARED_BY_PRESETS) => {
     setPreparedByPreset(preset);
@@ -611,9 +606,9 @@ export function PropertyDecksView() {
               </div>
               {cartIndex >= 0 ? (
                 <div className="flex shrink-0 items-center gap-1">
-                  <button type="button" aria-label={`Move ${slide.title} up`} disabled={cartIndex === 0} onClick={() => moveCartSlide(cartIndex, -1)} className="inline-flex h-6 w-6 items-center justify-center border border-slate-200 text-[#003366] disabled:opacity-30"><ArrowUp className="h-3 w-3" /></button>
-                  <button type="button" aria-label={`Move ${slide.title} down`} disabled={cartIndex === selectedSlideIds.length - 1} onClick={() => moveCartSlide(cartIndex, 1)} className="inline-flex h-6 w-6 items-center justify-center border border-slate-200 text-[#003366] disabled:opacity-30"><ArrowDown className="h-3 w-3" /></button>
-                  <button type="button" aria-label={`Remove ${slide.title}`} onClick={() => toggleSelectSlide(slide.id)} className="inline-flex h-6 w-6 items-center justify-center border border-slate-200 text-slate-500 hover:text-red-700"><Trash2 className="h-3 w-3" /></button>
+                  <button type="button" aria-label={`Move ${slide.title} up`} disabled={cartIndex === 0} onClick={() => moveCartSlide(cartIndex, -1)} className="inline-flex h-7 w-7 items-center justify-center border border-slate-200 text-[#003366] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#C9A84C] disabled:opacity-30"><ArrowUp aria-hidden="true" className="h-3 w-3" /></button>
+                  <button type="button" aria-label={`Move ${slide.title} down`} disabled={cartIndex === selectedSlideIds.length - 1} onClick={() => moveCartSlide(cartIndex, 1)} className="inline-flex h-7 w-7 items-center justify-center border border-slate-200 text-[#003366] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#C9A84C] disabled:opacity-30"><ArrowDown aria-hidden="true" className="h-3 w-3" /></button>
+                  <button type="button" aria-label={`Remove ${slide.title}`} onClick={() => toggleSelectSlide(slide.id)} className="inline-flex h-7 w-7 items-center justify-center border border-slate-200 text-slate-500 hover:text-red-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#C9A84C]"><Trash2 aria-hidden="true" className="h-3 w-3" /></button>
                 </div>
               ) : (
                 <span className="shrink-0 text-[9px] font-semibold uppercase tracking-wide text-[#31577D]">Included</span>
@@ -1082,8 +1077,8 @@ export function PropertyDecksView() {
         </div>
 
         {/* Right Column: Proposal Compiler & Cart */}
-        <aside aria-label="Proposal deck compiler" className="sticky top-4 flex max-h-[calc(100vh-2rem)] flex-col border border-slate-200 bg-white p-4">
-          <div className="flex shrink-0 items-center justify-between border-b border-slate-200 pb-3">
+        <aside aria-label="Proposal deck compiler" className="flex min-w-0 w-full flex-col border border-slate-200 bg-white p-3 sm:p-4 xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)]">
+          <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 pb-3">
             <div>
               <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-[#31577D]">
                 Proposal Assembler
@@ -1092,30 +1087,50 @@ export function PropertyDecksView() {
                 Selected Slides ({activeProposalManifest.slides.length})
               </h2>
             </div>
-            {selectedSlideIds.length > 0 && (
-              <button
-                type="button"
-                onClick={() => persistCart([])}
-                className="text-[11px] font-semibold text-slate-500 hover:text-red-700"
-              >
-                Clear All
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => void handleCompileDeck()}
+              disabled={compiling || activeProposalManifest.slides.length === 0}
+              className="inline-flex min-h-9 shrink-0 items-center justify-center gap-1.5 border border-[#003366] bg-[#003366] px-3 text-[11px] font-semibold text-white transition-colors hover:bg-[#174778] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#C9A84C] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Layers aria-hidden="true" className="h-3.5 w-3.5 text-[#C9A84C]" />
+              {compiling ? exportStage === "pdf" ? "Preparing PDF…" : "Preparing…" : "Export Proposal"}
+            </button>
           </div>
 
-          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto py-3 pr-1">
-            <section className="border border-slate-200">
-              <button type="button" aria-label={`${assemblerSections.coverpage ? "Collapse" : "Expand"} Coverpage`} aria-expanded={assemblerSections.coverpage} aria-controls="assembler-coverpage" onClick={() => toggleAssemblerSection("coverpage")} className="flex min-h-10 w-full items-center gap-2 px-3 text-left text-xs font-semibold text-[#003366] hover:bg-slate-50">
-                {assemblerSections.coverpage ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-                <span className="flex-1">Coverpage</span><span className="text-[9px] font-normal text-slate-500">Client &amp; prepared by</span>
+          <div role="tablist" aria-label="Proposal sections" className="-mx-1 flex min-w-0 shrink-0 gap-1 overflow-x-auto border-b border-slate-200 px-1 pt-3">
+            {([
+              { id: "coverpage", label: "Coverpage", count: coverSlides.length },
+              { id: "properties", label: "Properties", count: propertySlides.length },
+              { id: "cta", label: "CTA", count: ctaSlides.length },
+            ] as const).map((tab) => (
+              <button
+                key={tab.id}
+                id={`assembler-tab-${tab.id}`}
+                type="button"
+                role="tab"
+                aria-selected={activeAssemblerTab === tab.id}
+                aria-controls={`assembler-panel-${tab.id}`}
+                tabIndex={activeAssemblerTab === tab.id ? 0 : -1}
+                onClick={() => setActiveAssemblerTab(tab.id)}
+                onKeyDown={(event) => handleAssemblerTabKeyDown(event, tab.id)}
+                className={`relative inline-flex min-h-10 shrink-0 items-center gap-1.5 border border-transparent border-b-0 px-3 text-[11px] font-semibold transition-colors focus-visible:z-10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#C9A84C] ${activeAssemblerTab === tab.id ? "border-slate-200 bg-white text-[#003366] after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:bg-[#C9A84C]" : "text-slate-500 hover:bg-slate-50 hover:text-[#003366]"}`}
+              >
+                {tab.label}<span className={`text-[9px] font-normal ${activeAssemblerTab === tab.id ? "text-slate-500" : "text-slate-400"}`}>{tab.count} {tab.count === 1 ? "page" : "pages"}</span>
               </button>
-              {assemblerSections.coverpage && <div id="assembler-coverpage" className="space-y-2.5 border-t border-slate-100 p-3">
+            ))}
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-y-auto py-3 pr-1">
+            <section id="assembler-panel-coverpage" role="tabpanel" aria-labelledby="assembler-tab-coverpage" tabIndex={0} hidden={activeAssemblerTab !== "coverpage"} className="min-w-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#C9A84C]">
+              {activeAssemblerTab === "coverpage" && <div className="space-y-2.5">
+                <div className="mb-3 flex items-baseline justify-between gap-2"><h3 className="text-sm font-semibold text-[#003366]">Coverpage details</h3><span className="text-[10px] text-slate-500">Client &amp; prepared by</span></div>
                 <label className="block text-[10px] font-semibold text-[#31577D]">Client name<input aria-label="Client name" type="text" value={clientName} onChange={(e) => setClientName(e.target.value)} placeholder="Contact person" className="mt-1 h-8 w-full border border-slate-300 bg-white px-2 text-xs font-normal text-[#003366] focus:border-[#003366] focus:outline-none" /></label>
                 <div className="grid grid-cols-2 gap-2">
                   <label className="block text-[10px] font-semibold text-[#31577D]">Designation<input aria-label="Client designation" type="text" value={clientDesignation} onChange={(e) => setClientDesignation(e.target.value)} placeholder="Job title" className="mt-1 h-8 w-full border border-slate-300 bg-white px-2 text-xs font-normal text-[#003366] focus:border-[#003366] focus:outline-none" /></label>
                   <label className="block text-[10px] font-semibold text-[#31577D]">Company<input aria-label="Client company" type="text" value={clientCompany} onChange={(e) => setClientCompany(e.target.value)} placeholder="Company name" className="mt-1 h-8 w-full border border-slate-300 bg-white px-2 text-xs font-normal text-[#003366] focus:border-[#003366] focus:outline-none" /></label>
                 </div>
-                <label htmlFor="proposal-client-logo" className="flex cursor-pointer items-center gap-2 border border-dashed border-slate-300 bg-slate-50 px-2.5 py-2 text-[10px] font-semibold text-[#003366] hover:bg-slate-100">
+                <label htmlFor="proposal-client-logo" className="flex cursor-pointer items-center gap-2 border border-dashed border-slate-300 bg-slate-50 px-2.5 py-2 text-[10px] font-semibold text-[#003366] hover:bg-slate-100 focus-within:outline focus-within:outline-2 focus-within:outline-offset-1 focus-within:outline-[#C9A84C]">
                   <Presentation className="h-4 w-4 shrink-0" />
                   <span className="min-w-0 flex-1 truncate">{clientLogoDataUrl ? "Company logo selected" : "Upload company logo"}<span className="block font-normal text-slate-500">PNG or JPG · client brand area</span></span>
                   {clientLogoDataUrl && <img src={clientLogoDataUrl} alt="Client logo preview" className="h-8 w-12 object-contain" />}
@@ -1123,46 +1138,29 @@ export function PropertyDecksView() {
                 <input id="proposal-client-logo" aria-label="Upload company logo" type="file" accept="image/png,image/jpeg" onChange={handleClientLogoChange} className="sr-only" />
                 {coverSlides.length > 0 && <div className="pt-1"><p className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Cover page</p>{renderAssemblerSlides(coverSlides)}</div>}
                 <div className="border-t border-slate-100 pt-2.5">
-                  <div className="mb-2 flex items-center justify-between"><span className="text-[10px] font-semibold text-[#31577D]">Prepared by</span><div className="flex gap-1"><button type="button" aria-pressed={preparedByPreset === "cedtrix"} onClick={() => choosePreparedByPreset("cedtrix")} className={`border px-2 py-1 text-[10px] ${preparedByPreset === "cedtrix" ? "border-[#003366] bg-[#003366] text-white" : "border-slate-300 text-[#003366]"}`}>Cedtrix</button><button type="button" aria-pressed={preparedByPreset === "sondi"} onClick={() => choosePreparedByPreset("sondi")} className={`border px-2 py-1 text-[10px] ${preparedByPreset === "sondi" ? "border-[#003366] bg-[#003366] text-white" : "border-slate-300 text-[#003366]"}`}>Sondi</button></div></div>
+                  <div className="mb-2 flex items-center justify-between"><span className="text-[10px] font-semibold text-[#31577D]">Prepared by</span><div className="flex gap-1"><button type="button" aria-pressed={preparedByPreset === "cedtrix"} onClick={() => choosePreparedByPreset("cedtrix")} className={`border px-2 py-1 text-[10px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#C9A84C] ${preparedByPreset === "cedtrix" ? "border-[#003366] bg-[#003366] text-white" : "border-slate-300 text-[#003366]"}`}>Cedtrix</button><button type="button" aria-pressed={preparedByPreset === "sondi"} onClick={() => choosePreparedByPreset("sondi")} className={`border px-2 py-1 text-[10px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#C9A84C] ${preparedByPreset === "sondi" ? "border-[#003366] bg-[#003366] text-white" : "border-slate-300 text-[#003366]"}`}>Sondi</button></div></div>
                   <div className="space-y-2"><label className="block text-[10px] font-semibold text-[#31577D]">Name<input aria-label="Prepared by name" value={preparedByName} onChange={(e) => setPreparedByName(e.target.value)} className="mt-1 h-8 w-full border border-slate-300 px-2 text-xs font-normal text-[#003366]" /></label><div className="grid grid-cols-2 gap-2"><label className="block text-[10px] font-semibold text-[#31577D]">Designation<input aria-label="Prepared by designation" value={preparedByDesignation} onChange={(e) => setPreparedByDesignation(e.target.value)} className="mt-1 h-8 w-full border border-slate-300 px-2 text-xs font-normal text-[#003366]" /></label><label className="block text-[10px] font-semibold text-[#31577D]">Company<input aria-label="Prepared by company" value={preparedByCompany} onChange={(e) => setPreparedByCompany(e.target.value)} className="mt-1 h-8 w-full border border-slate-300 px-2 text-xs font-normal text-[#003366]" /></label></div></div>
                 </div>
               </div>}
             </section>
 
-            <section className="border border-slate-200">
-              <button type="button" aria-label={`${assemblerSections.properties ? "Collapse" : "Expand"} Properties`} aria-expanded={assemblerSections.properties} aria-controls="assembler-properties" onClick={() => toggleAssemblerSection("properties")} className="flex min-h-10 w-full items-center gap-2 px-3 text-left text-xs font-semibold text-[#003366] hover:bg-slate-50">
-                {assemblerSections.properties ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-                <span className="flex-1">Properties</span><span className="text-[9px] font-normal text-slate-500">{propertySlides.length} pages</span>
-              </button>
-              {assemblerSections.properties && <div id="assembler-properties" className="border-t border-slate-100 p-2.5">
+            <section id="assembler-panel-properties" role="tabpanel" aria-labelledby="assembler-tab-properties" tabIndex={0} hidden={activeAssemblerTab !== "properties"} className="min-w-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#C9A84C]">
+              {activeAssemblerTab === "properties" && <div>
+                <div className="mb-3 flex items-baseline justify-between gap-2"><h3 className="text-sm font-semibold text-[#003366]">Selected properties</h3><span className="text-[10px] text-slate-500">{propertySlides.length} {propertySlides.length === 1 ? "page" : "pages"}</span></div>
                 <p className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Property pages · Industrial Facility Proposal is included for each selected source deck</p>
                 {renderAssemblerSlides(propertySlides)}
               </div>}
             </section>
 
-            <section className="border border-slate-200">
-              <button type="button" aria-label={`${assemblerSections.cta ? "Collapse" : "Expand"} CTA`} aria-expanded={assemblerSections.cta} aria-controls="assembler-cta" onClick={() => toggleAssemblerSection("cta")} className="flex min-h-10 w-full items-center gap-2 px-3 text-left text-xs font-semibold text-[#003366] hover:bg-slate-50">
-                {assemblerSections.cta ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-                <span className="flex-1">CTA</span><span className="text-[9px] font-normal text-slate-500">{ctaSlides.length} pages</span>
-              </button>
-              {assemblerSections.cta && <div id="assembler-cta" className="border-t border-slate-100 p-2.5">
+            <section id="assembler-panel-cta" role="tabpanel" aria-labelledby="assembler-tab-cta" tabIndex={0} hidden={activeAssemblerTab !== "cta"} className="min-w-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#C9A84C]">
+              {activeAssemblerTab === "cta" && <div>
+                <div className="mb-3 flex items-baseline justify-between gap-2"><h3 className="text-sm font-semibold text-[#003366]">Call to action</h3><span className="text-[10px] text-slate-500">{ctaSlides.length} {ctaSlides.length === 1 ? "page" : "pages"} · included</span></div>
                 <p className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Call to action pages are included from the selected source decks</p>
                 {renderAssemblerSlides(ctaSlides)}
               </div>}
             </section>
           </div>
 
-          <button
-            type="button"
-            onClick={() => void handleCompileDeck()}
-            disabled={compiling || activeProposalManifest.slides.length === 0}
-            className="flex min-h-10 w-full items-center justify-center gap-2 border border-[#003366] bg-[#003366] px-4 text-xs font-semibold uppercase tracking-wider text-white transition-colors hover:bg-[#174778] disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <Layers className="h-4 w-4 text-[#C9A84C]" />
-            {compiling
-              ? exportStage === "pdf" ? "Converting to PDF…" : "Building PowerPoint…"
-              : `Export Selected Slides (${activeProposalManifest.slides.length})`}
-          </button>
           {compiling && (
             <div className="flex items-start gap-2 border-l-2 border-[#C9A84C] bg-[#FBF7E9] px-3 py-2 text-[11px] text-[#003366]">
               <LoaderCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden="true" />
@@ -1184,46 +1182,44 @@ export function PropertyDecksView() {
           {exportStage === "ready" && <p role="status" className="text-[11px] text-green-700">PPTX and PDF ready to download.</p>}
 
           {compiledResult && (
-            <div className="space-y-2 border border-[#C9A84C] bg-[#FBF7E9] p-3 text-xs text-[#003366]">
-              <p className="font-semibold">{exportStage === "ready" ? "PPTX and PDF are ready:" : "PPTX created:"}</p>
-              <p className="break-all font-mono text-[11px]">{compiledResult.fileName}</p>
-              <p className="text-[10px] text-slate-600">
-                {compiledResult.slideCount} slides copied · {compiledResult.outputPath}
-              </p>
+            <div className="mt-3 shrink-0 space-y-2 border-t border-slate-200 pt-3 text-xs text-[#003366]">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="font-semibold">{exportStage === "ready" ? "Proposal files are ready" : "PowerPoint proposal is ready"}</p>
+                <span className="text-[10px] text-slate-500">{compiledResult.slideCount} slides</span>
+              </div>
+              <p className="break-all text-[10px] text-slate-500">{compiledResult.fileName}</p>
               {compiledResult.pdfError && (
                 <p role="alert" className="text-[11px] text-red-700">
                   PPTX download is ready. PDF conversion failed: {compiledResult.pdfError}
                 </p>
               )}
-              <div className="flex flex-wrap gap-2 pt-1">
+              <div aria-label="Proposal export options" className="flex flex-wrap gap-2">
                 <button
                   type="button"
                   onClick={() => void downloadExport(compiledResult.downloadId, "pptx", compiledResult.fileName)}
-                  className="inline-flex min-h-8 items-center gap-1 border border-[#003366] bg-[#003366] px-2.5 text-[11px] font-semibold text-white"
+                  className="inline-flex min-h-9 flex-1 items-center justify-center gap-1.5 border border-[#003366] bg-[#003366] px-3 text-[11px] font-semibold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#C9A84C]"
                 >
                   Download PPTX
                 </button>
-                {compiledResult.pdfFileName && (
-                  <button
-                    type="button"
-                    onClick={() => void downloadExport(compiledResult.downloadId, "pdf", compiledResult.pdfFileName || "proposal.pdf")}
-                    className="inline-flex min-h-8 items-center gap-1 border border-slate-300 bg-white px-2.5 text-[11px] font-semibold text-[#003366]"
-                  >
-                    Download PDF
-                  </button>
-                )}
-                {!compiledResult.outputPath.startsWith("/tmp/") && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => void triggerWindowsOpen(compiledResult.outputPath)}
-                      className="inline-flex min-h-8 items-center gap-1 border border-slate-300 bg-white px-2.5 text-[11px] font-semibold text-[#003366]"
-                    >
-                      <FolderOpen className="h-3 w-3" />
-                      Show in Explorer
-                    </button>
-                  </>
-                )}
+                <button
+                  type="button"
+                  disabled={!compiledResult.pdfFileName}
+                  title={compiledResult.pdfFileName ? undefined : "PDF is unavailable because conversion failed."}
+                  onClick={() => compiledResult.pdfFileName && void downloadExport(compiledResult.downloadId, "pdf", compiledResult.pdfFileName)}
+                  className="inline-flex min-h-9 flex-1 items-center justify-center gap-1.5 border border-slate-300 bg-white px-3 text-[11px] font-semibold text-[#003366] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#C9A84C] disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                  Download PDF
+                </button>
+                <button
+                  type="button"
+                  disabled={compiledResult.outputPath.startsWith("/tmp/")}
+                  title={compiledResult.outputPath.startsWith("/tmp/") ? "The output folder is unavailable in this environment." : undefined}
+                  onClick={() => void triggerWindowsOpen(compiledResult.outputPath)}
+                  className="inline-flex min-h-9 flex-1 items-center justify-center gap-1.5 border border-slate-300 bg-white px-3 text-[11px] font-semibold text-[#003366] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#C9A84C] disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                  <FolderOpen aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+                  Show in Explorer
+                </button>
               </div>
             </div>
           )}
