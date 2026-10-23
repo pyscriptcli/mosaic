@@ -89,7 +89,7 @@ export const POWERPOINT_ASSEMBLY_SCRIPT = [
   "  }",
   "}",
   "function Set-IndustrialProposalLocation($slide, $originalLocation, $proposalLocation) {",
-  "  $slide.Name = 'Mosaic Industrial Location Divider'",
+  "  $slide.Name = 'Mosaic Industrial Location Divider ' + [string]$slide.SlideIndex",
   "  $slide.FollowMasterBackground = $false",
   "  $slide.Background.Fill.Solid()",
   "  $slide.Background.Fill.ForeColor.RGB = 4004354",

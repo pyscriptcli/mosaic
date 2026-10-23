@@ -214,7 +214,7 @@ describe("Property Decks server indexer and compiler", () => {
   });
 
   it.runIf(process.env.MOSAIC_RUN_NATIVE_POWERPOINT === "1")(
-    "assembles and reopens a real PowerPoint export with a generated cover logo and CTA",
+    "assembles repeated industrial location dividers with unique names and reopens the PPTX and PDF",
     async () => {
       const logoDeckPath = path.join(sourceDir, "Logo_Fallback_Test.pptx");
       const fixtureScriptPath = path.join(tempDir, "create-powerpoint-fixture.ps1");
@@ -223,21 +223,30 @@ describe("Property Decks server indexer and compiler", () => {
         "$ErrorActionPreference = 'Stop'",
         "$powerPoint = New-Object -ComObject PowerPoint.Application",
         "$presentation = $powerPoint.Presentations.Add()",
-        "$slide = $presentation.Slides.Add(1, 12)",
-        "$title = $slide.Shapes.AddTextbox(1, 80, 80, 800, 80)",
-        "$title.TextFrame.TextRange.Text = 'Logo fallback test warehouse'",
-        "$location = $slide.Shapes.AddTextbox(1, 80, 180, 800, 60)",
-        "$location.TextFrame.TextRange.Text = 'Antipolo'",
+        "$divider = $presentation.Slides.Add(1, 12)",
+        "$dividerTitle = $divider.Shapes.AddTextbox(1, 80, 80, 800, 80)",
+        "$dividerTitle.TextFrame.TextRange.Text = '2. Industrial Facility Proposal'",
+        "$dividerLocation = $divider.Shapes.AddTextbox(1, 80, 180, 800, 60)",
+        "$dividerLocation.TextFrame.TextRange.Text = 'Quezon City'",
+        "foreach ($property in @(@('Logo fallback test warehouse Antipolo', 'Antipolo, Rizal'), @('Second test warehouse Bacoor', 'Bacoor, Cavite'))) {",
+        "  $slide = $presentation.Slides.Add($presentation.Slides.Count + 1, 12)",
+        "  $title = $slide.Shapes.AddTextbox(1, 80, 80, 800, 80)",
+        "  $title.TextFrame.TextRange.Text = $property[0]",
+        "  $location = $slide.Shapes.AddTextbox(1, 80, 180, 800, 60)",
+        "  $location.TextFrame.TextRange.Text = $property[1]",
+        "  $gla = $slide.Shapes.AddTextbox(1, 80, 250, 800, 60)",
+        "  $gla.TextFrame.TextRange.Text = '4,200 sqm'",
+        "}",
         "$presentation.SaveAs($OutputPath, 24)",
         "$presentation.Close()",
         "$powerPoint.Quit()",
       ].join("\r\n"), "utf8");
       await execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", fixtureScriptPath, logoDeckPath]);
       const catalog = await scanPropertyDeckFolder(sourceDir, outputDir);
-      const property = catalog.slides.find((slide) => slide.deckFilePath === logoDeckPath && slide.slideRole === "property");
-      expect(property).toBeDefined();
+      const properties = catalog.slides.filter((slide) => slide.deckFilePath === logoDeckPath && slide.slideRole === "property");
+      expect(properties).toHaveLength(2);
       const manifest = buildCompilationManifest({
-        selectedSlideIds: [property!.id],
+        selectedSlideIds: properties.map((property) => property.id),
         catalogSlides: catalog.slides,
         proposal: {
           clientName: "Logo Fallback Test Client",
@@ -258,12 +267,13 @@ describe("Property Decks server indexer and compiler", () => {
       expect(manifest.generatedCover).toBe(true);
       const compiled = await compilePropertyDeck({ manifest, outputFolder: outputDir }, { platform: "win32" });
       expect(compiled.engine).toBe("microsoft-powerpoint");
-      expect(compiled.slideCount).toBe(3);
+      expect(compiled.slideCount).toBe(6);
       const output = await JSZip.loadAsync(await fs.promises.readFile(compiled.outputPath));
       const orderedSlides = await getOrderedSlidePathsFromZip(output);
       const slideXmls = await Promise.all(orderedSlides.map(async (slidePath) => output.file(slidePath)!.async("string")));
       expect(slideXmls.filter((xml) => xml.includes('name="Mosaic Proposal Cover"'))).toHaveLength(1);
       expect(slideXmls.filter((xml) => xml.includes('name="Mosaic Proposal CTA"'))).toHaveLength(1);
+      expect(slideXmls.filter((xml) => xml.includes('name="Mosaic Industrial Location Divider '))).toHaveLength(2);
       expect(slideXmls[0]).toContain("Logo Fallback Test Client");
       expect(Object.keys(output.files).some((filePath) => filePath.startsWith("ppt/media/") && filePath.endsWith(".png"))).toBe(true);
 
@@ -271,9 +281,9 @@ describe("Property Decks server indexer and compiler", () => {
       const pdfBytes = new Uint8Array(await fs.promises.readFile(converted.pdfPath));
       const pdfLoadingTask = getDocument({ data: pdfBytes });
       const pdfDocument = await pdfLoadingTask.promise;
-      expect(pdfDocument.numPages).toBe(3);
+      expect(pdfDocument.numPages).toBe(6);
       const firstPageText = await pdfDocument.getPage(1).then((page) => page.getTextContent());
-      const lastPageText = await pdfDocument.getPage(3).then((page) => page.getTextContent());
+      const lastPageText = await pdfDocument.getPage(6).then((page) => page.getTextContent());
       expect(firstPageText.items.map((item) => "str" in item ? item.str : "").join(" ")).toContain("Logo Fallback Test Client");
       expect(lastPageText.items.map((item) => "str" in item ? item.str : "").join(" ")).toContain("schedule a viewing");
       await pdfLoadingTask.destroy();
