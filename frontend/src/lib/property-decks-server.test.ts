@@ -4,10 +4,11 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import JSZip from "jszip";
+import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { compileCopiedPptx } from "./property-deck-export";
 import { buildCompilationManifest, extractTextFromSlideXml, getOrderedSlidePathsFromZip } from "./property-decks";
-import { compilePropertyDeck, findAvailableProposalPath, scanPropertyDeckFolder } from "./property-decks-server";
+import { compilePropertyDeck, convertPropertyDeckPdf, findAvailableProposalPath, scanPropertyDeckFolder } from "./property-decks-server";
 
 const execFile = promisify(nodeExecFile);
 
@@ -265,6 +266,17 @@ describe("Property Decks server indexer and compiler", () => {
       expect(slideXmls.filter((xml) => xml.includes('name="Mosaic Proposal CTA"'))).toHaveLength(1);
       expect(slideXmls[0]).toContain("Logo Fallback Test Client");
       expect(Object.keys(output.files).some((filePath) => filePath.startsWith("ppt/media/") && filePath.endsWith(".png"))).toBe(true);
+
+      const converted = await convertPropertyDeckPdf(compiled.outputPath);
+      const pdfBytes = new Uint8Array(await fs.promises.readFile(converted.pdfPath));
+      const pdfLoadingTask = getDocument({ data: pdfBytes });
+      const pdfDocument = await pdfLoadingTask.promise;
+      expect(pdfDocument.numPages).toBe(3);
+      const firstPageText = await pdfDocument.getPage(1).then((page) => page.getTextContent());
+      const lastPageText = await pdfDocument.getPage(3).then((page) => page.getTextContent());
+      expect(firstPageText.items.map((item) => "str" in item ? item.str : "").join(" ")).toContain("Logo Fallback Test Client");
+      expect(lastPageText.items.map((item) => "str" in item ? item.str : "").join(" ")).toContain("schedule a viewing");
+      await pdfLoadingTask.destroy();
     },
     60_000,
   );
