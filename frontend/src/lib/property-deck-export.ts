@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import JSZip from "jszip";
-import { cityNameFromLocation, extractTextFromSlideXml, getOrderedSlidePathsFromZip, isIndustrialFacilityProposalSlide, type CompilationManifest, type PropertySlideItem, type ProposalContact, type PptxSourceFile } from "@/lib/property-decks";
+import { cityNameFromLocation, extractTextFromSlideXml, GENERATED_PROPOSAL_COVER_NAME, GENERATED_PROPOSAL_CTA_NAME, getOrderedSlidePathsFromZip, isIndustrialFacilityProposalSlide, proposalSlideExportName, type CompilationManifest, type PropertySlideItem, type ProposalContact, type PptxSourceFile } from "@/lib/property-decks";
 
 const REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships";
 
@@ -225,7 +225,7 @@ async function appendContactSlide(output: JSZip, contacts: ProposalContact[]): P
   }
   const root = `<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld><p:bg><p:bgPr><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill><a:effectLst/></p:bgPr></p:bg><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>${contactTextShape(9000, contentStartX, 460000, contentWidth, 700000, [{ text: "CONTACTS", size: 1000, color: "C9A84C", bold: true }, { text: "For more information and to schedule a viewing, contact us:", size: 1900, color: "003366", italic: true }])}${contactShapes.join("")}</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>`;
   const allRelations = `<Relationships xmlns="${REL_NS}"><Relationship Id="rId1" Type="${REL_NS}/slideLayout" Target="${escapeXmlAttribute(layoutTarget)}"/>${imageRelationships.join("")}</Relationships>`;
-  output.file(slidePath, markProposalPage(root, "Mosaic Proposal CTA"));
+  output.file(slidePath, markProposalPage(root, GENERATED_PROPOSAL_CTA_NAME));
   output.file(relsPath, allRelations);
   const slideRelId = `rId${nextRelId}`;
   const target = relativePackagePath("ppt", slidePath);
@@ -243,13 +243,35 @@ export async function appendProposalContactsToPptx(buffer: Uint8Array, contacts:
   return output.generateAsync({ type: "uint8array" });
 }
 
-function markProposalPage(xml: string, pageName: "Mosaic Proposal Cover" | "Mosaic Proposal CTA"): string {
+function markProposalPage(xml: string, pageName: string): string {
+  const safePageName = escapeXmlAttribute(pageName);
   return xml.replace(/<p:cSld\b([^>]*)>/i, (_tag, attributes: string) => {
     const named = /\bname="[^"]*"/i.test(attributes)
-      ? attributes.replace(/\bname="[^"]*"/i, `name="${pageName}"`)
-      : `${attributes} name="${pageName}"`;
+      ? attributes.replace(/\bname="[^"]*"/i, `name="${safePageName}"`)
+      : `${attributes} name="${safePageName}"`;
     return `<p:cSld${named}>`;
   });
+}
+
+async function stampProposalSlideNames(
+  output: JSZip,
+  manifest: CompilationManifest,
+  generatedCover: boolean,
+): Promise<void> {
+  const slidePaths = await getOrderedSlidePathsFromZip(output);
+  const expectedNames = [
+    ...(generatedCover ? [GENERATED_PROPOSAL_COVER_NAME] : []),
+    ...manifest.slides.map(proposalSlideExportName),
+    GENERATED_PROPOSAL_CTA_NAME,
+  ];
+  if (slidePaths.length !== expectedNames.length) {
+    throw new Error(`Export verification failed: cannot assign slide identities. Expected ${expectedNames.length} slides, found ${slidePaths.length}.`);
+  }
+  for (const [index, slidePath] of slidePaths.entries()) {
+    const slideXml = await output.file(slidePath)?.async("string");
+    if (!slideXml) throw new Error(`Export verification failed: ${slidePath} is missing while assigning slide identities.`);
+    output.file(slidePath, markProposalPage(slideXml, expectedNames[index]));
+  }
 }
 
 async function ensureUniqueSlideNames(output: JSZip): Promise<void> {
@@ -756,6 +778,7 @@ async function makeCopiedSlideDeck(
   const generatedCover = needsGeneratedCover(manifest);
   if (generatedCover) await prependGeneratedCoverSlide(output, manifest.proposal);
   await appendContactSlide(output, manifest.proposal.ctaContacts || []);
+  await stampProposalSlideNames(output, manifest, generatedCover);
   await ensureUniqueSlideNames(output);
 
   const safeClient = (manifest.proposal.clientName || "Client")
@@ -801,8 +824,19 @@ export async function verifyProposalExport(buffer: Uint8Array, manifest: Compila
   if (slideNames.some((name) => !name) || new Set(slideNames.map((name) => name!.toLocaleLowerCase())).size !== slideNames.length) {
     throw new Error("Export verification failed: all PowerPoint slide names must be present and unique.");
   }
-  const coverIndexes = slideXmls.flatMap((xml, index) => /<p:cSld\b[^>]*\bname="Mosaic Proposal Cover"/i.test(xml) ? [index] : []);
-  const ctaIndexes = slideXmls.flatMap((xml, index) => /<p:cSld\b[^>]*\bname="Mosaic Proposal CTA"/i.test(xml) ? [index] : []);
+  const expectedNames = [
+    ...(generatedCover ? [GENERATED_PROPOSAL_COVER_NAME] : []),
+    ...manifest.slides.map(proposalSlideExportName),
+    GENERATED_PROPOSAL_CTA_NAME,
+  ];
+  for (const [index, expectedName] of expectedNames.entries()) {
+    const actualName = slideNames[index];
+    if (actualName !== expectedName) {
+      throw new Error(`Export verification failed: slide identity/order mismatch at slide ${index + 1} (expected “${expectedName}”, found “${actualName || "unnamed slide"}”).`);
+    }
+  }
+  const coverIndexes = slideNames.flatMap((name, index) => name?.startsWith("Mosaic Proposal Cover [mosaic-id:") ? [index] : []);
+  const ctaIndexes = slideNames.flatMap((name, index) => name?.startsWith("Mosaic Proposal CTA [mosaic-id:") ? [index] : []);
   if (coverIndexes.length !== 1 || coverIndexes[0] !== 0) {
     throw new Error(`Export verification failed: expected one cover page at the beginning, found ${coverIndexes.length}.`);
   }
@@ -841,7 +875,7 @@ export async function verifyProposalExport(buffer: Uint8Array, manifest: Compila
     }
   }
 
-  const dividerKey = (slide: PropertySlideItem) => `${slide.deckId}:${cityNameFromLocation(slide.proposalLocation || slide.specs.location).trim().toLocaleLowerCase()}`;
+  const dividerKey = (slide: PropertySlideItem) => cityNameFromLocation(slide.proposalLocation || slide.specs.location).trim().toLocaleLowerCase();
   const requiredDividerKeys = new Set(manifest.slides
     .filter((slide) => slide.slideRole === "property")
     .map(dividerKey));
@@ -849,7 +883,7 @@ export async function verifyProposalExport(buffer: Uint8Array, manifest: Compila
     .filter(isIndustrialFacilityProposalSlide)
     .map(dividerKey);
   if (new Set(actualDividerKeys).size !== actualDividerKeys.length) {
-    throw new Error("Export verification failed: duplicate industrial facility dividers were included for a source-deck city.");
+    throw new Error("Export verification failed: duplicate industrial facility dividers were included for a city.");
   }
   for (const key of requiredDividerKeys) {
     if (!actualDividerKeys.includes(key)) {
@@ -861,7 +895,9 @@ export async function verifyProposalExport(buffer: Uint8Array, manifest: Compila
   for (const [index, slide] of manifest.slides.entries()) {
     const outputIndex = contentOffset + index;
     if (slide.slideRole === "property") {
-      requireSlideText(outputIndex, slide.title, `selected property slide “${slide.title}”`);
+      if (normalizeSlideTitle(slide.rawText).includes(normalizeSlideTitle(slide.title))) {
+        requireSlideText(outputIndex, slide.title, `selected property slide “${slide.title}”`);
+      }
       const city = cityNameFromLocation(slide.specs.location);
       requireSlideText(outputIndex, city, `city-only location “${city}”`);
       const originalLocation = slide.sourceLocation?.trim();

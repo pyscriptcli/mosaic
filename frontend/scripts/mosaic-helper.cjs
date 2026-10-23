@@ -199,10 +199,10 @@ async function runProposalExportJob({ job, manifest, outputFolder, report }) {
     onProgress: report,
   });
   job.checklist = [
-    { id: "pptx", label: `PPTX opens and contains ${result.slideCount} slides in proposal order`, status: "passed" },
+    { id: "pptx", label: `PPTX opens and verified slide identities match all ${result.slideCount} proposal pages in order`, status: "passed" },
     { id: "cover", label: "One selected cover includes the client and prepared-by details", status: "passed" },
     { id: "properties", label: "Selected property pages and city-only locations match the proposal", status: "passed" },
-    { id: "dividers", label: "One navy facility divider per source-deck city", status: "passed" },
+    { id: "dividers", label: "One navy facility divider per city", status: "passed" },
     { id: "cta", label: `One final CTA includes ${manifest.proposal.ctaContacts?.length || 0} selected contact${manifest.proposal.ctaContacts?.length === 1 ? "" : "s"}`, status: "passed" },
   ];
   job.status = "validating";
@@ -364,7 +364,7 @@ async function handleRequest(request, response, dependencies = {}) {
             const pdfFailure = /PDF validation failed|PDF conversion failed|PPTX was created, but PDF/i.test(job.error);
             job.checklist.push({
               id: pdfFailure ? "pdf" : "pptx",
-              label: pdfFailure ? "PDF opens, matches the proposal pages, and includes required content" : "PPTX opens and matches the selected slides and proposal details",
+              label: pdfFailure ? "PDF opens, matches the proposal pages, and includes required content" : "PPTX opens and verified slide identities match the selected pages and proposal details",
               status: "failed",
               detail: job.error,
             });

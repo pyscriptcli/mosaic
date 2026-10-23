@@ -275,6 +275,36 @@ describe("Mosaic Helper local HTTP boundary", () => {
     assert.equal("downloadId" in status, false);
   });
 
+  it("blocks downloads when final PPTX slide identity verification fails", async () => {
+    const jobs = new Map();
+    const catalog = {
+      slides: [{
+        id: "deck:slide:1", deckId: "deck", deckFileName: "deck.pptx", deckFilePath: "C:/decks/deck.pptx",
+        slideNumber: 1, slideRole: "property", title: "Test Warehouse", rawText: "Test Warehouse",
+        specs: { propertyName: "Test Warehouse", location: "Test City", gla: "1,000 sqm", ceilingHeight: "10 m", leaseRate: "Php 300/sqm", powerSupply: "", loadingBays: "", notes: "" },
+      }],
+    };
+    const startResponse = response();
+    await handleRequest(jsonRequest("POST", "/api/property-decks/export-jobs", {
+      selectedSlideIds: ["deck:slide:1"], outputFolder: tempDir, proposal: { clientName: "Client" },
+    }), startResponse, {
+      exportJobs: jobs,
+      readCachedCatalog: async () => catalog,
+      runExportJob: async () => { throw new Error("Export verification failed: slide identity/order mismatch at slide 1."); },
+    });
+    const { jobId } = JSON.parse(startResponse.body);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const statusResponse = response();
+    await handleRequest(request("GET", `/api/property-decks/export-jobs?id=${jobId}`, { origin: allowedOrigin }), statusResponse, { exportJobs: jobs });
+    const status = JSON.parse(statusResponse.body);
+    assert.equal(status.status, "failed");
+    assert.equal(status.checklist[0].id, "pptx");
+    assert.match(status.checklist[0].detail, /slide identity\/order mismatch/);
+    assert.equal(status.result, null);
+    assert.equal("downloadId" in status, false);
+  });
+
   it("indexes a local folder and exports the selected slide as a downloadable PPTX", async () => {
     const sourceFolder = path.join(tempDir, "source");
     const outputFolder = path.join(tempDir, "output");

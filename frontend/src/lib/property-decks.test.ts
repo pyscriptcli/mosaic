@@ -274,7 +274,7 @@ describe("Property Decks filtering, overrides, and cart sequencing", () => {
     expect(manifest.generatedCover).toBe(false);
   });
 
-  it("adds one industrial divider per city and source deck when property addresses differ", () => {
+  it("adds one industrial divider per city across source decks when property addresses differ", () => {
     const pasigProperty = {
       ...sampleSlides[0],
       id: "pasig-deck:property:1",
@@ -327,7 +327,7 @@ describe("Property Decks filtering, overrides, and cart sequencing", () => {
       },
     });
 
-    expect(manifest.slides.filter(isIndustrialFacilityProposalSlide)).toHaveLength(2);
+    expect(manifest.slides.filter(isIndustrialFacilityProposalSlide)).toHaveLength(1);
     expect(manifest.slides.filter((slide) => slide.slideRole === "property").map((slide) => slide.id)).toEqual([
       pasigProperty.id,
       sandovalProperty.id,
@@ -858,8 +858,8 @@ describe("Property Decks filtering, overrides, and cart sequencing", () => {
     expect(await loadedZip.file(orderedOutputSlides[3])!.async("string")).toContain("Industrial Facility Proposal");
     expect(await loadedZip.file(orderedOutputSlides[4])!.async("string")).toContain("SECOND SELECTED SOURCE SLIDE");
     const exportedSlideXml = await Promise.all(orderedOutputSlides.map((slidePath) => loadedZip.file(slidePath)!.async("string")));
-    expect(exportedSlideXml.filter((xml) => xml.includes('name="Mosaic Proposal Cover"'))).toHaveLength(1);
-    expect(exportedSlideXml.filter((xml) => xml.includes('name="Mosaic Proposal CTA"'))).toHaveLength(1);
+    expect(exportedSlideXml.filter((xml) => xml.includes('name="Mosaic Proposal Cover [mosaic-id:'))).toHaveLength(1);
+    expect(exportedSlideXml.filter((xml) => xml.includes('name="Mosaic Proposal CTA [mosaic-id:proposal-cta]"'))).toHaveLength(1);
     const slideNames = exportedSlideXml.map((xml) => xml.match(/<p:cSld\b[^>]*\bname="([^"]+)"/i)?.[1]);
     expect(slideNames).toHaveLength(exportedSlideXml.length);
     expect(new Set(slideNames).size).toBe(exportedSlideXml.length);

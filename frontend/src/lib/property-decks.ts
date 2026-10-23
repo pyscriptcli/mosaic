@@ -33,6 +33,17 @@ export interface PropertySlideItem {
   isGeneratedDivider?: boolean;
 }
 
+export const GENERATED_PROPOSAL_COVER_NAME = "Mosaic Proposal Cover [mosaic-id:proposal-cover]";
+export const GENERATED_PROPOSAL_CTA_NAME = "Mosaic Proposal CTA [mosaic-id:proposal-cta]";
+
+export function proposalSlideExportName(slide: PropertySlideItem): string {
+  const marker = `[mosaic-id:${slide.id}]`;
+  if (isIndustrialFacilityProposalSlide(slide)) return `Mosaic Industrial Location Divider ${marker}`;
+  if (slide.slideRole === "cover") return `Mosaic Proposal Cover ${marker}`;
+  if (slide.slideRole === "property") return `Mosaic Property Slide ${marker}`;
+  return `Mosaic Slide ${marker}`;
+}
+
 export interface PropertySlideGroup {
   groupId: string;
   title: string;
@@ -542,13 +553,13 @@ export function buildCompilationManifest(params: {
 
   const selectedPropertyCityKeys = new Set(resolvedSlides
     .filter((slide) => slide.slideRole === "property")
-    .map((slide) => `${slide.deckId}:${cityNameFromLocation(slide.specs.location).trim().toLocaleLowerCase()}`));
+    .map((slide) => cityNameFromLocation(slide.specs.location).trim().toLocaleLowerCase()));
   const insertedPropertyHeaders = new Set<string>();
   for (const slide of resolvedSlides) {
     if (slide.slideRole === "closing" || (isClientCover(slide) && includedIds.has(slide.id))) continue;
     if (isClientCover(slide)) continue;
     const locationKey = cityNameFromLocation(slide.specs.location).trim().toLocaleLowerCase();
-    const propertyHeaderKey = `${slide.deckId}:${locationKey}`;
+    const propertyHeaderKey = locationKey;
     if (slide.slideRole === "property") {
       if (!insertedPropertyHeaders.has(propertyHeaderKey)) {
         const sectionTitle = params.catalogSlides

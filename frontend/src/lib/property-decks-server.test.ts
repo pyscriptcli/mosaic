@@ -98,7 +98,7 @@ describe("Property Decks server indexer and compiler", () => {
       slides: [
         { id: "cover", deckId: "deck", deckFileName: "deck.pptx", deckFilePath: "deck.pptx", slideNumber: 1, slideRole: "cover" as const, title: "Client Proposal Cover", rawText: "", thumbnailUrl: "", specs: { propertyName: "", location: "", gla: "", ceilingHeight: "", leaseRate: "", powerSupply: "", loadingBays: "", notes: "" } },
         { id: "divider", deckId: "deck", deckFileName: "deck.pptx", deckFilePath: "deck.pptx", slideNumber: 2, slideRole: "cover" as const, title: "Industrial Facility Proposal", rawText: "Industrial Facility Proposal\nAntipolo", thumbnailUrl: "", proposalLocation: "Antipolo", specs: { propertyName: "", location: "Antipolo", gla: "", ceilingHeight: "", leaseRate: "", powerSupply: "", loadingBays: "", notes: "" } },
-        { id: "property", deckId: "deck", deckFileName: "deck.pptx", deckFilePath: "deck.pptx", slideNumber: 3, slideRole: "property" as const, title: "Antipolo Warehouse", rawText: "", thumbnailUrl: "", sourceLocation: "Antipolo, Rizal", specs: { propertyName: "Antipolo Warehouse", location: "Antipolo", gla: "4,200 sqm", ceilingHeight: "12 m", leaseRate: "Php 350/sqm", powerSupply: "Standard", loadingBays: "Available", notes: "" } },
+        { id: "property", deckId: "deck", deckFileName: "deck.pptx", deckFilePath: "deck.pptx", slideNumber: 3, slideRole: "property" as const, title: "Antipolo Warehouse", rawText: "Antipolo Warehouse\nAntipolo, Rizal", thumbnailUrl: "", sourceLocation: "Antipolo, Rizal", specs: { propertyName: "Antipolo Warehouse", location: "Antipolo", gla: "4,200 sqm", ceilingHeight: "12 m", leaseRate: "Php 350/sqm", powerSupply: "Standard", loadingBays: "Available", notes: "" } },
       ],
       comparisonRows: [],
     };
@@ -120,6 +120,8 @@ describe("Property Decks server indexer and compiler", () => {
     await expect(verifyProposalPdfExport(createPdf("Antipolo Warehouse|Antipolo, Rizal"), 4, manifest)).rejects.toThrow(/city-only.*Antipolo/i);
     await expect(verifyProposalPdfExport(createPdf("Antipolo Warehouse|Antipolo|For more information and to schedule a viewing"), 4, manifest)).rejects.toThrow(/exactly one CTA/i);
     await expect(verifyProposalPdfExport(createPdf("Antipolo Warehouse|Antipolo"), 4, manifest)).resolves.toBeUndefined();
+    const imageOnlyManifest = { ...manifest, slides: manifest.slides.map((slide) => slide.id === "property" ? { ...slide, rawText: "" } : slide) };
+    await expect(verifyProposalPdfExport(createPdf("|Antipolo"), 4, imageOnlyManifest)).resolves.toBeUndefined();
   });
 
   afterEach(async () => {
@@ -245,8 +247,12 @@ describe("Property Decks server indexer and compiler", () => {
     const slideNames = outputSlideXml.map((xml) => xml.match(/<p:cSld\b[^>]*\bname="([^"]+)"/i)?.[1]);
     expect(slideNames).toHaveLength(4);
     expect(new Set(slideNames).size).toBe(4);
-    expect(outputSlideXml.filter((xml) => xml.includes('name="Mosaic Proposal Cover"'))).toHaveLength(1);
-    expect(outputSlideXml.filter((xml) => xml.includes('name="Mosaic Proposal CTA"'))).toHaveLength(1);
+    expect(slideNames).toEqual([
+      `Mosaic Proposal Cover [mosaic-id:${manifest.slides[0].id}]`,
+      `Mosaic Industrial Location Divider [mosaic-id:${manifest.slides[1].id}]`,
+      `Mosaic Property Slide [mosaic-id:${manifest.slides[2].id}]`,
+      "Mosaic Proposal CTA [mosaic-id:proposal-cta]",
+    ]);
 
     const corruptedPropertyZip = await JSZip.loadAsync(await fs.promises.readFile(compiled.outputPath));
     const propertyPath = orderedSlides[2];
@@ -263,7 +269,7 @@ describe("Property Decks server indexer and compiler", () => {
     const corruptedNamesZip = await JSZip.loadAsync(await fs.promises.readFile(compiled.outputPath));
     const dividerXml = await corruptedNamesZip.file(orderedSlides[1])!.async("string");
     corruptedNamesZip.file(orderedSlides[1], dividerXml.replace(/(<p:cSld\b[^>]*\bname=")[^"]+(")/i, '$1Mosaic Proposal Cover$2'));
-    await expect(verifyProposalExport(await corruptedNamesZip.generateAsync({ type: "uint8array" }), manifest)).rejects.toThrow(/slide names.*unique/i);
+    await expect(verifyProposalExport(await corruptedNamesZip.generateAsync({ type: "uint8array" }), manifest)).rejects.toThrow(/slide identity\/order mismatch.*slide 2.*expected.*found/i);
 
     const duplicatedCtaZip = await JSZip.loadAsync(await fs.promises.readFile(compiled.outputPath));
     const propertyWithCta = await duplicatedCtaZip.file(orderedSlides[2])!.async("string");
@@ -298,8 +304,8 @@ describe("Property Decks server indexer and compiler", () => {
     const nativeZip = await JSZip.loadAsync(await fs.promises.readFile(nativeCompiled.outputPath));
     const nativeSlides = await getOrderedSlidePathsFromZip(nativeZip);
     const nativeXml = await Promise.all(nativeSlides.map(async (slidePath) => nativeZip.file(slidePath)!.async("string")));
-    expect(nativeXml.filter((xml) => xml.includes('name="Mosaic Proposal Cover"'))).toHaveLength(1);
-    expect(nativeXml.filter((xml) => xml.includes('name="Mosaic Proposal CTA"'))).toHaveLength(1);
+    expect(nativeXml.filter((xml) => xml.includes('name="Mosaic Proposal Cover [mosaic-id:'))).toHaveLength(1);
+    expect(nativeXml.filter((xml) => xml.includes('name="Mosaic Proposal CTA [mosaic-id:proposal-cta]"'))).toHaveLength(1);
   });
 
   it.runIf(process.env.MOSAIC_RUN_NATIVE_POWERPOINT === "1")(
@@ -360,9 +366,9 @@ describe("Property Decks server indexer and compiler", () => {
       const output = await JSZip.loadAsync(await fs.promises.readFile(compiled.outputPath));
       const orderedSlides = await getOrderedSlidePathsFromZip(output);
       const slideXmls = await Promise.all(orderedSlides.map(async (slidePath) => output.file(slidePath)!.async("string")));
-      expect(slideXmls.filter((xml) => xml.includes('name="Mosaic Proposal Cover"'))).toHaveLength(1);
-      expect(slideXmls.filter((xml) => xml.includes('name="Mosaic Proposal CTA"'))).toHaveLength(1);
-      expect(slideXmls.filter((xml) => xml.includes('name="Mosaic Industrial Location Divider '))).toHaveLength(2);
+      expect(slideXmls.filter((xml) => xml.includes('name="Mosaic Proposal Cover [mosaic-id:'))).toHaveLength(1);
+      expect(slideXmls.filter((xml) => xml.includes('name="Mosaic Proposal CTA [mosaic-id:proposal-cta]"'))).toHaveLength(1);
+      expect(slideXmls.filter((xml) => xml.includes('name="Mosaic Industrial Location Divider [mosaic-id:'))).toHaveLength(2);
       expect(slideXmls[0]).toContain("Logo Fallback Test Client");
       expect(Object.keys(output.files).some((filePath) => filePath.startsWith("ppt/media/") && filePath.endsWith(".png"))).toBe(true);
 

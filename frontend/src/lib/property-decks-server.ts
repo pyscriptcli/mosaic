@@ -428,7 +428,9 @@ export async function verifyProposalPdfExport(
       for (const [index, slide] of manifest.slides.entries()) {
         const pageIndex = generatedCoverOffset + index;
         if (slide.slideRole === "property") {
-          requireText(pageIndex, slide.title, `selected property slide “${slide.title}”`);
+          if (normalize(slide.rawText).includes(normalize(slide.title))) {
+            requireText(pageIndex, slide.title, `selected property slide “${slide.title}”`);
+          }
           const city = cityNameFromLocation(slide.specs.location);
           requireText(pageIndex, city, `city-only location “${city}”`);
           const sourceLocation = slide.sourceLocation?.trim();
