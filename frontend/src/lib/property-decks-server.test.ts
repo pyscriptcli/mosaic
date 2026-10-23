@@ -1,11 +1,15 @@
 import fs from "node:fs";
+import { execFile as nodeExecFile } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 import JSZip from "jszip";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { compileCopiedPptx } from "./property-deck-export";
 import { buildCompilationManifest, extractTextFromSlideXml, getOrderedSlidePathsFromZip } from "./property-decks";
 import { compilePropertyDeck, findAvailableProposalPath, scanPropertyDeckFolder } from "./property-decks-server";
+
+const execFile = promisify(nodeExecFile);
 
 async function createSamplePptx(filePath: string, slidesXml: string[]) {
   const zip = new JSZip();
@@ -207,6 +211,63 @@ describe("Property Decks server indexer and compiler", () => {
     expect(nativeXml.filter((xml) => xml.includes('name="Mosaic Proposal Cover"'))).toHaveLength(1);
     expect(nativeXml.filter((xml) => xml.includes('name="Mosaic Proposal CTA"'))).toHaveLength(1);
   });
+
+  it.runIf(process.env.MOSAIC_RUN_NATIVE_POWERPOINT === "1")(
+    "assembles and reopens a real PowerPoint export with a generated cover logo and CTA",
+    async () => {
+      const logoDeckPath = path.join(sourceDir, "Logo_Fallback_Test.pptx");
+      const fixtureScriptPath = path.join(tempDir, "create-powerpoint-fixture.ps1");
+      await fs.promises.writeFile(fixtureScriptPath, [
+        "param([string]$OutputPath)",
+        "$ErrorActionPreference = 'Stop'",
+        "$powerPoint = New-Object -ComObject PowerPoint.Application",
+        "$presentation = $powerPoint.Presentations.Add()",
+        "$slide = $presentation.Slides.Add(1, 12)",
+        "$title = $slide.Shapes.AddTextbox(1, 80, 80, 800, 80)",
+        "$title.TextFrame.TextRange.Text = 'Logo fallback test warehouse'",
+        "$location = $slide.Shapes.AddTextbox(1, 80, 180, 800, 60)",
+        "$location.TextFrame.TextRange.Text = 'Antipolo'",
+        "$presentation.SaveAs($OutputPath, 24)",
+        "$presentation.Close()",
+        "$powerPoint.Quit()",
+      ].join("\r\n"), "utf8");
+      await execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", fixtureScriptPath, logoDeckPath]);
+      const catalog = await scanPropertyDeckFolder(sourceDir, outputDir);
+      const property = catalog.slides.find((slide) => slide.deckFilePath === logoDeckPath && slide.slideRole === "property");
+      expect(property).toBeDefined();
+      const manifest = buildCompilationManifest({
+        selectedSlideIds: [property!.id],
+        catalogSlides: catalog.slides,
+        proposal: {
+          clientName: "Logo Fallback Test Client",
+          clientDesignation: "Operations Director",
+          clientCompany: "Test Logistics Inc.",
+          clientLogoDataUrl: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a5ZsAAAAASUVORK5CYII=",
+          preparedByName: "Sondi Tuazon",
+          preparedByDesignation: "Sr. Head",
+          preparedByCompany: "PRIME Philippines",
+          projectTitle: "Logo Fit Verification",
+          brokerName: "",
+          brokerEmail: "",
+          brokerPhone: "",
+          date: "2026-10-23",
+          mode: "standard",
+        },
+      });
+      expect(manifest.generatedCover).toBe(true);
+      const compiled = await compilePropertyDeck({ manifest, outputFolder: outputDir }, { platform: "win32" });
+      expect(compiled.engine).toBe("microsoft-powerpoint");
+      expect(compiled.slideCount).toBe(3);
+      const output = await JSZip.loadAsync(await fs.promises.readFile(compiled.outputPath));
+      const orderedSlides = await getOrderedSlidePathsFromZip(output);
+      const slideXmls = await Promise.all(orderedSlides.map(async (slidePath) => output.file(slidePath)!.async("string")));
+      expect(slideXmls.filter((xml) => xml.includes('name="Mosaic Proposal Cover"'))).toHaveLength(1);
+      expect(slideXmls.filter((xml) => xml.includes('name="Mosaic Proposal CTA"'))).toHaveLength(1);
+      expect(slideXmls[0]).toContain("Logo Fallback Test Client");
+      expect(Object.keys(output.files).some((filePath) => filePath.startsWith("ppt/media/") && filePath.endsWith(".png"))).toBe(true);
+    },
+    60_000,
+  );
 
   it("increments proposal filenames when a PPTX or its paired PDF already exists", async () => {
     const baseName = "PRIME_Proposal_Client_2026-10-22.pptx";

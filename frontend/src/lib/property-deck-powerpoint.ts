@@ -8,7 +8,7 @@ import { isIndustrialFacilityProposalSlide, type CompilationManifest } from "./p
 
 const execFile = promisify(nodeExecFile);
 
-const ASSEMBLE_SCRIPT = [
+export const POWERPOINT_ASSEMBLY_SCRIPT = [
   "param([string]$ManifestPath, [string]$StagingPath)",
   "$ErrorActionPreference = 'Stop'",
   "$items = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json",
@@ -21,6 +21,15 @@ const ASSEMBLE_SCRIPT = [
   "  }",
   "  throw 'PowerPoint remained busy and did not accept the export operation.'",
   "}",
+  "function Add-PictureFit($slide, $filePath, $left, $top, $boxWidth, $boxHeight) {",
+  "  $picture = $slide.Shapes.AddPicture($filePath, $false, $true, $left, $top, -1, -1)",
+  "  $picture.LockAspectRatio = -1",
+  "  $scale = [Math]::Min($boxWidth / [double]$picture.Width, $boxHeight / [double]$picture.Height)",
+  "  $picture.Width = [double]$picture.Width * $scale",
+  "  $picture.Left = $left + (($boxWidth - $picture.Width) / 2)",
+  "  $picture.Top = $top + (($boxHeight - $picture.Height) / 2)",
+  "  return $picture",
+  "}",
   "function Set-CoverDetails($slide, $proposal) {",
   "  foreach ($shape in $slide.Shapes) {",
   "    if ($shape.HasTextFrame -eq 0 -or $shape.TextFrame.HasText -eq 0) { continue }",
@@ -29,10 +38,7 @@ const ASSEMBLE_SCRIPT = [
   "    if ($proposal.clientLogoPath -and $text.Contains($logoToken)) {",
   "      $left = [double]$shape.Left; $top = [double]$shape.Top; $width = [double]$shape.Width; $height = [double]$shape.Height",
   "      $shape.Delete()",
-  "      $image = [System.Drawing.Image]::FromFile($proposal.clientLogoPath)",
-  "      $aspect = $image.Width / [double]$image.Height; $image.Dispose()",
-  "      if ($aspect -gt ($width / $height)) { $pictureWidth = $width; $pictureHeight = $width / $aspect } else { $pictureHeight = $height; $pictureWidth = $height * $aspect }",
-  "      $picture = $slide.Shapes.AddPicture($proposal.clientLogoPath, $false, $true, $left + (($width - $pictureWidth) / 2), $top + (($height - $pictureHeight) / 2), $pictureWidth, $pictureHeight)",
+  "      $null = Add-PictureFit $slide $proposal.clientLogoPath $left $top $width $height",
   "      continue",
   "    }",
   "    $wasPreparedBy = $proposal.preparedByName -and ($text.Contains([string]$proposal.preparedByName) -or $text.Contains('[ Broker Name(s) / Lead Advisor ]'))",
@@ -71,9 +77,7 @@ const ASSEMBLE_SCRIPT = [
   "  $prepared.TextFrame.TextRange.Text = ('PREPARED BY  ' + $(if ($proposal.preparedByName) { $proposal.preparedByName } else { 'PRIME Philippines' }) + [Environment]::NewLine + ((@([string]$proposal.preparedByDesignation, [string]$proposal.preparedByCompany, [string]$proposal.date) | Where-Object { $_ }) -join '  ·  '))",
   "  $prepared.TextFrame.TextRange.Font.Name = 'Arial'; $prepared.TextFrame.TextRange.Font.Size = 12; $prepared.TextFrame.TextRange.Font.Color.RGB = 16777215",
   "  if ($proposal.clientLogoPath -and (Test-Path -LiteralPath $proposal.clientLogoPath)) {",
-  "    $image = [System.Drawing.Image]::FromFile($proposal.clientLogoPath); $aspect = $image.Width / [double]$image.Height; $image.Dispose()",
-  "    $boxWidth = 180; $boxHeight = 90; if ($aspect -gt ($boxWidth / $boxHeight)) { $picWidth = $boxWidth; $picHeight = $boxWidth / $aspect } else { $picHeight = $boxHeight; $picWidth = $boxHeight * $aspect }",
-  "    $null = $slide.Shapes.AddPicture($proposal.clientLogoPath, $false, $true, $width - $margin - $picWidth, 54 + (($boxHeight - $picHeight) / 2), $picWidth, $picHeight)",
+  "    $null = Add-PictureFit $slide $proposal.clientLogoPath ($width - $margin - 180) 54 180 90",
   "  }",
   "}",
   "function Set-PropertySlideLocation($slide, $originalLocation, $proposalLocation) {",
@@ -243,7 +247,7 @@ export async function assemblePropertyDeckWithPowerPoint(
     };
     await Promise.all([
       fs.writeFile(manifestPath, JSON.stringify(items), "utf8"),
-      fs.writeFile(scriptPath, ASSEMBLE_SCRIPT, "utf8"),
+      fs.writeFile(scriptPath, POWERPOINT_ASSEMBLY_SCRIPT, "utf8"),
     ]);
     await execFile("powershell.exe", [
       "-NoProfile",
