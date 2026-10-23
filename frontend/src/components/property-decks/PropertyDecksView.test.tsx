@@ -392,6 +392,9 @@ describe("PropertyDecksView component", () => {
       expect(screen.getByRole("button", { name: "Download PDF" })).toBeDefined();
       expect(screen.getByRole("button", { name: "Show in Explorer" })).toBeDefined();
     });
+    const exportButton = screen.getByRole("button", { name: "Export Proposal" });
+    const exportOptions = screen.getByRole("group", { name: "Proposal export options" });
+    expect(exportButton.compareDocumentPosition(exportOptions) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     fireEvent.click(screen.getByRole("tab", { name: /CTA/ }));
     expect(screen.getByRole("button", { name: "Export Proposal" })).toBeDefined();
     expect(screen.getByRole("button", { name: "Download PPTX" })).toBeDefined();
@@ -625,7 +628,7 @@ describe("PropertyDecksView component", () => {
     expect(screen.getByText("Slide #4 · 2 of 2")).toBeDefined();
 
     fireEvent.click(screen.getByRole("button", { name: /add this slide/i }));
-    expect(screen.getByText("Selected Slides (1)")).toBeDefined();
+    expect(screen.getByText("Selected Slides (3)")).toBeDefined();
     fireEvent.click(screen.getByRole("tab", { name: /Properties/ }));
     expect(screen.getByText(/Bataan Warehouse Space — Specifications & Access/i)).toBeDefined();
     expect(screen.getByText(/1\/2 Selected/i)).toBeDefined();
@@ -717,9 +720,9 @@ describe("PropertyDecksView component", () => {
     expect(screen.getByRole("tab", { name: /Properties/ }).getAttribute("aria-selected")).toBe("false");
     fireEvent.click(screen.getByRole("tab", { name: /Properties/ }));
     expect(within(screen.getByRole("tabpanel")).getAllByRole("listitem")[0].textContent).toContain("MSCS Pasig Distribution Hub");
-    expect(screen.getByText("Selected Slides (2)")).toBeDefined();
+    expect(screen.getByText("Selected Slides (4)")).toBeDefined();
     fireEvent.click(within(screen.getByRole("tabpanel")).getByRole("button", { name: "Remove MSCS Pasig Distribution Hub" }));
-    expect(screen.getByText("Selected Slides (1)")).toBeDefined();
+    expect(screen.getByText("Selected Slides (3)")).toBeDefined();
     fireEvent.click(screen.getByRole("tab", { name: /CTA/ }));
     fireEvent.click(screen.getByRole("tab", { name: /Properties/ }));
     expect(within(screen.getByRole("tabpanel")).getAllByRole("listitem")).toHaveLength(1);
@@ -750,7 +753,7 @@ describe("PropertyDecksView component", () => {
     fireEvent.click(screen.getByRole("tab", { name: /Properties/ }));
     expect(screen.getAllByText(/Industrial Facility Proposal/).length).toBeGreaterThan(1);
     fireEvent.click(screen.getByRole("tab", { name: /CTA/ }));
-    expect(screen.getByText(/For more information and to schedule a viewing contact us/)).toBeDefined();
+    expect(screen.getByText("One generated contact page is included in every proposal export.")).toBeDefined();
   });
 
   it("keeps all proposal tabs reachable in the compact narrow-width layout", async () => {

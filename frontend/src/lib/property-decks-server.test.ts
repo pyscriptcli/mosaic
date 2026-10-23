@@ -3,13 +3,19 @@ import os from "node:os";
 import path from "node:path";
 import JSZip from "jszip";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { compileCopiedPptx } from "./property-deck-export";
 import { buildCompilationManifest, extractTextFromSlideXml, getOrderedSlidePathsFromZip } from "./property-decks";
 import { compilePropertyDeck, findAvailableProposalPath, scanPropertyDeckFolder } from "./property-decks-server";
 
 async function createSamplePptx(filePath: string, slidesXml: string[]) {
   const zip = new JSZip();
   slidesXml.forEach((xml, idx) => {
-    zip.file(`ppt/slides/slide${idx + 1}.xml`, xml);
+    const rootAttributes = xml.match(/<p:sld\b([^>]*)>/i)?.[1] || 'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"';
+    const runs = [...xml.matchAll(/<a:t(?:\s[^>]*)?>([\s\S]*?)<\/a:t>/gi)].map((match, index) =>
+      `<p:sp><p:nvSpPr><p:cNvPr id="${index + 2}" name="Text ${index + 1}"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr><p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>${match[1]}</a:t></a:r></a:p></p:txBody></p:sp>`,
+    ).join("");
+    const slideXml = `<p:sld${rootAttributes}><p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/>${runs}</p:spTree></p:cSld></p:sld>`;
+    zip.file(`ppt/slides/slide${idx + 1}.xml`, slideXml);
   });
   const slideIds = slidesXml.map((_, index) => `<p:sldId id="${256 + index}" r:id="rId${index + 1}"/>`).join("");
   const relationships = slidesXml
@@ -108,17 +114,19 @@ describe("Property Decks server indexer and compiler", () => {
 
     expect(fs.existsSync(compiled.outputPath)).toBe(true);
     expect(compiled.fileName).toMatch(/Kuehne_Nagel/i);
-    expect(compiled.slideCount).toBe(2);
+    expect(compiled.slideCount).toBe(3);
     const output = await JSZip.loadAsync(await fs.promises.readFile(compiled.outputPath));
     const exportedCover = await output.file("ppt/slides/slide1.xml")!.async("string");
     const exportedSlide = await output.file("ppt/slides/slide2.xml")!.async("string");
+    const exportedCta = await output.file("ppt/slides/slide3.xml")!.async("string");
     expect(exportedCover).toContain("Prepared Exclusively For: Client");
     expect(exportedSlide).toContain("STA. ROSA LOGISTICS PARK - BUILDING A");
     expect(exportedSlide).toContain("Sta. Rosa");
     expect(exportedSlide).not.toContain("Sta. Rosa, Laguna");
+    expect(exportedCta).toContain("Mosaic Proposal CTA");
   });
 
-  it("exports the client cover, included facility divider, selected property, source CTA, and contact CTA", async () => {
+  it("exports one client cover, the facility divider, selected property, and one generated contact CTA", async () => {
     const deckPath = path.join(sourceDir, "Antipolo_Options.pptx");
     await createSamplePptx(deckPath, [
       `<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><a:p><a:r><a:t>PROPERTY DECK PRESENTATION</a:t></a:r></a:p><a:p><a:r><a:t>[ Client Representative / Contact Name ]</a:t></a:r></a:p></p:sld>`,
@@ -155,15 +163,18 @@ describe("Property Decks server indexer and compiler", () => {
     const slideText = await Promise.all(orderedSlides.map(async (slidePath) => extractTextFromSlideXml(await output.file(slidePath)!.async("string"))));
 
     expect(compiled.engine).toBe("openxml-slide-copy");
-    expect(slideText).toHaveLength(5);
+    expect(slideText).toHaveLength(4);
     expect(slideText[0]).toContain("FastCargo Logistics");
     expect(slideText[1]).toContain("2. Industrial Facility Proposal");
     expect(slideText[1]).toContain("Antipolo");
     expect(slideText[2]).toContain("ANTIPOLO WAREHOUSE");
     expect(slideText[3]).toContain("schedule a viewing");
-    expect(slideText[4]).toContain("Sondi Tuazon");
-    expect(slideText[4]).toContain("sondi@primephilippines.com");
-    expect(compiled.slideCount).toBe(5);
+    expect(slideText[3]).toContain("Sondi Tuazon");
+    expect(slideText[3]).toContain("sondi@primephilippines.com");
+    expect(compiled.slideCount).toBe(4);
+    const outputSlideXml = await Promise.all(orderedSlides.map(async (slidePath) => output.file(slidePath)!.async("string")));
+    expect(outputSlideXml.filter((xml) => xml.includes('name="Mosaic Proposal Cover"'))).toHaveLength(1);
+    expect(outputSlideXml.filter((xml) => xml.includes('name="Mosaic Proposal CTA"'))).toHaveLength(1);
 
     let nativeAssemblyCalled = false;
     const nativeCompiled = await compilePropertyDeck({ manifest, outputFolder: outputDir }, {
@@ -171,7 +182,17 @@ describe("Property Decks server indexer and compiler", () => {
       assembleWithPowerPoint: async (nativeManifest, outputPath) => {
         nativeAssemblyCalled = true;
         expect(nativeManifest.proposal.ctaContacts).toEqual(manifest.proposal.ctaContacts);
-        await fs.promises.writeFile(outputPath, "native powerpoint output");
+        const nativeSources = new Map<string, { name: string; relativePath: string; data: Buffer }>();
+        for (const slide of nativeManifest.slides) {
+          if (nativeSources.has(slide.deckFilePath)) continue;
+          nativeSources.set(slide.deckFilePath, {
+            name: slide.deckFileName,
+            relativePath: slide.deckFilePath,
+            data: await fs.promises.readFile(slide.deckFilePath),
+          });
+        }
+        const pptx = await compileCopiedPptx(nativeManifest, nativeSources);
+        await fs.promises.writeFile(outputPath, pptx.buffer);
       },
       compileOpenXml: async () => {
         throw new Error("Windows exports must use Microsoft PowerPoint assembly.");
@@ -179,8 +200,12 @@ describe("Property Decks server indexer and compiler", () => {
     });
     expect(nativeAssemblyCalled).toBe(true);
     expect(nativeCompiled.engine).toBe("microsoft-powerpoint");
-    expect(nativeCompiled.slideCount).toBe(5);
-    expect(await fs.promises.readFile(nativeCompiled.outputPath, "utf8")).toBe("native powerpoint output");
+    expect(nativeCompiled.slideCount).toBe(4);
+    const nativeZip = await JSZip.loadAsync(await fs.promises.readFile(nativeCompiled.outputPath));
+    const nativeSlides = await getOrderedSlidePathsFromZip(nativeZip);
+    const nativeXml = await Promise.all(nativeSlides.map(async (slidePath) => nativeZip.file(slidePath)!.async("string")));
+    expect(nativeXml.filter((xml) => xml.includes('name="Mosaic Proposal Cover"'))).toHaveLength(1);
+    expect(nativeXml.filter((xml) => xml.includes('name="Mosaic Proposal CTA"'))).toHaveLength(1);
   });
 
   it("increments proposal filenames when a PPTX or its paired PDF already exists", async () => {

@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import JSZip from "jszip";
-import { compileCopiedPptx } from "./property-deck-export";
+import { compileCopiedPptx, verifyProposalExport } from "./property-deck-export";
 import { assemblePropertyDeckWithPowerPoint } from "./property-deck-powerpoint";
 import { convertPptxToPdf } from "./property-deck-pdf";
 import {
@@ -11,6 +11,7 @@ import {
   extractSpecsFromSlideText,
   extractTextFromSlideXml,
   getOrderedSlidePathsFromZip,
+  isIndustrialFacilityProposalSlide,
   type CompilationManifest,
   type PropertyDeckCatalog,
   type PropertySlideItem,
@@ -326,10 +327,14 @@ export async function compilePropertyDeck(params: {
 
   if (platform === "win32") {
     await (dependencies.assembleWithPowerPoint || assemblePropertyDeckWithPowerPoint)(params.manifest, outputPath);
+    await verifyProposalExport(new Uint8Array(await fs.promises.readFile(outputPath)), params.manifest);
+    const generatedCover = params.manifest.generatedCover ?? !params.manifest.slides.some(
+      (slide) => slide.slideRole === "cover" && !isIndustrialFacilityProposalSlide(slide),
+    );
     return {
       outputPath,
       fileName,
-      slideCount: params.manifest.slides.length + (params.manifest.proposal.ctaContacts?.length ? 1 : 0),
+      slideCount: params.manifest.slides.length + Number(generatedCover) + 1,
       engine: "microsoft-powerpoint",
     };
   }

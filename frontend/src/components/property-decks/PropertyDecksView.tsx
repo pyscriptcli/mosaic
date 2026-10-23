@@ -687,7 +687,8 @@ export function PropertyDecksView() {
   const propertySlides = activeProposalManifest.slides.filter(
     (slide) => slide.slideRole === "property" || isIndustrialFacilityProposalSlide(slide),
   );
-  const ctaSlides = activeProposalManifest.slides.filter((slide) => slide.slideRole === "closing");
+  const ctaPageCount = activeProposalManifest.slides.length > 0 ? 1 : 0;
+  const coverPageCount = coverSlides.length || Number(Boolean(activeProposalManifest.generatedCover));
   const handleAssemblerTabKeyDown = (
     event: KeyboardEvent<HTMLButtonElement>,
     currentTab: "coverpage" | "properties" | "cta",
@@ -1360,7 +1361,7 @@ export function PropertyDecksView() {
                 Proposal Assembler
               </p>
               <h2 className="text-base font-semibold text-[#003366]">
-                Selected Slides ({activeProposalManifest.slides.length})
+                Selected Slides ({activeProposalManifest.slides.length + Number(Boolean(activeProposalManifest.generatedCover)) + ctaPageCount})
               </h2>
             </div>
             <button
@@ -1374,11 +1375,74 @@ export function PropertyDecksView() {
             </button>
           </div>
 
+          {compiling && (
+            <div className="flex items-start gap-2 border-l-2 border-[#C9A84C] bg-[#FBF7E9] px-3 py-2 text-[11px] text-[#003366]">
+              <LoaderCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden="true" />
+              <div className="space-y-0.5">
+                <p role="status" aria-live="polite" className="font-semibold">
+                  {exportStage === "pdf"
+                    ? "Converting PowerPoint to PDF with Microsoft PowerPoint…"
+                    : `Compiling ${selectedSlideIds.length} selected slide${selectedSlideIds.length === 1 ? "" : "s"} into PowerPoint…`}
+                </p>
+                <p aria-live="off" className="text-slate-600">
+                  Elapsed {formatElapsedTime(exportElapsedSeconds)} · Large decks may take a few minutes. Keep this page open.
+                </p>
+                {exportStage === "pdf" && compiledResult && (
+                  <p className="text-slate-600">The PowerPoint file is ready; PDF conversion is still running.</p>
+                )}
+              </div>
+            </div>
+          )}
+          {exportStage === "ready" && <p role="status" className="text-[11px] text-green-700">PPTX and PDF ready to download.</p>}
+
+          {compiledResult && (
+            <div className="mt-3 shrink-0 space-y-2 border-t border-slate-200 pt-3 text-xs text-[#003366]">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="font-semibold">{exportStage === "ready" ? "Proposal files are ready" : "PowerPoint proposal is ready"}</p>
+                <span className="text-[10px] text-slate-500">{compiledResult.slideCount} slides</span>
+              </div>
+              <p className="break-all text-[10px] text-slate-500">{compiledResult.fileName}</p>
+              {compiledResult.pdfError && (
+                <p role="alert" className="text-[11px] text-red-700">
+                  PPTX download is ready. PDF conversion failed: {compiledResult.pdfError}
+                </p>
+              )}
+              <div role="group" aria-label="Proposal export options" className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => void downloadExport(compiledResult.downloadId, "pptx", compiledResult.fileName)}
+                  className="inline-flex min-h-9 flex-1 items-center justify-center gap-1.5 border border-[#003366] bg-[#003366] px-3 text-[11px] font-semibold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#C9A84C]"
+                >
+                  Download PPTX
+                </button>
+                <button
+                  type="button"
+                  disabled={!compiledResult.pdfFileName}
+                  title={compiledResult.pdfFileName ? undefined : "PDF is unavailable because conversion failed."}
+                  onClick={() => compiledResult.pdfFileName && void downloadExport(compiledResult.downloadId, "pdf", compiledResult.pdfFileName)}
+                  className="inline-flex min-h-9 flex-1 items-center justify-center gap-1.5 border border-slate-300 bg-white px-3 text-[11px] font-semibold text-[#003366] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#C9A84C] disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                  Download PDF
+                </button>
+                <button
+                  type="button"
+                  disabled={compiledResult.outputPath.startsWith("/tmp/")}
+                  title={compiledResult.outputPath.startsWith("/tmp/") ? "The output folder is unavailable in this environment." : undefined}
+                  onClick={() => void triggerWindowsOpen(compiledResult.outputPath)}
+                  className="inline-flex min-h-9 flex-1 items-center justify-center gap-1.5 border border-slate-300 bg-white px-3 text-[11px] font-semibold text-[#003366] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#C9A84C] disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                  <FolderOpen aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+                  Show in Explorer
+                </button>
+              </div>
+            </div>
+          )}
+
           <div role="tablist" aria-label="Proposal sections" className="-mx-1 flex min-w-0 shrink-0 gap-1 overflow-x-auto border-b border-slate-200 px-1 pt-3">
             {([
-              { id: "coverpage", label: "Coverpage", count: coverSlides.length },
+              { id: "coverpage", label: "Coverpage", count: coverPageCount },
               { id: "properties", label: "Properties", count: propertySlides.length },
-              { id: "cta", label: "CTA", count: ctaSlides.length },
+              { id: "cta", label: "CTA", count: ctaPageCount },
             ] as const).map((tab) => (
               <button
                 key={tab.id}
@@ -1435,8 +1499,8 @@ export function PropertyDecksView() {
 
             <section id="assembler-panel-cta" role="tabpanel" aria-labelledby="assembler-tab-cta" tabIndex={0} hidden={activeAssemblerTab !== "cta"} className="min-w-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#C9A84C]">
               {activeAssemblerTab === "cta" && <div className="space-y-3">
-                <div className="mb-3 flex items-baseline justify-between gap-2"><h3 className="text-sm font-semibold text-[#003366]">Call to action</h3><span className="text-[10px] text-slate-500">{ctaSlides.length} {ctaSlides.length === 1 ? "page" : "pages"} · included</span></div>
-                {renderAssemblerSlides(ctaSlides)}
+                <div className="mb-3 flex items-baseline justify-between gap-2"><h3 className="text-sm font-semibold text-[#003366]">Call to action</h3><span className="text-[10px] text-slate-500">{ctaPageCount} {ctaPageCount === 1 ? "page" : "pages"} · included</span></div>
+                <div className="mb-3 border border-slate-200 bg-slate-50 px-2.5 py-2 text-[10px] text-slate-600">One generated contact page is included in every proposal export.</div>
                 <p className="text-[10px] leading-4 text-slate-600">Choose who appears on the included contact slide. Selected contacts are also added to the exported proposal in this order.</p>
                 <div className="grid min-w-0 grid-cols-1 gap-3 min-[440px]:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
                   <div className="min-w-0 border border-slate-200">
@@ -1490,68 +1554,6 @@ export function PropertyDecksView() {
             </section>
           </div>
 
-          {compiling && (
-            <div className="flex items-start gap-2 border-l-2 border-[#C9A84C] bg-[#FBF7E9] px-3 py-2 text-[11px] text-[#003366]">
-              <LoaderCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden="true" />
-              <div className="space-y-0.5">
-                <p role="status" aria-live="polite" className="font-semibold">
-                  {exportStage === "pdf"
-                    ? "Converting PowerPoint to PDF with Microsoft PowerPoint…"
-                    : `Compiling ${selectedSlideIds.length} selected slide${selectedSlideIds.length === 1 ? "" : "s"} into PowerPoint…`}
-                </p>
-                <p aria-live="off" className="text-slate-600">
-                  Elapsed {formatElapsedTime(exportElapsedSeconds)} · Large decks may take a few minutes. Keep this page open.
-                </p>
-                {exportStage === "pdf" && compiledResult && (
-                  <p className="text-slate-600">The PowerPoint file is ready; PDF conversion is still running.</p>
-                )}
-              </div>
-            </div>
-          )}
-          {exportStage === "ready" && <p role="status" className="text-[11px] text-green-700">PPTX and PDF ready to download.</p>}
-
-          {compiledResult && (
-            <div className="mt-3 shrink-0 space-y-2 border-t border-slate-200 pt-3 text-xs text-[#003366]">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="font-semibold">{exportStage === "ready" ? "Proposal files are ready" : "PowerPoint proposal is ready"}</p>
-                <span className="text-[10px] text-slate-500">{compiledResult.slideCount} slides</span>
-              </div>
-              <p className="break-all text-[10px] text-slate-500">{compiledResult.fileName}</p>
-              {compiledResult.pdfError && (
-                <p role="alert" className="text-[11px] text-red-700">
-                  PPTX download is ready. PDF conversion failed: {compiledResult.pdfError}
-                </p>
-              )}
-              <div aria-label="Proposal export options" className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => void downloadExport(compiledResult.downloadId, "pptx", compiledResult.fileName)}
-                  className="inline-flex min-h-9 flex-1 items-center justify-center gap-1.5 border border-[#003366] bg-[#003366] px-3 text-[11px] font-semibold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#C9A84C]"
-                >
-                  Download PPTX
-                </button>
-                <button
-                  type="button"
-                  disabled={!compiledResult.pdfFileName}
-                  title={compiledResult.pdfFileName ? undefined : "PDF is unavailable because conversion failed."}
-                  onClick={() => compiledResult.pdfFileName && void downloadExport(compiledResult.downloadId, "pdf", compiledResult.pdfFileName)}
-                  className="inline-flex min-h-9 flex-1 items-center justify-center gap-1.5 border border-slate-300 bg-white px-3 text-[11px] font-semibold text-[#003366] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#C9A84C] disabled:cursor-not-allowed disabled:opacity-45"
-                >
-                  Download PDF
-                </button>
-                <button
-                  type="button"
-                  disabled={compiledResult.outputPath.startsWith("/tmp/")}
-                  title={compiledResult.outputPath.startsWith("/tmp/") ? "The output folder is unavailable in this environment." : undefined}
-                  onClick={() => void triggerWindowsOpen(compiledResult.outputPath)}
-                  className="inline-flex min-h-9 flex-1 items-center justify-center gap-1.5 border border-slate-300 bg-white px-3 text-[11px] font-semibold text-[#003366] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#C9A84C] disabled:cursor-not-allowed disabled:opacity-45"
-                >
-                  <FolderOpen aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
-                  Show in Explorer
-                </button>
-              </div>
-            </div>
-          )}
         </aside>
       </div>
 

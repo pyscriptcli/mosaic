@@ -86,6 +86,7 @@ export interface CompilationManifest {
   proposal: PitchProposalDetails;
   includeSummaryTable: boolean;
   includeCredentials: boolean;
+  generatedCover?: boolean;
   slides: PropertySlideItem[];
   comparisonRows: ComparisonTableRow[];
 }
@@ -528,19 +529,21 @@ export function buildCompilationManifest(params: {
   const selectedIds = new Set(resolvedSlides.map((slide) => slide.id));
   const includedIds = new Set<string>();
   const presentationSlides: PropertySlideItem[] = [];
-  const proposalCover = propertyDeckIds.length > 0
-    ? params.catalogSlides
-        .filter((slide) => slide.deckId === propertyDeckIds[0] && slide.slideRole === "cover")
-        .filter((slide) => !isIndustrialFacilityProposalSlide(slide))
-        .sort((a, b) => a.slideNumber - b.slideNumber)[0]
-    : undefined;
-  if (proposalCover && !selectedIds.has(proposalCover.id)) {
+  const isClientCover = (slide: PropertySlideItem) => slide.slideRole === "cover" && !isIndustrialFacilityProposalSlide(slide);
+  const proposalCover = resolvedSlides.find(isClientCover) || propertyDeckIds
+    .flatMap((deckId) => params.catalogSlides
+      .filter((slide) => slide.deckId === deckId && isClientCover(slide))
+      .sort((a, b) => a.slideNumber - b.slideNumber))
+    .map((slide) => applySlideOverrides(slide, params.overrides))[0];
+  if (proposalCover) {
     presentationSlides.push(applySlideOverrides(proposalCover, params.overrides));
     includedIds.add(proposalCover.id);
   }
 
   const insertedPropertyHeaders = new Set<string>();
   for (const slide of resolvedSlides) {
+    if (slide.slideRole === "closing" || (isClientCover(slide) && includedIds.has(slide.id))) continue;
+    if (isClientCover(slide)) continue;
     const locationKey = slide.specs.location.trim().toLocaleLowerCase();
     const propertyHeaderKey = `${slide.deckId}:${locationKey}`;
     if (slide.slideRole === "property" && !insertedPropertyHeaders.has(propertyHeaderKey)) {
@@ -566,17 +569,6 @@ export function buildCompilationManifest(params: {
     if (!includedIds.has(slide.id)) {
       presentationSlides.push(slide);
       includedIds.add(slide.id);
-    }
-  }
-
-  for (const deckId of propertyDeckIds) {
-    for (const closingSlide of params.catalogSlides
-      .filter((slide) => slide.deckId === deckId && slide.slideRole === "closing")
-      .sort((a, b) => a.slideNumber - b.slideNumber)) {
-      if (!selectedIds.has(closingSlide.id) && !includedIds.has(closingSlide.id)) {
-        presentationSlides.push(applySlideOverrides(closingSlide, params.overrides));
-        includedIds.add(closingSlide.id);
-      }
     }
   }
 
@@ -611,6 +603,7 @@ export function buildCompilationManifest(params: {
     proposal: params.proposal,
     includeSummaryTable: isComprehensive,
     includeCredentials: isComprehensive,
+    generatedCover: !proposalCover,
     slides: exportSlides,
     comparisonRows,
   };

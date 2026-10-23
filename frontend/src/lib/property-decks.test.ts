@@ -202,7 +202,7 @@ describe("Property Decks filtering, overrides, and cart sequencing", () => {
     ]);
   });
 
-  it("adds one location-specific Industrial Facility Proposal page and CTA per selected deck", () => {
+  it("includes one client cover and omits source CTA pages from the proposal manifest", () => {
     const deckSlides: PropertySlideItem[] = [
       {
         ...sampleSlides[1],
@@ -249,11 +249,43 @@ describe("Property Decks filtering, overrides, and cart sequencing", () => {
       "deck-pasig:slide:1",
       "deck-pasig:slide:2",
       sampleSlides[1].id,
-      "deck-pasig:slide:4",
     ]);
+    expect(manifest.slides.filter((slide) => slide.slideRole === "cover" && !/industrial facility proposal/i.test(slide.rawText)).map((slide) => slide.id)).toEqual(["deck-pasig:slide:1"]);
+    expect(manifest.slides.some((slide) => slide.slideRole === "closing")).toBe(false);
   });
 
-  it("exports the client cover, included facility divider, selected property, source CTA, and contact CTA together", async () => {
+  it("uses a later selected deck's client cover when the first deck has only a location divider", () => {
+    const firstProperty = { ...sampleSlides[0], id: "first:property", deckId: "first", deckFileName: "First.pptx", deckFilePath: "C:/OneDrive/First.pptx", slideRole: "property" as const, specs: { ...sampleSlides[0].specs, location: "Antipolo" } };
+    const firstDivider = { ...firstProperty, id: "first:divider", slideNumber: 1, slideRole: "cover" as const, title: "Industrial Facility Proposal", rawText: "Industrial Facility Proposal\nAntipolo" };
+    const secondProperty = { ...sampleSlides[1], id: "second:property", deckId: "second", deckFileName: "Second.pptx", deckFilePath: "C:/OneDrive/Second.pptx", slideRole: "property" as const, specs: { ...sampleSlides[1].specs, location: "Pasig" } };
+    const secondCover = { ...secondProperty, id: "second:cover", slideNumber: 1, slideRole: "cover" as const, title: "Client Proposal Cover", rawText: "PROPERTY DECK PRESENTATION\nPrepared Exclusively For: Client" };
+    const secondDivider = { ...secondProperty, id: "second:divider", slideNumber: 2, slideRole: "cover" as const, title: "Industrial Facility Proposal", rawText: "Industrial Facility Proposal\nPasig" };
+    const manifest = buildCompilationManifest({
+      selectedSlideIds: [firstProperty.id, secondProperty.id],
+      catalogSlides: [firstDivider, firstProperty, secondCover, secondDivider, secondProperty],
+      proposal: { clientName: "Client", projectTitle: "", brokerName: "", brokerEmail: "", brokerPhone: "", date: "2026-10-23", mode: "standard" },
+    });
+
+    const clientCovers = manifest.slides.filter((slide) => slide.slideRole === "cover" && !/industrial facility proposal/i.test(slide.rawText));
+    expect(clientCovers.map((slide) => slide.id)).toEqual([secondCover.id]);
+    expect(manifest.slides.filter((slide) => /industrial facility proposal/i.test(slide.rawText))).toHaveLength(2);
+    expect(manifest.slides.some((slide) => slide.slideRole === "closing")).toBe(false);
+    expect(manifest.generatedCover).toBe(false);
+  });
+
+  it("requests a generated client cover when selected decks have no cover template", () => {
+    const property = { ...sampleSlides[0], id: "divider-only:property", deckId: "divider-only", deckFileName: "DividerOnly.pptx", deckFilePath: "C:/OneDrive/DividerOnly.pptx", slideRole: "property" as const };
+    const divider = { ...property, id: "divider-only:divider", slideNumber: 1, slideRole: "cover" as const, title: "Industrial Facility Proposal", rawText: "Industrial Facility Proposal\nAntipolo" };
+    const manifest = buildCompilationManifest({
+      selectedSlideIds: [property.id],
+      catalogSlides: [divider, property],
+      proposal: { clientName: "Client", projectTitle: "", brokerName: "", brokerEmail: "", brokerPhone: "", date: "2026-10-23", mode: "standard" },
+    });
+
+    expect(manifest.generatedCover).toBe(true);
+  });
+
+  it("exports one client cover, a navy facility divider, selected property, and one generated contact CTA", async () => {
     const deckPath = "C:/OneDrive/Antipolo_Options.pptx";
     const deckName = "Antipolo_Options.pptx";
     const slideTexts = [
@@ -301,15 +333,45 @@ describe("Property Decks filtering, overrides, and cart sequencing", () => {
     const orderedSlides = await getOrderedSlidePathsFromZip(output);
     const exportedText = await Promise.all(orderedSlides.map(async (slidePath) => extractTextFromSlideXml(await output.file(slidePath)!.async("string"))));
 
-    expect(exportedText).toHaveLength(5);
+    expect(exportedText).toHaveLength(4);
     expect(exportedText[0]).toContain("Client Proposal Cover");
     expect(exportedText[1]).toContain("2. Industrial Facility Proposal");
     expect(exportedText[1]).toContain("Antipolo");
     expect(exportedText[2]).toContain("Antipolo Warehouse");
-    expect(exportedText[3]).toContain("schedule a viewing");
-    expect(exportedText[4]).toContain("Sondi Tuazon");
-    expect(exportedText[4]).toContain("sondi@primephilippines.com");
-    expect(compiled.slideCount).toBe(5);
+    expect(exportedText[3]).toContain("CONTACTS");
+    expect(exportedText[3]).toContain("Sondi Tuazon");
+    expect(exportedText[3]).toContain("sondi@primephilippines.com");
+    expect(exportedText.filter((text) => /schedule a viewing|CONTACTS/.test(text))).toHaveLength(1);
+    const dividerXml = await output.file(orderedSlides[1])!.async("string");
+    expect(dividerXml).toContain('<a:srgbClr val="021A3D"/>');
+    expect(compiled.slideCount).toBe(4);
+  });
+
+  it("generates a cover and a single CTA when source decks provide neither page", async () => {
+    const deckPath = "C:/OneDrive/Divider_Only.pptx";
+    const source = new JSZip();
+    source.file("[Content_Types].xml", '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/><Override PartName="/ppt/slides/slide2.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/><Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/></Types>');
+    source.file("ppt/presentation.xml", '<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:sldIdLst><p:sldId id="256" r:id="rId1"/><p:sldId id="257" r:id="rId2"/></p:sldIdLst></p:presentation>');
+    source.file("ppt/_rels/presentation.xml.rels", '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide2.xml"/></Relationships>');
+    source.file("ppt/slides/slide1.xml", '<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>Industrial Facility Proposal</a:t></a:r></a:p><a:p><a:r><a:t>Antipolo</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>');
+    source.file("ppt/slides/slide2.xml", '<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>Antipolo Warehouse</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>');
+    for (const number of [1, 2]) source.file(`ppt/slides/_rels/slide${number}.xml.rels`, '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdLayout" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/></Relationships>');
+    source.file("ppt/slideLayouts/slideLayout1.xml", '<p:sldLayout xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" type="blank"><p:cSld name="Blank"><p:spTree/></p:cSld></p:sldLayout>');
+
+    const divider: PropertySlideItem = { ...sampleSlides[0], id: "divider-only:divider", deckId: "divider-only", deckFileName: "Divider_Only.pptx", deckFilePath: deckPath, slideNumber: 1, slideRole: "cover", title: "Industrial Facility Proposal", rawText: "Industrial Facility Proposal\nAntipolo" };
+    const property: PropertySlideItem = { ...sampleSlides[0], id: "divider-only:property", deckId: "divider-only", deckFileName: "Divider_Only.pptx", deckFilePath: deckPath, slideNumber: 2, slideRole: "property", title: "Antipolo Warehouse", rawText: "Antipolo Warehouse", specs: { ...sampleSlides[0].specs, location: "Antipolo" } };
+    const manifest = buildCompilationManifest({ selectedSlideIds: [property.id], catalogSlides: [divider, property], proposal: { clientName: "FastCargo Logistics", clientDesignation: "Supply Chain Director", clientCompany: "FastCargo Inc.", preparedByName: "Sondi Tuazon", preparedByDesignation: "Sr. Head", preparedByCompany: "PRIME Philippines", projectTitle: "", brokerName: "", brokerEmail: "", brokerPhone: "", date: "2026-10-23", mode: "standard" } });
+    const compiled = await compileCopiedPptx(manifest, new Map([[deckPath, { name: divider.deckFileName, relativePath: deckPath, data: await source.generateAsync({ type: "uint8array" }) }]]));
+    const output = await JSZip.loadAsync(compiled.buffer);
+    const orderedSlides = await getOrderedSlidePathsFromZip(output);
+    const slideText = await Promise.all(orderedSlides.map(async (slidePath) => extractTextFromSlideXml(await output.file(slidePath)!.async("string"))));
+
+    expect(slideText).toHaveLength(4);
+    expect(slideText[0]).toContain("FastCargo Logistics");
+    expect(slideText[1]).toContain("Industrial Facility Proposal");
+    expect(slideText[2]).toContain("Antipolo Warehouse");
+    expect(slideText[3]).toContain("For more information and to schedule a viewing");
+    expect(compiled.slideCount).toBe(4);
   });
 
   it("uses the selected property's location on its Industrial Facility Proposal slide", () => {
@@ -419,10 +481,12 @@ describe("Property Decks filtering, overrides, and cart sequencing", () => {
 
   it("exports the selected location on an Industrial Facility Proposal divider", async () => {
     const source = new JSZip();
-    source.file("[Content_Types].xml", '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/></Types>');
+    source.file("[Content_Types].xml", '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/><Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/></Types>');
     source.file("ppt/presentation.xml", '<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:sldIdLst><p:sldId id="256" r:id="rId1"/></p:sldIdLst></p:presentation>');
     source.file("ppt/_rels/presentation.xml.rels", '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/></Relationships>');
-    source.file("ppt/slides/slide1.xml", '<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>Industrial Facility Proposal</a:t></a:r></a:p></p:txBody></p:sp><p:sp><p:txBody><a:p><a:r><a:t>Pasig City</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>');
+    source.file("ppt/slides/_rels/slide1.xml.rels", '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdLayout" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/></Relationships>');
+    source.file("ppt/slideLayouts/slideLayout1.xml", '<p:sldLayout xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" type="blank"><p:cSld name="Blank"><p:spTree/></p:cSld></p:sldLayout>');
+    source.file("ppt/slides/slide1.xml", '<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/><p:sp><p:nvSpPr><p:cNvPr id="2" name="Title"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr><p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>Industrial Facility Proposal</a:t></a:r></a:p></p:txBody></p:sp><p:sp><p:nvSpPr><p:cNvPr id="3" name="Location"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr><p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>Pasig City</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>');
     const divider: PropertySlideItem = {
       ...sampleSlides[1],
       id: "paranaque:divider:1",
@@ -453,6 +517,7 @@ describe("Property Decks filtering, overrides, and cart sequencing", () => {
 
     expect(slideXml).toContain("Parañaque");
     expect(slideXml).not.toContain("Pasig City");
+    expect(slideXml).toContain('<a:srgbClr val="021A3D"/>');
   });
 
   it("writes only the city name into exported property slides", async () => {
@@ -653,17 +718,23 @@ describe("Property Decks filtering, overrides, and cart sequencing", () => {
 
     const compiled = await compileCopiedPptx(manifest, sourceFiles);
     expect(compiled.fileName).toBe("PRIME_Proposal_Shopee_Express_2026-10-21.pptx");
-    expect(compiled.slideCount).toBe(2);
+    expect(compiled.slideCount).toBe(4);
 
     const loadedZip = await JSZip.loadAsync(compiled.buffer);
+    const orderedOutputSlides = await getOrderedSlidePathsFromZip(loadedZip);
     expect(loadedZip.file("[Content_Types].xml")).not.toBeNull();
     expect(loadedZip.file("_rels/.rels")).not.toBeNull();
     expect(loadedZip.file("ppt/presentation.xml")).not.toBeNull();
     expect(loadedZip.file("ppt/slides/slide1.xml")).not.toBeNull();
-    expect(loadedZip.file("ppt/slides/slide3.xml")).toBeNull();
-    expect(await loadedZip.file("ppt/slides/slide1.xml")!.async("string")).toBe(originalOne);
-    expect(await loadedZip.file("ppt/slides/slide2.xml")!.async("string")).toBe(originalTwo);
-    const slideRels = await loadedZip.file("ppt/slides/_rels/slide1.xml.rels")!.async("string");
+    expect(loadedZip.file("ppt/slides/slide5.xml")).toBeNull();
+    expect(await loadedZip.file(orderedOutputSlides[0])!.async("string")).toContain("Mosaic Proposal Cover");
+    expect(await loadedZip.file(orderedOutputSlides[1])!.async("string")).toBe(originalOne);
+    expect(await loadedZip.file(orderedOutputSlides[2])!.async("string")).toBe(originalTwo);
+    const exportedSlideXml = await Promise.all(orderedOutputSlides.map((slidePath) => loadedZip.file(slidePath)!.async("string")));
+    expect(exportedSlideXml.filter((xml) => xml.includes('name="Mosaic Proposal Cover"'))).toHaveLength(1);
+    expect(exportedSlideXml.filter((xml) => xml.includes('name="Mosaic Proposal CTA"'))).toHaveLength(1);
+    const slideRelsPath = orderedOutputSlides[1].replace("ppt/slides/", "ppt/slides/_rels/") + ".rels";
+    const slideRels = await loadedZip.file(slideRelsPath)!.async("string");
     expect(slideRels).toContain("../selected/slide1/assets/0-photo.jpg");
     expect(await loadedZip.file("ppt/selected/slide1/assets/0-photo.jpg")!.async("uint8array")).toEqual(
       new Uint8Array([255, 216, 32, 8, 0, 255, 217]),
