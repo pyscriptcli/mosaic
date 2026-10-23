@@ -205,6 +205,14 @@ describe("Mosaic Helper local HTTP boundary", () => {
     assert.equal(previewResponse.headers["content-type"], "image/png");
     assert.deepEqual(previewResponse.body, await fs.readFile(previewPath));
 
+    const imageRequest = request("GET", `/api/property-decks/export-preview?id=${jobId}&slide=1`, {
+      referer: `${allowedOrigin}/property-decks`,
+    });
+    const imageResponse = response();
+    await handleRequest(imageRequest, imageResponse, { exportJobs: jobs });
+    assert.equal(imageResponse.status, 200);
+    assert.equal(imageResponse.headers["content-type"], "image/png");
+
     releaseExport();
     await new Promise((resolve) => setImmediate(resolve));
     const readyResponse = response();

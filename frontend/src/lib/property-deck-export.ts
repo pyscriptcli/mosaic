@@ -5,6 +5,10 @@ import { cityNameFromLocation, extractTextFromSlideXml, getOrderedSlidePathsFrom
 
 const REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships";
 
+function normalizeSlideTitle(value: string): string {
+  return value.normalize("NFKC").toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+}
+
 function normalizePackagePath(value: string): string {
   const parts: string[] = [];
   for (const part of value.replace(/\\/g, "/").split("/")) {
@@ -812,7 +816,11 @@ export async function verifyProposalExport(buffer: Uint8Array, manifest: Compila
   const normalizedText = (value: string) => value.normalize("NFKC").replace(/\s+/g, " ").trim().toLocaleLowerCase();
   const requireSlideText = (slideIndex: number, expected: string | undefined, description: string) => {
     if (!expected?.trim()) return;
-    if (!normalizedText(slideTexts[slideIndex] || "").includes(normalizedText(expected))) {
+    const actualText = slideTexts[slideIndex] || "";
+    const matches = description.startsWith("selected property slide")
+      ? normalizeSlideTitle(actualText).includes(normalizeSlideTitle(expected))
+      : normalizedText(actualText).includes(normalizedText(expected));
+    if (!matches) {
       throw new Error(`Export verification failed: ${description} is missing from slide ${slideIndex + 1} (expected “${expected}”).`);
     }
   };

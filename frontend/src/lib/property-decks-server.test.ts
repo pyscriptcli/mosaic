@@ -234,6 +234,13 @@ describe("Property Decks server indexer and compiler", () => {
     expect(slideText[3]).toContain("Sondi Tuazon");
     expect(slideText[3]).toContain("sondi@primephilippines.com");
     expect(compiled.slideCount).toBe(4);
+
+    const punctuationVariantManifest = structuredClone(manifest);
+    punctuationVariantManifest.slides.find((slide) => slide.slideRole === "property")!.title =
+      "ANTIPOLO—WAREHOUSE";
+    await expect(verifyProposalExport(new Uint8Array(await fs.promises.readFile(compiled.outputPath)), punctuationVariantManifest))
+      .resolves.toBeUndefined();
+
     const outputSlideXml = await Promise.all(orderedSlides.map(async (slidePath) => output.file(slidePath)!.async("string")));
     const slideNames = outputSlideXml.map((xml) => xml.match(/<p:cSld\b[^>]*\bname="([^"]+)"/i)?.[1]);
     expect(slideNames).toHaveLength(4);

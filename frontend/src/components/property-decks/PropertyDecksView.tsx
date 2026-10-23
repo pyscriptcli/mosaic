@@ -1415,7 +1415,7 @@ export function PropertyDecksView() {
                     {exportPreviews.map((preview) => (
                       <figure key={preview.slide} className="min-w-0 border border-slate-200 bg-white p-1">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={`${MOSAIC_HELPER_URL}${preview.url}`} alt={`Slide ${preview.slide} preview: ${preview.title}`} className="aspect-video w-full object-contain" onError={() => setPreviewWarning(true)} />
+                        <img src={`${MOSAIC_HELPER_URL}${preview.url}`} alt={`Slide ${preview.slide} preview: ${preview.title}`} crossOrigin="anonymous" className="aspect-video w-full object-contain" onError={() => setPreviewWarning(true)} />
                         <figcaption className="truncate px-1 py-0.5 text-[9px] text-slate-600">{preview.slide}. {preview.title}</figcaption>
                       </figure>
                     ))}

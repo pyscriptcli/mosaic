@@ -64,7 +64,10 @@ function sendJson(response, status, payload) {
 function isAllowedRequest(request, response) {
   const origin = request.headers.origin;
   const requestUrl = new URL(request.url || "/", `http://${HOST}:${PORT}`);
-  if (!origin && request.method === "GET" && requestUrl.pathname === "/api/property-decks/thumbnail") {
+  if (!origin && request.method === "GET" && [
+    "/api/property-decks/thumbnail",
+    "/api/property-decks/export-preview",
+  ].includes(requestUrl.pathname)) {
     try {
       if (new URL(request.headers.referer || "").origin === APP_ORIGIN) {
         response.setHeader("Cache-Control", "no-store");

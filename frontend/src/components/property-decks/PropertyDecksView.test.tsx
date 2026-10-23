@@ -581,7 +581,8 @@ describe("PropertyDecksView component", () => {
 
     const exportButton = screen.getByRole("button", { name: /building/i });
     expect(exportButton.hasAttribute("disabled")).toBe(true);
-    expect(await screen.findByAltText("Slide 1 preview: Cover page")).toBeDefined();
+    const previewImage = await screen.findByAltText("Slide 1 preview: Cover page");
+    expect(previewImage.getAttribute("crossorigin")).toBe("anonymous");
     expect(screen.queryByRole("button", { name: "Download PPTX" })).toBeNull();
     await waitFor(() => expect(screen.getByText("PPTX and PDF passed the export checklist and are ready to download.")).toBeDefined());
     expect(screen.getByRole("button", { name: "Download PPTX" })).toBeDefined();
