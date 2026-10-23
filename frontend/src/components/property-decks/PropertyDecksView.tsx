@@ -101,9 +101,28 @@ interface CompiledResult {
   outputPath: string;
   fileName: string;
   pdfFileName: string | null;
-  pdfError: string | null;
   slideCount: number;
   engine: string;
+}
+
+interface ExportJobProgress {
+  stage: string;
+  currentSlide: number;
+  totalSlides: number;
+  title: string;
+}
+
+interface ExportJobPreview {
+  slide: number;
+  title: string;
+  url: string;
+}
+
+interface ExportChecklistItem {
+  id: string;
+  label: string;
+  status: "passed" | "failed";
+  detail?: string;
 }
 
 export function PropertyDecksView() {
@@ -172,8 +191,12 @@ export function PropertyDecksView() {
   const [customContactPhotoDataUrl, setCustomContactPhotoDataUrl] = useState("");
   const [customContactFormOpen, setCustomContactFormOpen] = useState(false);
   const [compiledResult, setCompiledResult] = useState<CompiledResult | null>(null);
-  const [exportStage, setExportStage] = useState<"idle" | "pptx" | "pdf" | "ready" | "pdf-error">("idle");
+  const [exportStage, setExportStage] = useState<"idle" | "assembling" | "validating" | "ready" | "failed">("idle");
   const [exportElapsedSeconds, setExportElapsedSeconds] = useState(0);
+  const [exportProgress, setExportProgress] = useState<ExportJobProgress | null>(null);
+  const [exportPreviews, setExportPreviews] = useState<ExportJobPreview[]>([]);
+  const [exportChecklist, setExportChecklist] = useState<ExportChecklistItem[]>([]);
+  const [previewWarning, setPreviewWarning] = useState(false);
 
   useEffect(() => {
     if (!compiling) return;
@@ -562,10 +585,13 @@ export function PropertyDecksView() {
     setExportElapsedSeconds(0);
     setError(null);
     setCompiledResult(null);
-    setExportStage("pptx");
-    let pptxCreated = false;
+    setExportStage("assembling");
+    setExportProgress(null);
+    setExportPreviews([]);
+    setExportChecklist([]);
+    setPreviewWarning(false);
     try {
-      const res = await fetch(`${MOSAIC_HELPER_URL}/api/property-decks/compile`, {
+      const res = await fetch(`${MOSAIC_HELPER_URL}/api/property-decks/export-jobs`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -592,52 +618,43 @@ export function PropertyDecksView() {
           }),
         });
       const payload = await res.json().catch(() => ({}));
-      if (res.ok && payload.fileName) {
-        const result: CompiledResult = {
-          downloadId: payload.downloadId,
-          outputPath: payload.outputPath,
-          fileName: payload.fileName,
-          pdfFileName: null,
-          pdfError: null,
-          slideCount: payload.slideCount,
-          engine: payload.engine,
-        };
-        setCompiledResult(result);
-        pptxCreated = true;
-        setExportStage("pdf");
-        try {
-          const pdfRes = await fetch(`${MOSAIC_HELPER_URL}/api/property-decks/compile`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ downloadId: payload.downloadId }),
-          });
-          const pdfPayload = await pdfRes.json().catch(() => ({}));
-          if (pdfRes.ok && pdfPayload.pdfFileName) {
-            setCompiledResult({ ...result, pdfFileName: pdfPayload.pdfFileName });
-            setExportStage("ready");
-          } else {
-            setCompiledResult({ ...result, pdfError: pdfPayload.error || "PDF conversion failed." });
-            setExportStage("pdf-error");
-          }
-        } catch (pdfError) {
-          setCompiledResult({
-            ...result,
-            pdfError: helperRequestError(pdfError, "PDF conversion failed."),
-          });
-          setExportStage("pdf-error");
+      if (!res.ok) throw new Error(payload.error || "The export job could not be started.");
+      if (typeof payload.jobId !== "string" || !payload.jobId) throw new Error("Mosaic Helper did not return an export job ID.");
+      while (true) {
+        const statusResponse = await fetch(`${MOSAIC_HELPER_URL}/api/property-decks/export-jobs?id=${encodeURIComponent(payload.jobId)}`);
+        const statusPayload = await statusResponse.json().catch(() => ({}));
+        if (!statusResponse.ok) throw new Error(statusPayload.error || "The export job status is unavailable.");
+        setExportProgress(statusPayload.progress || null);
+        setExportPreviews(Array.isArray(statusPayload.previews) ? statusPayload.previews : []);
+        setPreviewWarning((current) => current || Boolean(statusPayload.previewWarning));
+        const checklist = Array.isArray(statusPayload.checklist) ? statusPayload.checklist : [];
+        setExportChecklist(checklist);
+        if (statusPayload.status === "failed") {
+          setExportStage("failed");
+          throw new Error(statusPayload.error || "Proposal export validation failed. Downloads are blocked.");
         }
-        return;
+        if (statusPayload.status === "validating") setExportStage("validating");
+        if (statusPayload.status === "ready") {
+          if (!statusPayload.result?.downloadId || !statusPayload.result?.pdfFileName || !checklist.length || checklist.some((item: ExportChecklistItem) => item.status !== "passed")) {
+            setExportStage("failed");
+            throw new Error("Export checklist failed. PPTX and PDF downloads are blocked until all required checks pass.");
+          }
+          setCompiledResult({
+            downloadId: statusPayload.result.downloadId,
+            outputPath: statusPayload.result.outputPath,
+            fileName: statusPayload.result.fileName,
+            pdfFileName: statusPayload.result.pdfFileName,
+            slideCount: statusPayload.result.slideCount,
+            engine: statusPayload.result.engine,
+          });
+          setExportStage("ready");
+          return;
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 500));
       }
-      throw new Error(payload.error || "The source slides could not be exported.");
     } catch (err) {
-      if (pptxCreated) {
-        const message = err instanceof Error ? err.message : "PDF conversion failed.";
-        setCompiledResult((current) => current ? { ...current, pdfError: message } : current);
-        setExportStage("pdf-error");
-      } else {
-        setError(helperRequestError(err, "Failed to compile presentation deck."));
-        setExportStage("idle");
-      }
+      setError(helperRequestError(err, "Failed to compile presentation deck."));
+      setExportStage((stage) => stage === "failed" ? "failed" : "idle");
     } finally {
       setCompiling(false);
     }
@@ -1371,7 +1388,7 @@ export function PropertyDecksView() {
               className="inline-flex min-h-9 shrink-0 items-center justify-center gap-1.5 border border-[#003366] bg-[#003366] px-3 text-[11px] font-semibold text-white transition-colors hover:bg-[#174778] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#C9A84C] disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Layers aria-hidden="true" className="h-3.5 w-3.5 text-[#C9A84C]" />
-              {compiling ? exportStage === "pdf" ? "Preparing PDF…" : "Preparing…" : "Export Proposal"}
+              {compiling ? exportStage === "validating" ? "Checking…" : "Building…" : "Export Proposal"}
             </button>
           </div>
 
@@ -1380,33 +1397,49 @@ export function PropertyDecksView() {
               <LoaderCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden="true" />
               <div className="space-y-0.5">
                 <p role="status" aria-live="polite" className="font-semibold">
-                  {exportStage === "pdf"
-                    ? "Converting PowerPoint to PDF with Microsoft PowerPoint…"
-                    : `Compiling ${selectedSlideIds.length} selected slide${selectedSlideIds.length === 1 ? "" : "s"} into PowerPoint…`}
+                  {exportStage === "validating"
+                    ? "Checking the exported PowerPoint and PDF…"
+                    : (exportProgress?.title || `Building ${selectedSlideIds.length} selected property slide${selectedSlideIds.length === 1 ? "" : "s"} in Mosaic…`)}
                 </p>
                 <p aria-live="off" className="text-slate-600">
-                  Elapsed {formatElapsedTime(exportElapsedSeconds)} · Large decks may take a few minutes. Keep this page open.
+                  {exportProgress ? `Slide ${exportProgress.currentSlide} of ${exportProgress.totalSlides}` : "Starting the assembly"} · Elapsed {formatElapsedTime(exportElapsedSeconds)}
                 </p>
-                {exportStage === "pdf" && compiledResult && (
-                  <p className="text-slate-600">The PowerPoint file is ready; PDF conversion is still running.</p>
+                {exportPreviews.length > 0 && (
+                  <div aria-label="Live slide previews" className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    {exportPreviews.map((preview) => (
+                      <figure key={preview.slide} className="min-w-0 border border-slate-200 bg-white p-1">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={`${MOSAIC_HELPER_URL}${preview.url}`} alt={`Slide ${preview.slide} preview: ${preview.title}`} className="aspect-video w-full object-contain" onError={() => setPreviewWarning(true)} />
+                        <figcaption className="truncate px-1 py-0.5 text-[9px] text-slate-600">{preview.slide}. {preview.title}</figcaption>
+                      </figure>
+                    ))}
+                  </div>
+                )}
+                {previewWarning && <p role="status" className="text-slate-600">Some slide previews could not render. File validation continues.</p>}
+                {exportChecklist.length > 0 && (
+                  <ul aria-label="Export validation checklist" className="space-y-1 pt-1">
+                    {exportChecklist.map((item) => <li key={item.id} className={item.status === "passed" ? "text-green-700" : "text-red-700"}>{item.status === "passed" ? "✓" : "✕"} {item.label}{item.detail ? ` — ${item.detail}` : ""}</li>)}
+                  </ul>
                 )}
               </div>
             </div>
           )}
-          {exportStage === "ready" && <p role="status" className="text-[11px] text-green-700">PPTX and PDF ready to download.</p>}
+          {exportStage === "ready" && <p role="status" className="text-[11px] text-green-700">PPTX and PDF passed the export checklist and are ready to download.</p>}
+          {exportStage === "failed" && <p role="alert" className="text-[11px] text-red-700">Required export checks failed. Downloads are blocked.</p>}
+          {exportStage === "ready" && exportChecklist.length > 0 && (
+            <ul aria-label="Export validation checklist" className="mt-2 space-y-1 border-l-2 border-green-600 bg-green-50 px-3 py-2 text-[10px]">
+              {exportChecklist.map((item) => <li key={item.id} className="text-green-800">✓ {item.label}</li>)}
+            </ul>
+          )}
+          {exportStage === "ready" && previewWarning && <p role="status" className="mt-2 text-[10px] text-amber-700">Some thumbnails could not render; the validated PPTX and PDF are still available.</p>}
 
           {compiledResult && (
             <div className="mt-3 shrink-0 space-y-2 border-t border-slate-200 pt-3 text-xs text-[#003366]">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="font-semibold">{exportStage === "ready" ? "Proposal files are ready" : "PowerPoint proposal is ready"}</p>
+                <p className="font-semibold">Proposal files are ready</p>
                 <span className="text-[10px] text-slate-500">{compiledResult.slideCount} slides</span>
               </div>
               <p className="break-all text-[10px] text-slate-500">{compiledResult.fileName}</p>
-              {compiledResult.pdfError && (
-                <p role="alert" className="text-[11px] text-red-700">
-                  PPTX download is ready. PDF conversion failed: {compiledResult.pdfError}
-                </p>
-              )}
               <div role="group" aria-label="Proposal export options" className="flex flex-wrap gap-2">
                 <button
                   type="button"

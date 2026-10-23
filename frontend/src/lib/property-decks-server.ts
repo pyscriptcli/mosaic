@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import JSZip from "jszip";
+import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { compileCopiedPptx, verifyProposalExport } from "./property-deck-export";
 import { assemblePropertyDeckWithPowerPoint } from "./property-deck-powerpoint";
 import { convertPptxToPdf } from "./property-deck-pdf";
@@ -297,6 +298,8 @@ export interface CompilePropertyDeckDependencies {
 export async function compilePropertyDeck(params: {
   manifest: CompilationManifest;
   outputFolder: string;
+  previewDirectory?: string;
+  onProgress?: (progress: { stage: string; currentSlide: number; totalSlides: number; title: string; previewPath?: string }) => void;
 }, dependencies: CompilePropertyDeckDependencies = {}): Promise<{ outputPath: string; fileName: string; slideCount: number; engine: string }> {
   const platform = dependencies.platform || process.platform;
   const rawOutput = params.outputFolder.trim();
@@ -326,7 +329,10 @@ export async function compilePropertyDeck(params: {
   const fileName = path.basename(outputPath);
 
   if (platform === "win32") {
-    await (dependencies.assembleWithPowerPoint || assemblePropertyDeckWithPowerPoint)(params.manifest, outputPath);
+    await (dependencies.assembleWithPowerPoint || assemblePropertyDeckWithPowerPoint)(params.manifest, outputPath, {
+      previewDirectory: params.previewDirectory,
+      onProgress: params.onProgress,
+    });
     await verifyProposalExport(new Uint8Array(await fs.promises.readFile(outputPath)), params.manifest);
     const generatedCover = params.manifest.generatedCover ?? !params.manifest.slides.some(
       (slide) => slide.slideRole === "cover" && !isIndustrialFacilityProposalSlide(slide),
@@ -362,4 +368,28 @@ export async function convertPropertyDeckPdf(pptxPath: string): Promise<{ pdfPat
   const pdfPath = pptxPath.replace(/\.pptx$/i, ".pdf");
   await convertPptxToPdf(pptxPath, pdfPath);
   return { pdfPath, pdfFileName: path.basename(pdfPath) };
+}
+
+export async function verifyProposalPdfExport(pdfBytes: Uint8Array, expectedPageCount: number): Promise<void> {
+  if (!pdfBytes.byteLength) throw new Error("PDF validation failed: the exported file is empty.");
+  let loadingTask: ReturnType<typeof getDocument> | undefined;
+  try {
+    loadingTask = getDocument({ data: pdfBytes.slice() });
+    const document = await loadingTask.promise;
+    if (document.numPages !== expectedPageCount) {
+      throw new Error(`PDF validation failed: expected ${expectedPageCount} pages but found ${document.numPages}.`);
+    }
+    const finalPage = await document.getPage(document.numPages);
+    const textContent = await finalPage.getTextContent();
+    const finalPageText = textContent.items.map((item) => "str" in item ? item.str : "").join(" ");
+    if (!/schedule\s+a\s+viewing|contact\s+us/i.test(finalPageText)) {
+      throw new Error("PDF validation failed: the final CTA page is missing its viewing contact prompt.");
+    }
+  } catch (error) {
+    if (error instanceof Error && /PDF validation failed/.test(error.message)) throw error;
+    const detail = error instanceof Error ? error.message : "Unknown PDF parser error.";
+    throw new Error(`PDF validation failed: the exported file could not be opened or read. ${detail}`);
+  } finally {
+    await loadingTask?.destroy().catch(() => undefined);
+  }
 }

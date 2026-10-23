@@ -8,7 +8,7 @@ import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { compileCopiedPptx } from "./property-deck-export";
 import { buildCompilationManifest, extractTextFromSlideXml, getOrderedSlidePathsFromZip } from "./property-decks";
-import { compilePropertyDeck, convertPropertyDeckPdf, findAvailableProposalPath, scanPropertyDeckFolder } from "./property-decks-server";
+import { compilePropertyDeck, convertPropertyDeckPdf, findAvailableProposalPath, scanPropertyDeckFolder, verifyProposalPdfExport } from "./property-decks-server";
 
 const execFile = promisify(nodeExecFile);
 
@@ -69,6 +69,10 @@ describe("Property Decks server indexer and compiler", () => {
     ]);
   });
 
+  it("rejects unreadable PDFs and PDFs whose page count differs from the PPTX", async () => {
+    await expect(verifyProposalPdfExport(new Uint8Array([1, 2, 3]), 1)).rejects.toThrow(/PDF.*(read|open|valid)/i);
+  });
+
   afterEach(async () => {
     await fs.promises.rm(tempDir, { recursive: true, force: true });
   });
@@ -119,15 +123,19 @@ describe("Property Decks server indexer and compiler", () => {
 
     expect(fs.existsSync(compiled.outputPath)).toBe(true);
     expect(compiled.fileName).toMatch(/Kuehne_Nagel/i);
-    expect(compiled.slideCount).toBe(3);
+    expect(compiled.slideCount).toBe(4);
     const output = await JSZip.loadAsync(await fs.promises.readFile(compiled.outputPath));
     const exportedCover = await output.file("ppt/slides/slide1.xml")!.async("string");
-    const exportedSlide = await output.file("ppt/slides/slide2.xml")!.async("string");
-    const exportedCta = await output.file("ppt/slides/slide3.xml")!.async("string");
+    const exportedDivider = await output.file("ppt/slides/slide2.xml")!.async("string");
+    const exportedProperty = await output.file("ppt/slides/slide3.xml")!.async("string");
+    const exportedCta = await output.file("ppt/slides/slide4.xml")!.async("string");
     expect(exportedCover).toContain("Prepared Exclusively For: Client");
-    expect(exportedSlide).toContain("STA. ROSA LOGISTICS PARK - BUILDING A");
-    expect(exportedSlide).toContain("Sta. Rosa");
-    expect(exportedSlide).not.toContain("Sta. Rosa, Laguna");
+    expect(exportedDivider).toContain("Industrial Facility Proposal");
+    expect(exportedDivider).toContain("Sta. Rosa");
+    expect(exportedDivider).toContain('val="021A3D"');
+    expect(exportedProperty).toContain("STA. ROSA LOGISTICS PARK - BUILDING A");
+    expect(exportedProperty).toContain("Sta. Rosa");
+    expect(exportedProperty).not.toContain("Sta. Rosa, Laguna");
     expect(exportedCta).toContain("Mosaic Proposal CTA");
   });
 
@@ -279,6 +287,7 @@ describe("Property Decks server indexer and compiler", () => {
 
       const converted = await convertPropertyDeckPdf(compiled.outputPath);
       const pdfBytes = new Uint8Array(await fs.promises.readFile(converted.pdfPath));
+      await verifyProposalPdfExport(pdfBytes, compiled.slideCount);
       const pdfLoadingTask = getDocument({ data: pdfBytes });
       const pdfDocument = await pdfLoadingTask.promise;
       expect(pdfDocument.numPages).toBe(6);

@@ -30,6 +30,7 @@ export interface PropertySlideItem {
   proposalLocation?: string;
   sourceLocation?: string;
   hasOverrides?: boolean;
+  isGeneratedDivider?: boolean;
 }
 
 export interface PropertySlideGroup {
@@ -526,7 +527,6 @@ export function buildCompilationManifest(params: {
   const propertyDeckIds = Array.from(new Set(
     resolvedSlides.filter((slide) => slide.slideRole === "property").map((slide) => slide.deckId),
   ));
-  const selectedIds = new Set(resolvedSlides.map((slide) => slide.id));
   const includedIds = new Set<string>();
   const presentationSlides: PropertySlideItem[] = [];
   const isClientCover = (slide: PropertySlideItem) => slide.slideRole === "cover" && !isIndustrialFacilityProposalSlide(slide);
@@ -540,31 +540,56 @@ export function buildCompilationManifest(params: {
     includedIds.add(proposalCover.id);
   }
 
+  const selectedPropertyCityKeys = new Set(resolvedSlides
+    .filter((slide) => slide.slideRole === "property")
+    .map((slide) => `${slide.deckId}:${cityNameFromLocation(slide.specs.location).trim().toLocaleLowerCase()}`));
   const insertedPropertyHeaders = new Set<string>();
   for (const slide of resolvedSlides) {
     if (slide.slideRole === "closing" || (isClientCover(slide) && includedIds.has(slide.id))) continue;
     if (isClientCover(slide)) continue;
-    const locationKey = slide.specs.location.trim().toLocaleLowerCase();
+    const locationKey = cityNameFromLocation(slide.specs.location).trim().toLocaleLowerCase();
     const propertyHeaderKey = `${slide.deckId}:${locationKey}`;
-    if (slide.slideRole === "property" && !insertedPropertyHeaders.has(propertyHeaderKey)) {
-      const sectionTitle = params.catalogSlides.find((candidate) =>
-        candidate.deckId === slide.deckId &&
-        isIndustrialFacilityProposalSlide(candidate),
-      );
-      if (sectionTitle && !selectedIds.has(sectionTitle.id)) {
-        const header = applySlideOverrides(sectionTitle, params.overrides);
-        presentationSlides.push({
-          ...header,
-          sourceLocation: header.specs.location,
-          specs: { ...header.specs, location: proposalCityLabel(slide.specs.location) },
-          id: insertedPropertyHeaders.size === 0
-            ? header.id
-            : `${header.id}:location:${hashString(locationKey)}`,
-          proposalLocation: proposalCityLabel(slide.specs.location),
-        });
-        includedIds.add(sectionTitle.id);
+    if (slide.slideRole === "property") {
+      if (!insertedPropertyHeaders.has(propertyHeaderKey)) {
+        const sectionTitle = params.catalogSlides
+          .filter((candidate) => candidate.deckId === slide.deckId && isIndustrialFacilityProposalSlide(candidate))
+          .sort((a, b) => a.slideNumber - b.slideNumber)[0];
+        const city = proposalCityLabel(slide.specs.location);
+        if (sectionTitle) {
+          const header = applySlideOverrides(sectionTitle, params.overrides);
+          presentationSlides.push({
+            ...header,
+            sourceLocation: header.specs.location,
+            specs: { ...header.specs, location: city },
+            id: `${header.id}:city:${hashString(locationKey)}`,
+            proposalLocation: city,
+          });
+          includedIds.add(sectionTitle.id);
+        } else {
+          presentationSlides.push({
+            ...slide,
+            id: `${slide.deckId}:generated-divider:${hashString(locationKey)}`,
+            slideRole: "cover",
+            title: "Industrial Facility Proposal",
+            rawText: `Industrial Facility Proposal\n${city}`,
+            specs: { ...slide.specs, location: city },
+            sourceLocation: undefined,
+            proposalLocation: city,
+            isGeneratedDivider: true,
+          });
+        }
+        insertedPropertyHeaders.add(propertyHeaderKey);
       }
+    } else if (isIndustrialFacilityProposalSlide(slide)) {
+      if (selectedPropertyCityKeys.has(propertyHeaderKey) || insertedPropertyHeaders.has(propertyHeaderKey)) continue;
+      const city = proposalCityLabel(slide.specs.location);
+      presentationSlides.push({
+        ...applySlideOverrides(slide, params.overrides),
+        specs: { ...slide.specs, location: city },
+        proposalLocation: city,
+      });
       insertedPropertyHeaders.add(propertyHeaderKey);
+      includedIds.add(slide.id);
     }
     if (!includedIds.has(slide.id)) {
       presentationSlides.push(slide);

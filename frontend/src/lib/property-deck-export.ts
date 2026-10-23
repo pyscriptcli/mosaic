@@ -1,3 +1,5 @@
+import fs from "node:fs/promises";
+import path from "node:path";
 import JSZip from "jszip";
 import { cityNameFromLocation, extractTextFromSlideXml, getOrderedSlidePathsFromZip, isIndustrialFacilityProposalSlide, type CompilationManifest, type ProposalContact, type PptxSourceFile } from "@/lib/property-decks";
 
@@ -183,6 +185,12 @@ async function appendContactSlide(output: JSZip, contacts: ProposalContact[]): P
   const contactShapes: string[] = [];
   const imageRelationships: string[] = [];
   const imageContentTypes: Array<{ path: string; contentType: string }> = [];
+  const officeWidth = Math.floor(contentWidth / 3);
+  const officeY = slideHeight - 600000;
+  contactShapes.push(contactTextShape(9200, contentStartX, officeY, contentWidth, 180000, [{ text: "OUR OFFICES", size: 850, color: "C9A84C", bold: true }]));
+  ["MANILA", "CEBU", "DAVAO"].forEach((city, index) => {
+    contactShapes.push(contactTextShape(9201 + index, contentStartX + index * officeWidth, officeY + 170000, officeWidth, 220000, [{ text: city, size: 1000, color: "31577D", bold: true }]));
+  });
   for (const [index, contact] of contacts.entries()) {
     const row = Math.floor(index / columns);
     const column = index % columns;
@@ -302,8 +310,56 @@ function needsGeneratedCover(manifest: CompilationManifest): boolean {
   );
 }
 
+function generatedDividerXml(city: string, uniqueSuffix: string): string {
+  const safeCity = escapeXml(city);
+  const slideName = `Mosaic Industrial Location Divider ${escapeXmlAttribute(uniqueSuffix)}`;
+  const chevrons = [
+    { x: 11140000, color: "A9B4C0" },
+    { x: 11440000, color: "C9A84C" },
+  ].map(({ x, color }, index) => `<p:sp><p:nvSpPr><p:cNvPr id="${10 + index}" name="Brand chevron ${index + 1}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="${x}" y="5550000"/><a:ext cx="330000" cy="520000"/></a:xfrm><a:prstGeom prst="chevron"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="${color}"/></a:solidFill><a:ln><a:noFill/></a:ln></p:spPr></p:sp>`).join("");
+  const shapes = [
+    contactTextShape(2, 900000, 3650000, 10000000, 850000, [{ text: "2. Industrial Facility Proposal", size: 3600, color: "FFFFFF" }], "Georgia"),
+    contactTextShape(3, 920000, 4550000, 9000000, 500000, [{ text: safeCity, size: 2600, color: "C9A84C", italic: true }], "Georgia"),
+    chevrons,
+  ].join("");
+  return `<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld name="${slideName}"><p:bg><p:bgPr><a:solidFill><a:srgbClr val="021A3D"/></a:solidFill><a:effectLst/></p:bgPr></p:bg><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>${shapes}</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>`;
+}
+
 function solidRectangleShape(id: number, x: number, y: number, width: number, height: number, color: string): string {
   return `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="Proposal accent"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="${x}" y="${y}"/><a:ext cx="${width}" cy="${height}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="${color}"/></a:solidFill><a:ln><a:noFill/></a:ln></p:spPr></p:sp>`;
+}
+
+function fitImageSize(bytes: Buffer, extension: string, maxWidth: number, maxHeight: number) {
+  let width = 1;
+  let height = 1;
+  if (extension === "png" && bytes.length >= 24) {
+    width = bytes.readUInt32BE(16);
+    height = bytes.readUInt32BE(20);
+  } else if (extension === "jpg") {
+    let offset = 2;
+    while (offset + 9 < bytes.length) {
+      if (bytes[offset] !== 0xff) break;
+      const marker = bytes[offset + 1];
+      const segmentLength = bytes.readUInt16BE(offset + 2);
+      if ([0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf].includes(marker)) {
+        height = bytes.readUInt16BE(offset + 5);
+        width = bytes.readUInt16BE(offset + 7);
+        break;
+      }
+      offset += 2 + segmentLength;
+    }
+  }
+  const scale = Math.min(maxWidth / width, maxHeight / height);
+  return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) };
+}
+
+async function primePhilippinesLogo() {
+  const logoPath = path.resolve(process.cwd(), "public/forms/prime-philippines-logo-blue.png");
+  return fs.readFile(logoPath);
+}
+
+function imageShape(id: number, name: string, relId: string, x: number, y: number, width: number, height: number) {
+  return `<p:pic><p:nvPicPr><p:cNvPr id="${id}" name="${escapeXmlAttribute(name)}"/><p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="${relId}"/><a:srcRect/><a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr><a:xfrm><a:off x="${x}" y="${y}"/><a:ext cx="${width}" cy="${height}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>`;
 }
 
 async function prependGeneratedCoverSlide(output: JSZip, proposal: CompilationManifest["proposal"]): Promise<void> {
@@ -325,33 +381,46 @@ async function prependGeneratedCoverSlide(output: JSZip, proposal: CompilationMa
   const slideHeight = Number(presentationXml.match(/<p:presentation\b[^>]*>[\s\S]*?<p:sldSz\b[^>]*\bcy="(\d+)"/)?.[1] || 6858000);
   const coverPath = "ppt/slides/mosaic-generated-cover.xml";
   const coverRelsPath = relationshipsPath(coverPath);
-  const margin = 900000;
+  const margin = 700000;
   const logo = clientLogoAsset(proposal.clientLogoDataUrl);
-  const logoRelId = logo ? "rIdLogo" : undefined;
-  const logoPath = logo ? `ppt/media/mosaic-client-logo.${logo.extension}` : undefined;
-  const logoShape = logo && logoRelId
-    ? `<p:pic><p:nvPicPr><p:cNvPr id="9" name="Client logo"/><p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="${logoRelId}"/><a:srcRect/><a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr><a:xfrm><a:off x="${slideWidth - 3400000}" y="${margin}"/><a:ext cx="2500000" cy="1250000"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>`
-    : "";
+  const primeLogoBytes = await primePhilippinesLogo();
+  const primeLogoSize = fitImageSize(primeLogoBytes, "png", 2500000, 620000);
+  const primeLogoX = Math.floor((slideWidth - primeLogoSize.width) / 2);
+  const clientLogoRelId = logo ? "rIdClientLogo" : undefined;
+  const clientLogoPath = logo ? `ppt/media/mosaic-client-logo.${logo.extension}` : undefined;
+  const clientLogoSize = logo ? fitImageSize(logo.bytes, logo.extension, 3300000, 1250000) : undefined;
+  const clientLogoShape = logo && clientLogoRelId && clientLogoSize
+    ? imageShape(9, "Client logo", clientLogoRelId, Math.floor((slideWidth - clientLogoSize.width) / 2), 1850000, clientLogoSize.width, clientLogoSize.height)
+    : contactTextShape(9, Math.floor(slideWidth * 0.2), 1900000, Math.floor(slideWidth * 0.6), 600000, [
+      { text: proposal.clientCompany || proposal.clientName || "Client", size: 2500, color: "142E4C", bold: true },
+    ], "Georgia");
   const coverShapes = [
-    solidRectangleShape(2, 620000, 1050000, 55000, Math.min(4600000, slideHeight - 1750000), "C9A84C"),
-    contactTextShape(3, margin, 950000, slideWidth - 2 * margin, 350000, [{ text: "PRIME PHILIPPINES  |  INDUSTRIAL & LOGISTICS ADVISORY", size: 1050, color: "C9A84C", bold: true }]),
-    contactTextShape(4, margin, 1850000, slideWidth - 2 * margin - (logo ? 2850000 : 0), 1050000, [{ text: proposal.projectTitle || "Industrial Facility Proposal", size: 3600, color: "FFFFFF", bold: true }], "Georgia"),
-    contactTextShape(5, margin, 3350000, slideWidth - 2 * margin, 300000, [{ text: "PREPARED EXCLUSIVELY FOR", size: 1000, color: "C9A84C", bold: true }]),
-    contactTextShape(6, margin, 3700000, slideWidth - 2 * margin, 900000, [
-      { text: proposal.clientName || "Valued Client", size: 2500, color: "FFFFFF", bold: true },
-      { text: [proposal.clientDesignation, proposal.clientCompany].filter(Boolean).join(" · "), size: 1450, color: "D7E0EB" },
+    imageShape(2, "PRIME Philippines logo", "rIdPrimeLogo", primeLogoX, 220000, primeLogoSize.width, primeLogoSize.height),
+    contactTextShape(3, margin, 950000, slideWidth - 2 * margin, 580000, [{ text: "WAREHOUSE FACILITIES FOR", size: 1600, color: "181D1E" }, { text: "LEASE FOR", size: 1600, color: "181D1E" }]),
+    clientLogoShape,
+    contactTextShape(10, margin, 3200000, slideWidth - 2 * margin, 420000, [{ text: "PROPERTY DECK PRESENTATION", size: 1350, color: "181D1E" }]),
+    solidRectangleShape(11, margin - 50000, 3660000, slideWidth - 2 * margin + 100000, 18000, "003366"),
+    contactTextShape(12, margin, 3850000, Math.floor(slideWidth * 0.42), 850000, [
+      { text: "PREPARED BY:", size: 1250, color: "181D1E" },
+      { text: proposal.preparedByName || "PRIME Philippines", size: 1700, color: "181D1E", bold: true },
+      { text: proposal.preparedByDesignation || "", size: 1300, color: "181D1E" },
+      { text: proposal.preparedByCompany || "PRIME Philippines", size: 1300, color: "181D1E", bold: true },
     ]),
-    contactTextShape(7, margin, Math.max(4900000, slideHeight - 1500000), slideWidth - 2 * margin, 1000000, [
-      { text: `PREPARED BY  ${proposal.preparedByName || "PRIME Philippines"}`, size: 1450, color: "FFFFFF", bold: true },
-      { text: [proposal.preparedByDesignation, proposal.preparedByCompany, proposal.date].filter(Boolean).join("  ·  "), size: 1150, color: "D7E0EB" },
+    contactTextShape(13, Math.floor(slideWidth * 0.54), 3850000, Math.floor(slideWidth * 0.40), 850000, [
+      { text: "PREPARED FOR:", size: 1250, color: "181D1E" },
+      { text: proposal.clientName || "Valued Client", size: 1700, color: "181D1E", bold: true },
+      { text: proposal.clientDesignation || "", size: 1300, color: "181D1E" },
+      { text: proposal.clientCompany || "", size: 1300, color: "181D1E", bold: true },
     ]),
-    logoShape,
   ].join("");
-  const coverXml = `<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld name="Mosaic Proposal Cover"><p:bg><p:bgPr><a:solidFill><a:srgbClr val="021A3D"/></a:solidFill><a:effectLst/></p:bgPr></p:bg><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>${coverShapes}</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>`;
+  const coverXml = `<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld name="Mosaic Proposal Cover"><p:bg><p:bgPr><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill><a:effectLst/></p:bgPr></p:bg><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>${coverShapes}</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>`;
   const relationships = [`<Relationship Id="rId1" Type="${REL_NS}/slideLayout" Target="${escapeXmlAttribute(layoutTarget)}"/>`];
-  if (logo && logoRelId && logoPath) {
-    output.file(logoPath, logo.bytes);
-    relationships.push(`<Relationship Id="${logoRelId}" Type="${REL_NS}/image" Target="../media/${pathFileName(logoPath)}"/>`);
+  const primeLogoPath = "ppt/media/prime-philippines-logo-blue.png";
+  output.file(primeLogoPath, primeLogoBytes);
+  relationships.push(`<Relationship Id="rIdPrimeLogo" Type="${REL_NS}/image" Target="../media/${pathFileName(primeLogoPath)}"/>`);
+  if (logo && clientLogoRelId && clientLogoPath) {
+    output.file(clientLogoPath, logo.bytes);
+    relationships.push(`<Relationship Id="${clientLogoRelId}" Type="${REL_NS}/image" Target="../media/${pathFileName(clientLogoPath)}"/>`);
   }
   output.file(coverPath, coverXml);
   output.file(coverRelsPath, `<Relationships xmlns="${REL_NS}">${relationships.join("")}</Relationships>`);
@@ -363,7 +432,8 @@ async function prependGeneratedCoverSlide(output: JSZip, proposal: CompilationMa
   output.file("ppt/_rels/presentation.xml.rels", presentationRelsXml.replace(/<\/Relationships>/i, `<Relationship Id="${slideRelId}" Type="${REL_NS}/slide" Target="${target}"/></Relationships>`));
   output.file("ppt/presentation.xml", presentationXml.replace(/<p:sldIdLst>([\s\S]*?)<\/p:sldIdLst>/i, (_list, contents: string) => `<p:sldIdLst><p:sldId id="${slideId}" r:id="${slideRelId}"/>${contents}</p:sldIdLst>`));
   let updatedTypes = ensureContentType(contentTypesXml, coverPath, "application/vnd.openxmlformats-officedocument.presentationml.slide+xml");
-  if (logo && logoPath) updatedTypes = ensureContentType(updatedTypes, logoPath, logo.contentType);
+  updatedTypes = ensureContentType(updatedTypes, primeLogoPath, "image/png");
+  if (logo && clientLogoPath) updatedTypes = ensureContentType(updatedTypes, clientLogoPath, logo.contentType);
   output.file("[Content_Types].xml", updatedTypes);
 }
 
@@ -402,8 +472,22 @@ async function personalizeCoverSlide(
   const pictureRelId = "rIdClientLogo";
   personalizedXml = personalizedXml.replace(/<p:sp\b[\s\S]*?<\/p:sp>/gi, (shapeXml) => {
     if (!/INSERT CLIENT LOGO OR PROJECT TITLE/i.test(shapeXml)) return shapeXml;
-    const transform = shapeXml.match(/<a:xfrm\b[^>]*>[\s\S]*?<\/a:xfrm>/i)?.[0];
+    let transform = shapeXml.match(/<a:xfrm\b[^>]*>[\s\S]*?<\/a:xfrm>/i)?.[0];
     if (!transform) return shapeXml;
+    const offset = transform.match(/<a:off\b[^>]*\bx="(\d+)"[^>]*\by="(\d+)"[^>]*\/>/i);
+    const extent = transform.match(/<a:ext\b[^>]*\bcx="(\d+)"[^>]*\bcy="(\d+)"[^>]*\/>/i);
+    if (offset && extent) {
+      const boxX = Number(offset[1]);
+      const boxY = Number(offset[2]);
+      const boxWidth = Number(extent[1]);
+      const boxHeight = Number(extent[2]);
+      const fitted = fitImageSize(logo.bytes, logo.extension, boxWidth, boxHeight);
+      const fittedX = Math.round(boxX + (boxWidth - fitted.width) / 2);
+      const fittedY = Math.round(boxY + (boxHeight - fitted.height) / 2);
+      transform = transform
+        .replace(offset[0], `<a:off x="${fittedX}" y="${fittedY}"/>`)
+        .replace(extent[0], `<a:ext cx="${fitted.width}" cy="${fitted.height}"/>`);
+    }
     const shapeId = shapeXml.match(/<p:cNvPr\b[^>]*\bid="(\d+)"/i)?.[1] || String(9000 + slideIndex);
     logoShapeFound = true;
     return `<p:pic><p:nvPicPr><p:cNvPr id="${shapeId}" name="Client logo"/><p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="${pictureRelId}"/><a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr>${transform}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>`;
@@ -549,7 +633,9 @@ async function makeCopiedSlideDeck(
 
     const destinationSlidePath = `ppt/slides/slide${index + 1}.xml`;
     await copySlideParts(source, sourceSlidePath, destinationSlidePath, output, index + 1, new Map(), { value: 0 }, copiedMasters);
-    if (slide.slideRole === "cover" && !isIndustrialFacilityProposalSlide(slide)) {
+    if (slide.isGeneratedDivider) {
+      output.file(destinationSlidePath, generatedDividerXml(slide.proposalLocation || slide.specs.location, `${index + 1}`));
+    } else if (slide.slideRole === "cover" && !isIndustrialFacilityProposalSlide(slide)) {
       const slideXml = await output.file(destinationSlidePath)?.async("string");
       if (slideXml) {
         const personalized = await personalizeCoverSlide(output, destinationSlidePath, slideXml, manifest.proposal, index + 1);

@@ -11,6 +11,7 @@ import {
   groupPropertyLocationsByCity,
   getOrderedSlidePathsFromZip,
   groupPropertySlidesByTitle,
+  isIndustrialFacilityProposalSlide,
   parseNumericGla,
   reorderSelectedSlides,
   type PropertySlideItem,
@@ -245,10 +246,10 @@ describe("Property Decks filtering, overrides, and cart sequencing", () => {
       },
     });
 
-    expect(manifest.slides.map((slide) => slide.id)).toEqual([
-      "deck-pasig:slide:1",
-      "deck-pasig:slide:2",
-      sampleSlides[1].id,
+    expect(manifest.slides.map((slide) => slide.title)).toEqual([
+      "Client Proposal Cover",
+      "Industrial Facility Proposal",
+      sampleSlides[1].title,
     ]);
     expect(manifest.slides.filter((slide) => slide.slideRole === "cover" && !/industrial facility proposal/i.test(slide.rawText)).map((slide) => slide.id)).toEqual(["deck-pasig:slide:1"]);
     expect(manifest.slides.some((slide) => slide.slideRole === "closing")).toBe(false);
@@ -271,6 +272,84 @@ describe("Property Decks filtering, overrides, and cart sequencing", () => {
     expect(manifest.slides.filter((slide) => /industrial facility proposal/i.test(slide.rawText))).toHaveLength(2);
     expect(manifest.slides.some((slide) => slide.slideRole === "closing")).toBe(false);
     expect(manifest.generatedCover).toBe(false);
+  });
+
+  it("adds one industrial divider per city and source deck when property addresses differ", () => {
+    const pasigProperty = {
+      ...sampleSlides[0],
+      id: "pasig-deck:property:1",
+      deckId: "pasig-deck",
+      deckFileName: "Pasig_Options.pptx",
+      deckFilePath: "C:/OneDrive/Pasig_Options.pptx",
+      slideRole: "property" as const,
+      specs: { ...sampleSlides[0].specs, location: "Pasig City" },
+    };
+    const sandovalProperty = {
+      ...pasigProperty,
+      id: "pasig-deck:property:2",
+      slideNumber: 3,
+      specs: { ...pasigProperty.specs, propertyName: "Sandoval Warehouse", location: "Sandoval Ave., Pasig City" },
+    };
+    const pasigDivider = {
+      ...pasigProperty,
+      id: "pasig-deck:divider:pasig",
+      slideNumber: 2,
+      slideRole: "cover" as const,
+      title: "Industrial Facility Proposal",
+      rawText: "Industrial Facility Proposal\nPasig City",
+    };
+    const manifest = buildCompilationManifest({
+      selectedSlideIds: [pasigProperty.id, sandovalProperty.id],
+      catalogSlides: [pasigDivider, pasigProperty, sandovalProperty],
+      proposal: {
+        clientName: "Client",
+        projectTitle: "",
+        brokerName: "",
+        brokerEmail: "",
+        brokerPhone: "",
+        date: "2026-10-23",
+        mode: "standard",
+      },
+    });
+
+    expect(manifest.slides.filter(isIndustrialFacilityProposalSlide)).toHaveLength(1);
+    expect(manifest.slides.filter((slide) => slide.slideRole === "property").map((slide) => slide.id)).toEqual([
+      pasigProperty.id,
+      sandovalProperty.id,
+    ]);
+  });
+
+  it("creates a city divider when the source deck has no industrial divider template", () => {
+    const property = {
+      ...sampleSlides[0],
+      id: "template-less:property:1",
+      deckId: "template-less",
+      deckFileName: "Template_Less.pptx",
+      deckFilePath: "C:/OneDrive/Template_Less.pptx",
+      slideRole: "property" as const,
+      specs: { ...sampleSlides[0].specs, location: "Antipolo, Rizal" },
+    };
+    const manifest = buildCompilationManifest({
+      selectedSlideIds: [property.id],
+      catalogSlides: [property],
+      proposal: {
+        clientName: "Client",
+        projectTitle: "",
+        brokerName: "",
+        brokerEmail: "",
+        brokerPhone: "",
+        date: "2026-10-23",
+        mode: "standard",
+      },
+    });
+    const divider = manifest.slides.find(isIndustrialFacilityProposalSlide);
+
+    expect(divider).toMatchObject({
+      title: "Industrial Facility Proposal",
+      proposalLocation: "Antipolo",
+      specs: { location: "Antipolo" },
+    });
+    expect(divider?.id).toContain("generated-divider");
   });
 
   it("requests a generated client cover when selected decks have no cover template", () => {
@@ -365,12 +444,24 @@ describe("Property Decks filtering, overrides, and cart sequencing", () => {
     const output = await JSZip.loadAsync(compiled.buffer);
     const orderedSlides = await getOrderedSlidePathsFromZip(output);
     const slideText = await Promise.all(orderedSlides.map(async (slidePath) => extractTextFromSlideXml(await output.file(slidePath)!.async("string"))));
+    const generatedCoverXml = await output.file("ppt/slides/mosaic-generated-cover.xml")!.async("string");
 
     expect(slideText).toHaveLength(4);
     expect(slideText[0]).toContain("FastCargo Logistics");
+    expect(slideText[0]).toContain("WAREHOUSE FACILITIES FOR");
+    expect(slideText[0]).toContain("LEASE FOR");
+    expect(slideText[0]).toContain("PROPERTY DECK PRESENTATION");
+    expect(slideText[0]).toContain("PREPARED BY");
+    expect(slideText[0]).toContain("PREPARED FOR");
+    expect(generatedCoverXml).toContain('name="PRIME Philippines logo"');
+    expect(generatedCoverXml).toContain('val="FFFFFF"');
+    expect(generatedCoverXml).not.toContain('val="021A3D"');
     expect(slideText[1]).toContain("Industrial Facility Proposal");
     expect(slideText[2]).toContain("Antipolo Warehouse");
     expect(slideText[3]).toContain("For more information and to schedule a viewing");
+    expect(slideText[3]).toContain("MANILA");
+    expect(slideText[3]).toContain("CEBU");
+    expect(slideText[3]).toContain("DAVAO");
     expect(compiled.slideCount).toBe(4);
   });
 
@@ -406,7 +497,7 @@ describe("Property Decks filtering, overrides, and cart sequencing", () => {
       },
     });
 
-    expect(manifest.slides[0].id).toBe(divider.id);
+    expect(manifest.slides[0].id).toMatch(new RegExp("^" + divider.id + ":city:"));
     expect(manifest.slides[0].proposalLocation).toBe("Parañaque");
   });
 
@@ -627,9 +718,12 @@ describe("Property Decks filtering, overrides, and cart sequencing", () => {
     expect(standardManifest.mode).toBe("standard");
     expect(standardManifest.includeSummaryTable).toBe(false);
     expect(standardManifest.includeCredentials).toBe(false);
-    expect(standardManifest.slides).toHaveLength(2);
-    expect(standardManifest.slides[0].id).toBe("deck-2:slide:3");
-    expect(standardManifest.slides[1].specs.leaseRate).toBe("₱350/sqm");
+    expect(standardManifest.slides).toHaveLength(4);
+    expect(standardManifest.slides.filter((slide) => slide.slideRole === "property").map((slide) => slide.id)).toEqual([
+      "deck-2:slide:3",
+      "deck-1:slide:2",
+    ]);
+    expect(standardManifest.slides.find((slide) => slide.id === "deck-1:slide:2")?.specs.leaseRate).toBe("₱350/sqm");
 
     const comprehensiveManifest = buildCompilationManifest({
       selectedSlideIds: ["deck-2:slide:3", "deck-1:slide:2"],
@@ -718,7 +812,7 @@ describe("Property Decks filtering, overrides, and cart sequencing", () => {
 
     const compiled = await compileCopiedPptx(manifest, sourceFiles);
     expect(compiled.fileName).toBe("PRIME_Proposal_Shopee_Express_2026-10-21.pptx");
-    expect(compiled.slideCount).toBe(4);
+    expect(compiled.slideCount).toBe(6);
 
     const loadedZip = await JSZip.loadAsync(compiled.buffer);
     const orderedOutputSlides = await getOrderedSlidePathsFromZip(loadedZip);
@@ -726,23 +820,25 @@ describe("Property Decks filtering, overrides, and cart sequencing", () => {
     expect(loadedZip.file("_rels/.rels")).not.toBeNull();
     expect(loadedZip.file("ppt/presentation.xml")).not.toBeNull();
     expect(loadedZip.file("ppt/slides/slide1.xml")).not.toBeNull();
-    expect(loadedZip.file("ppt/slides/slide5.xml")).toBeNull();
+    expect(loadedZip.file("ppt/slides/slide7.xml")).toBeNull();
     expect(await loadedZip.file(orderedOutputSlides[0])!.async("string")).toContain("Mosaic Proposal Cover");
-    expect(await loadedZip.file(orderedOutputSlides[1])!.async("string")).toBe(originalOne);
-    expect(await loadedZip.file(orderedOutputSlides[2])!.async("string")).toBe(originalTwo);
+    expect(await loadedZip.file(orderedOutputSlides[1])!.async("string")).toContain("Industrial Facility Proposal");
+    expect(await loadedZip.file(orderedOutputSlides[2])!.async("string")).toBe(originalOne);
+    expect(await loadedZip.file(orderedOutputSlides[3])!.async("string")).toContain("Industrial Facility Proposal");
+    expect(await loadedZip.file(orderedOutputSlides[4])!.async("string")).toBe(originalTwo);
     const exportedSlideXml = await Promise.all(orderedOutputSlides.map((slidePath) => loadedZip.file(slidePath)!.async("string")));
     expect(exportedSlideXml.filter((xml) => xml.includes('name="Mosaic Proposal Cover"'))).toHaveLength(1);
     expect(exportedSlideXml.filter((xml) => xml.includes('name="Mosaic Proposal CTA"'))).toHaveLength(1);
-    const slideRelsPath = orderedOutputSlides[1].replace("ppt/slides/", "ppt/slides/_rels/") + ".rels";
+    const slideRelsPath = orderedOutputSlides[2].replace("ppt/slides/", "ppt/slides/_rels/") + ".rels";
     const slideRels = await loadedZip.file(slideRelsPath)!.async("string");
-    expect(slideRels).toContain("../selected/slide1/assets/0-photo.jpg");
-    expect(await loadedZip.file("ppt/selected/slide1/assets/0-photo.jpg")!.async("uint8array")).toEqual(
+    expect(slideRels).toContain("../selected/slide2/assets/0-photo.jpg");
+    expect(await loadedZip.file("ppt/selected/slide2/assets/0-photo.jpg")!.async("uint8array")).toEqual(
       new Uint8Array([255, 216, 32, 8, 0, 255, 217]),
     );
     const presentationXml = await loadedZip.file("ppt/presentation.xml")!.async("string");
-    expect(presentationXml.match(/<p:sldMasterId\b/g)).toHaveLength(3);
+    expect(presentationXml.match(/<p:sldMasterId\b/g)).toHaveLength(5);
     const presentationRelationships = await loadedZip.file("ppt/_rels/presentation.xml.rels")!.async("string");
-    expect(presentationRelationships.match(/\/relationships\/slideMaster"/g)).toHaveLength(3);
+    expect(presentationRelationships.match(/\/relationships\/slideMaster"/g)).toHaveLength(5);
   });
 
   it("reads active slide order from presentation.xml and skips orphan deleted slides", async () => {

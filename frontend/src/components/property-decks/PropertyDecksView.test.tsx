@@ -5,6 +5,40 @@ import { clearBrowserPageCache } from "@/lib/browserPageCache";
 import { PropertyDecksView } from "./PropertyDecksView";
 
 const helperUrl = "http://127.0.0.1:43127";
+const defaultExportChecklist = [
+  { id: "pptx", label: "PPTX structure and slide order", status: "passed" },
+  { id: "cover-cta", label: "One cover and one final CTA", status: "passed" },
+  { id: "dividers", label: "City dividers included", status: "passed" },
+  { id: "pdf", label: "PDF opens and matches the slide count", status: "passed" },
+];
+
+function withExportJobProtocol(fetchMock: ReturnType<typeof vi.fn>, statusOverride?: (url: string) => Response | null) {
+  let proposal: Record<string, unknown> = {};
+  return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    const original = await fetchMock(input, init);
+    if (url === helperUrl + "/api/property-decks/export-jobs" && init?.method === "POST") {
+      const body = JSON.parse(String(init.body || "{}"));
+      proposal = body.proposal || {};
+      return new Response(JSON.stringify({ jobId: "89a73bcb-ade6-4ee4-a353-45a1be034d49" }), { status: 202 });
+    }
+    if (url.startsWith(helperUrl + "/api/property-decks/export-jobs?id=")) {
+      const override = statusOverride?.(url);
+      if (override) return override;
+      const name = String(proposal.clientName || "Client").replace(/[^a-z0-9 _-]/gi, "");
+      const fileName = "PRIME_Proposal_" + name + "_2026-10-23.pptx";
+      return new Response(JSON.stringify({
+        jobId: "89a73bcb-ade6-4ee4-a353-45a1be034d49",
+        status: "ready",
+        progress: { stage: "ready", currentSlide: 4, totalSlides: 4, title: "Export verified" },
+        previews: [],
+        checklist: defaultExportChecklist,
+        result: { downloadId: "export-1", outputPath: mockCatalog.outputFolder + "\\" + fileName, fileName, pdfFileName: fileName.replace(/\.pptx$/i, ".pdf"), slideCount: 4, engine: "microsoft-powerpoint" },
+      }), { status: 200 });
+    }
+    return original;
+  });
+}
 
 const mockCatalog = {
   sourceFolder: "C:\\Users\\PRIME_Dave\\OneDrive - Jet Innovisions\\Industrial",
@@ -106,7 +140,7 @@ describe("PropertyDecksView component", () => {
       if (url === `${helperUrl}/api/property-decks`) return new Response(JSON.stringify({ catalog: mockCatalog }), { status: 200 });
       return new Response(JSON.stringify({ ok: true }), { status: 200 });
     });
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("fetch", withExportJobProtocol(fetchMock));
     render(<PropertyDecksView />);
     await waitFor(() => expect(screen.getByRole("button", { name: "Mosaic Helper connected. Restart helper" })).toBeDefined());
     const helperControl = screen.getByRole("button", { name: "Mosaic Helper connected. Restart helper" });
@@ -159,13 +193,13 @@ describe("PropertyDecksView component", () => {
       const url = String(input);
       if (url === `${helperUrl}/health`) return new Response(JSON.stringify({ ok: true }), { status: 200 });
       if (url === `${helperUrl}/api/property-decks`) return new Response(JSON.stringify({ catalog: mockCatalog }), { status: 200 });
-      if (url === `${helperUrl}/api/property-decks/compile` && init?.method === "POST") {
+      if (url === `${helperUrl}/api/property-decks/export-jobs` && init?.method === "POST") {
         return new Response(JSON.stringify({ downloadId: "export-1", outputPath: "proposal.pptx", fileName: "proposal.pptx", slideCount: 3, engine: "test" }), { status: 200 });
       }
       if (url === `${helperUrl}/api/property-decks/compile` && init?.method === "PUT") return new Response(JSON.stringify({ pdfFileName: "proposal.pdf" }), { status: 200 });
       return new Response(JSON.stringify({ ok: true }), { status: 200 });
     });
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("fetch", withExportJobProtocol(fetchMock));
     render(<PropertyDecksView />);
     await waitFor(() => expect(screen.getByText("Biñan Logistics Center — Warehouse 4")).toBeDefined());
 
@@ -196,7 +230,7 @@ describe("PropertyDecksView component", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Export Proposal" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Download PPTX" })).toBeDefined());
-    const compileRequest = fetchMock.mock.calls.find(([url, init]) => String(url) === `${helperUrl}/api/property-decks/compile` && init?.method === "POST");
+    const compileRequest = fetchMock.mock.calls.find(([url, init]) => String(url) === `${helperUrl}/api/property-decks/export-jobs` && init?.method === "POST");
     const proposal = JSON.parse(String(compileRequest?.[1]?.body)).proposal;
     expect(proposal.ctaContacts.map((contact: { name: string }) => contact.name)).toEqual(["Sondi Tuazon", "Cedtrix Rena", "Jamie Cruz"]);
     expect(proposal.ctaContacts[0]).toMatchObject({ phone: "+63 917 845 6128", email: "sondi.tuazon@primephilippines.com" });
@@ -209,7 +243,7 @@ describe("PropertyDecksView component", () => {
       const url = String(input);
       if (url === `${helperUrl}/health`) return new Response(JSON.stringify({ ok: true }), { status: 200 });
       if (url === `${helperUrl}/api/property-decks`) return new Response(JSON.stringify({ catalog: mockCatalog }), { status: 200 });
-      if (url === `${helperUrl}/api/property-decks/compile` && init?.method === "POST") {
+      if (url === `${helperUrl}/api/property-decks/export-jobs` && init?.method === "POST") {
         return new Response(JSON.stringify({ downloadId: "export-1", outputPath: "C:\\Proposals\\proposal.pptx", fileName: "proposal.pptx", slideCount: 4 }), { status: 200 });
       }
       if (url === `${helperUrl}/api/property-decks/compile` && init?.method === "PUT") return new Response(JSON.stringify({ pdfFileName: "proposal.pdf" }), { status: 200 });
@@ -220,7 +254,7 @@ describe("PropertyDecksView component", () => {
       }
       return new Response(JSON.stringify({ ok: true }), { status: 200 });
     });
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("fetch", withExportJobProtocol(fetchMock));
     render(<PropertyDecksView />);
     await waitFor(() => expect(screen.getByText("Biñan Logistics Center — Warehouse 4")).toBeDefined());
     fireEvent.click(screen.getAllByRole("button", { name: "Add This Slide" })[0]);
@@ -231,7 +265,7 @@ describe("PropertyDecksView component", () => {
     expect(await screen.findByText("Could not open the proposal in File Explorer: Explorer launch failed.")).toBeDefined();
     const openRequest = fetchMock.mock.calls.find(([url]) => String(url) === `${helperUrl}/api/property-decks/open`);
     expect(JSON.parse(String(openRequest?.[1]?.body))).toMatchObject({
-      targetPath: "C:\\Proposals\\proposal.pptx",
+      targetPath: mockCatalog.outputFolder + "\\PRIME_Proposal_Client_2026-10-23.pptx",
       action: "reveal-folder",
     });
 
@@ -316,7 +350,7 @@ describe("PropertyDecksView component", () => {
           { status: 200 },
         );
       }
-      if (url === `${helperUrl}/api/property-decks/compile` && init?.method === "POST") {
+      if (url === `${helperUrl}/api/property-decks/export-jobs` && init?.method === "POST") {
         const body = JSON.parse(String(init.body));
         return new Response(
           JSON.stringify({
@@ -335,7 +369,7 @@ describe("PropertyDecksView component", () => {
       return new Response(JSON.stringify({ ok: true }), { status: 200 });
     });
 
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("fetch", withExportJobProtocol(fetchMock));
 
     render(<PropertyDecksView />);
 
@@ -387,7 +421,7 @@ describe("PropertyDecksView component", () => {
     fireEvent.click(screen.getByRole("button", { name: "Export Proposal" }));
 
     await waitFor(() => {
-      expect(screen.getByText("PRIME_Proposal_FastCargo Logistics.pptx")).toBeDefined();
+      expect(screen.getByText("PRIME_Proposal_FastCargo Logistics_2026-10-23.pptx")).toBeDefined();
       expect(screen.getByRole("button", { name: "Download PPTX" })).toBeDefined();
       expect(screen.getByRole("button", { name: "Download PDF" })).toBeDefined();
       expect(screen.getByRole("button", { name: "Show in Explorer" })).toBeDefined();
@@ -398,7 +432,7 @@ describe("PropertyDecksView component", () => {
     fireEvent.click(screen.getByRole("tab", { name: /CTA/ }));
     expect(screen.getByRole("button", { name: "Export Proposal" })).toBeDefined();
     expect(screen.getByRole("button", { name: "Download PPTX" })).toBeDefined();
-    const compileRequest = fetchMock.mock.calls.find(([url, init]) => String(url) === `${helperUrl}/api/property-decks/compile` && init?.method === "POST");
+    const compileRequest = fetchMock.mock.calls.find(([url, init]) => String(url) === `${helperUrl}/api/property-decks/export-jobs` && init?.method === "POST");
     expect(JSON.parse(String(compileRequest?.[1]?.body)).proposal).toMatchObject({
       clientName: "FastCargo Logistics",
       clientDesignation: "Supply Chain Director",
@@ -433,7 +467,7 @@ describe("PropertyDecksView component", () => {
       }
       return new Response(JSON.stringify({ ok: true }), { status: 200 });
     });
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("fetch", withExportJobProtocol(fetchMock));
 
     render(<PropertyDecksView />);
     await waitFor(() => expect(screen.getByText("Biñan Logistics Center — Warehouse 4")).toBeDefined());
@@ -449,13 +483,13 @@ describe("PropertyDecksView component", () => {
     });
   });
 
-  it("keeps the PPTX download available and reports a PDF conversion failure", async () => {
+  it("blocks both downloads when PDF validation fails", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       if (String(input) === `${helperUrl}/health`) return new Response(JSON.stringify({ ok: true }), { status: 200 });
       if (String(input) === `${helperUrl}/api/property-decks` && (!init || init.method !== "POST")) {
         return new Response(JSON.stringify({ catalog: mockCatalog }), { status: 200 });
       }
-      if (String(input) === `${helperUrl}/api/property-decks/compile` && init?.method === "POST") {
+      if (String(input) === `${helperUrl}/api/property-decks/export-jobs` && init?.method === "POST") {
         return new Response(JSON.stringify({
           downloadId: "8a5ab5c2-f4b4-41a0-9199-9ed6a4a53f75",
           outputPath: `${mockCatalog.outputFolder}\\PRIME_Proposal_Client.pptx`,
@@ -469,68 +503,57 @@ describe("PropertyDecksView component", () => {
       }
       return new Response(JSON.stringify({ ok: true }), { status: 200 });
     });
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("fetch", withExportJobProtocol(fetchMock, (url) => url.startsWith(helperUrl + "/api/property-decks/export-jobs?id=")
+      ? new Response(JSON.stringify({ status: "failed", error: "PDF validation failed: the exported file could not be opened.", progress: { stage: "validating", currentSlide: 4, totalSlides: 4, title: "Checking PDF" }, previews: [], checklist: [{ id: "pdf", label: "PDF opens", status: "failed" }] }), { status: 200 })
+      : null));
 
     render(<PropertyDecksView />);
     await waitFor(() => expect(screen.getByText("Biñan Logistics Center — Warehouse 4")).toBeDefined());
     fireEvent.click(screen.getAllByRole("button", { name: /add this slide/i })[0]);
     fireEvent.click(screen.getByRole("button", { name: "Export Proposal" }));
 
-    expect((await screen.findByRole("alert")).textContent).toContain("PPTX download is ready. PDF conversion failed");
-    expect(screen.getByRole("button", { name: "Download PPTX" })).toBeDefined();
-    expect(screen.getByRole("button", { name: "Download PDF" }).hasAttribute("disabled")).toBe(true);
+    expect((await screen.findByText("Required export checks failed. Downloads are blocked.")).getAttribute("role")).toBe("alert");
+    expect(screen.queryByRole("button", { name: "Download PPTX" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Download PDF" })).toBeNull();
   });
 
-  it("shows both export stages, elapsed time, and prevents duplicate exports while requests are pending", async () => {
-    let resolvePptx!: (response: Response) => void;
-    let resolvePdf!: (response: Response) => void;
-    let pptxRequestCount = 0;
+  it("shows Mosaic slide thumbnails during assembly and only offers files after validation", async () => {
+    let statusCalls = 0;
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url === `${helperUrl}/health`) return new Response(JSON.stringify({ ok: true }), { status: 200 });
       if (url === `${helperUrl}/api/property-decks` && (!init || init.method !== "POST")) {
         return new Response(JSON.stringify({ catalog: mockCatalog }), { status: 200 });
       }
-      if (url === `${helperUrl}/api/property-decks/compile` && init?.method === "POST") {
-        pptxRequestCount += 1;
-        return new Promise<Response>((resolve) => { resolvePptx = resolve; });
-      }
-      if (url === `${helperUrl}/api/property-decks/compile` && init?.method === "PUT") {
-        return new Promise<Response>((resolve) => { resolvePdf = resolve; });
-      }
       return new Response(JSON.stringify({ ok: true }), { status: 200 });
     });
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("fetch", withExportJobProtocol(fetchMock, () => {
+      statusCalls += 1;
+      if (statusCalls === 1) {
+        return new Response(JSON.stringify({
+          status: "assembling",
+          progress: { stage: "assembling", currentSlide: 1, totalSlides: 4, title: "Cover page" },
+          previews: [{ slide: 1, title: "Cover page", url: "/api/property-decks/export-preview?id=89a73bcb-ade6-4ee4-a353-45a1be034d49&slide=1" }],
+          previewWarning: true,
+          checklist: [],
+        }), { status: 200 });
+      }
+      return null;
+    }));
 
     render(<PropertyDecksView />);
     await waitFor(() => expect(screen.getByText("Biñan Logistics Center — Warehouse 4")).toBeDefined());
     fireEvent.click(screen.getAllByRole("button", { name: /add this slide/i })[0]);
     fireEvent.click(screen.getByRole("button", { name: "Export Proposal" }));
 
-    const exportButton = screen.getByRole("button", { name: /preparing/i });
+    const exportButton = screen.getByRole("button", { name: /building/i });
     expect(exportButton.hasAttribute("disabled")).toBe(true);
-    const pptxProgress = screen.getByText(/Compiling 1 selected slide into PowerPoint/).parentElement?.parentElement;
-    expect(pptxProgress?.textContent).toContain("Elapsed 0:");
-    await waitFor(() => expect(pptxProgress?.textContent).toContain("Elapsed 0:01"), { timeout: 1500 });
-    fireEvent.click(exportButton);
-    expect(pptxRequestCount).toBe(1);
-
-    resolvePptx(new Response(JSON.stringify({
-      downloadId: "8a5ab5c2-f4b4-41a0-9199-9ed6a4a53f75",
-      outputPath: `${mockCatalog.outputFolder}\\PRIME_Proposal_Client.pptx`,
-      fileName: "PRIME_Proposal_Client.pptx",
-      slideCount: 1,
-      engine: "microsoft-powerpoint",
-    }), { status: 200 }));
-
-    const pdfButton = await screen.findByRole("button", { name: /preparing pdf/i });
-    expect(pdfButton.hasAttribute("disabled")).toBe(true);
-    const pdfProgress = screen.getByText(/Converting PowerPoint to PDF/).parentElement?.parentElement;
-    expect(pdfProgress?.textContent).toContain("Elapsed 0:");
+    expect(await screen.findByAltText("Slide 1 preview: Cover page")).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Download PPTX" })).toBeNull();
+    await waitFor(() => expect(screen.getByText("PPTX and PDF passed the export checklist and are ready to download.")).toBeDefined());
     expect(screen.getByRole("button", { name: "Download PPTX" })).toBeDefined();
-
-    resolvePdf(new Response(JSON.stringify({ pdfFileName: "PRIME_Proposal_Client.pdf" }), { status: 200 }));
-    await waitFor(() => expect(screen.getByText("PPTX and PDF ready to download.")).toBeDefined());
+    expect(screen.getByText(/One cover and one final CTA/)).toBeDefined();
+    expect(screen.getByText(/Some thumbnails could not render/)).toBeDefined();
   });
 
   it("simplifies filter tabs and supports slide and bulk selection from grouped warehouse cards", async () => {
@@ -596,7 +619,7 @@ describe("PropertyDecksView component", () => {
       return new Response(JSON.stringify({ ok: true }), { status: 200 });
     });
 
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("fetch", withExportJobProtocol(fetchMock));
 
     render(<PropertyDecksView />);
 
@@ -628,7 +651,7 @@ describe("PropertyDecksView component", () => {
     expect(screen.getByText("Slide #4 · 2 of 2")).toBeDefined();
 
     fireEvent.click(screen.getByRole("button", { name: /add this slide/i }));
-    expect(screen.getByText("Selected Slides (3)")).toBeDefined();
+    expect(screen.getByText("Selected Slides (4)")).toBeDefined();
     fireEvent.click(screen.getByRole("tab", { name: /Properties/ }));
     expect(screen.getByText(/Bataan Warehouse Space — Specifications & Access/i)).toBeDefined();
     expect(screen.getByText(/1\/2 Selected/i)).toBeDefined();
@@ -714,18 +737,23 @@ describe("PropertyDecksView component", () => {
     expect(within(panel).getByText("Selected properties")).toBeDefined();
     fireEvent.click(within(panel).getByRole("button", { name: "Move MSCS Pasig Distribution Hub up" }));
     const reordered = within(panel).getAllByRole("listitem").map((item) => item.textContent || "");
-    expect(reordered[0]).toContain("MSCS Pasig Distribution Hub");
+    expect(reordered.findIndex((item) => item.includes("MSCS Pasig Distribution Hub"))).toBeLessThan(
+      reordered.findIndex((item) => item.includes("Biñan Logistics Center")),
+    );
 
     fireEvent.click(screen.getByRole("tab", { name: /CTA/ }));
     expect(screen.getByRole("tab", { name: /Properties/ }).getAttribute("aria-selected")).toBe("false");
     fireEvent.click(screen.getByRole("tab", { name: /Properties/ }));
-    expect(within(screen.getByRole("tabpanel")).getAllByRole("listitem")[0].textContent).toContain("MSCS Pasig Distribution Hub");
-    expect(screen.getByText("Selected Slides (4)")).toBeDefined();
+    const propertyOrder = within(screen.getByRole("tabpanel")).getAllByRole("listitem").map((item) => item.textContent || "");
+    expect(propertyOrder.findIndex((item) => item.includes("MSCS Pasig Distribution Hub"))).toBeLessThan(
+      propertyOrder.findIndex((item) => item.includes("Biñan Logistics Center")),
+    );
+    expect(screen.getByText("Selected Slides (6)")).toBeDefined();
     fireEvent.click(within(screen.getByRole("tabpanel")).getByRole("button", { name: "Remove MSCS Pasig Distribution Hub" }));
-    expect(screen.getByText("Selected Slides (3)")).toBeDefined();
+    expect(screen.getByText("Selected Slides (4)")).toBeDefined();
     fireEvent.click(screen.getByRole("tab", { name: /CTA/ }));
     fireEvent.click(screen.getByRole("tab", { name: /Properties/ }));
-    expect(within(screen.getByRole("tabpanel")).getAllByRole("listitem")).toHaveLength(1);
+    expect(within(screen.getByRole("tabpanel")).getAllByRole("listitem")).toHaveLength(2);
     expect(within(screen.getByRole("tabpanel")).getByText(/Biñan Logistics Center/)).toBeDefined();
   });
 

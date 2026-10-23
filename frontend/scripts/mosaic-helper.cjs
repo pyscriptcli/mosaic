@@ -1,7 +1,9 @@
 const http = require("node:http");
 const { execFile, spawn } = require("node:child_process");
+const { randomUUID } = require("node:crypto");
 const { promisify } = require("node:util");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const Module = require("node:module");
 const ts = require("typescript");
@@ -41,6 +43,7 @@ const {
   readCachedCatalog,
   resolveSlideThumbnailFile,
   scanPropertyDeckFolder,
+  verifyProposalPdfExport,
 } = require("../src/lib/property-decks-server.ts");
 const {
   getPropertyDeckPptxPath,
@@ -48,6 +51,9 @@ const {
   registerPropertyDeckExport,
   setPropertyDeckPdf,
 } = require("../src/lib/property-deck-downloads.ts");
+
+const EXPORT_JOB_TTL_MS = 30 * 60 * 1000;
+const exportJobs = new Map();
 
 function sendJson(response, status, payload) {
   response.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
@@ -97,6 +103,115 @@ function sendFile(response, file) {
     "Cache-Control": "no-store",
   });
   response.end(file.content);
+}
+
+function publicExportJob(job) {
+  return {
+    jobId: job.id,
+    status: job.status,
+    progress: job.progress,
+    previews: job.previews.map(({ slide, title }) => ({
+      slide,
+      title,
+      url: `/api/property-decks/export-preview?id=${job.id}&slide=${slide}`,
+    })),
+    previewWarning: Boolean(job.previewWarning),
+    checklist: job.checklist || [],
+    result: job.result || null,
+    error: job.error || null,
+  };
+}
+
+async function removeExpiredExportJobs(jobs = exportJobs) {
+  const now = Date.now();
+  for (const [id, job] of jobs) {
+    if (job.expiresAt > now) continue;
+    jobs.delete(id);
+    if (job.previewDirectory) await fs.promises.rm(job.previewDirectory, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
+function scheduleExportJobCleanup(job, jobs) {
+  const timer = setTimeout(async () => {
+    if (jobs.get(job.id) !== job || job.expiresAt > Date.now()) return;
+    jobs.delete(job.id);
+    await fs.promises.rm(job.previewDirectory, { recursive: true, force: true }).catch(() => undefined);
+  }, Math.max(1, job.expiresAt - Date.now()));
+  timer.unref?.();
+  job.expiryTimer = timer;
+}
+
+function createProposalExportInput(body, catalog) {
+  const selectedSlideIds = Array.isArray(body.selectedSlideIds) ? body.selectedSlideIds.map(String) : [];
+  if (!selectedSlideIds.length) throw new Error("Select at least one property slide to compile a proposal.");
+  const proposalInput = body.proposal || {};
+  const rawCtaContacts = Array.isArray(proposalInput.ctaContacts) ? proposalInput.ctaContacts.slice(0, 4) : [];
+  const proposal = {
+    clientName: String(proposalInput.clientName || "Valued Client").trim(),
+    clientDesignation: String(proposalInput.clientDesignation || "").trim(),
+    clientCompany: String(proposalInput.clientCompany || "").trim(),
+    preparedByName: String(proposalInput.preparedByName || "").trim(),
+    preparedByDesignation: String(proposalInput.preparedByDesignation || "").trim(),
+    preparedByCompany: String(proposalInput.preparedByCompany || "").trim(),
+    clientLogoDataUrl: typeof proposalInput.clientLogoDataUrl === "string" ? proposalInput.clientLogoDataUrl : "",
+    ctaContacts: rawCtaContacts
+      .filter((item) => item && typeof item === "object")
+      .map((item, index) => ({
+        id: String(item.id || `contact-${index + 1}`).slice(0, 80),
+        name: String(item.name || "").trim().slice(0, 120),
+        title: String(item.title || "").trim().slice(0, 160),
+        phone: String(item.phone || "").trim().slice(0, 60),
+        email: String(item.email || "").trim().slice(0, 160),
+        photoDataUrl: typeof item.photoDataUrl === "string" && item.photoDataUrl.length <= 7 * 1024 * 1024
+          ? item.photoDataUrl
+          : undefined,
+      }))
+      .filter((contact) => contact.name),
+    projectTitle: String(proposalInput.projectTitle || "Industrial Warehouse Property Options").trim(),
+    brokerName: String(proposalInput.brokerName || "PRIME Industrial Advisory").trim(),
+    brokerEmail: String(proposalInput.brokerEmail || "industrial@primephilippines.com").trim(),
+    brokerPhone: String(proposalInput.brokerPhone || "+63 2 8888 0000").trim(),
+    date: String(proposalInput.date || new Date().toISOString().slice(0, 10)).trim(),
+    mode: proposalInput.mode === "comprehensive" ? "comprehensive" : "standard",
+  };
+  const manifest = buildCompilationManifest({
+    selectedSlideIds,
+    catalogSlides: catalog?.slides || [],
+    overrides: body.overrides && typeof body.overrides === "object" ? body.overrides : {},
+    proposal,
+  });
+  if (!manifest.slides.length) throw new Error("Selected slides could not be resolved in the current catalog. Rescan the folder and try again.");
+  const outputFolder = String(body.outputFolder || "").trim() || catalog?.outputFolder || "";
+  if (!outputFolder) throw new Error("Configure an output folder path before compiling.");
+  return { manifest, outputFolder };
+}
+
+async function runProposalExportJob({ job, manifest, outputFolder, report }) {
+  job.status = "assembling";
+  const result = await compilePropertyDeck({
+    manifest,
+    outputFolder,
+    previewDirectory: job.previewDirectory,
+    onProgress: report,
+  });
+  job.status = "validating";
+  job.progress = { stage: "validating", currentSlide: result.slideCount, totalSlides: result.slideCount, title: "Checking exported files" };
+  report(job.progress);
+  const pdf = await convertPropertyDeckPdf(result.outputPath);
+  const pdfBytes = new Uint8Array(await fs.promises.readFile(pdf.pdfPath));
+  await verifyProposalPdfExport(pdfBytes, result.slideCount);
+  const downloadId = registerPropertyDeckExport(result.outputPath, pdf.pdfPath);
+  return {
+    status: "ready",
+    progress: { stage: "ready", currentSlide: result.slideCount, totalSlides: result.slideCount, title: "Export verified" },
+    checklist: [
+      { id: "pptx", label: "PPTX structure and slide order", status: "passed" },
+      { id: "cover-cta", label: "One cover and one final CTA", status: "passed" },
+      { id: "dividers", label: "City dividers included", status: "passed" },
+      { id: "pdf", label: "PDF opens and matches the slide count", status: "passed" },
+    ],
+    result: { ...result, pdfFileName: pdf.pdfFileName, downloadId },
+  };
 }
 
 async function handleRequest(request, response, dependencies = {}) {
@@ -174,6 +289,101 @@ async function handleRequest(request, response, dependencies = {}) {
         "Content-Type": extension === ".png" ? "image/png" : "image/jpeg",
         "Cache-Control": "no-store",
       });
+      response.end(await fs.promises.readFile(filePath));
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/property-decks/export-jobs") {
+      const body = await readJson(request);
+      const catalog = await (dependencies.readCachedCatalog || readCachedCatalog)();
+      const { manifest, outputFolder } = createProposalExportInput(body, catalog);
+      await removeExpiredExportJobs(dependencies.exportJobs || exportJobs);
+      const id = randomUUID();
+      const previewDirectory = await fs.promises.mkdtemp(path.join(os.tmpdir(), "mosaic-export-preview-"));
+      const job = {
+        id,
+        status: "queued",
+        progress: { stage: "queued", currentSlide: 0, totalSlides: manifest.slides.length + Number(Boolean(manifest.generatedCover)) + 1, title: "Preparing proposal" },
+        previews: [],
+        previewFiles: new Map(),
+        previewDirectory,
+        checklist: [],
+        result: null,
+        error: null,
+        expiresAt: Date.now() + EXPORT_JOB_TTL_MS,
+      };
+      const jobs = dependencies.exportJobs || exportJobs;
+      jobs.set(id, job);
+      scheduleExportJobCleanup(job, jobs);
+      job.status = "assembling";
+      const report = (progress) => {
+        const { previewPath, ...safeProgress } = progress;
+        job.progress = safeProgress;
+        if (previewPath && Number.isInteger(progress.currentSlide) && progress.currentSlide > 0) {
+          const slide = progress.currentSlide;
+          job.previewFiles.set(slide, previewPath);
+          const currentPreview = job.previews.find((item) => item.slide === slide);
+          const preview = { slide, title: String(progress.title || `Slide ${slide}`) };
+          if (currentPreview) Object.assign(currentPreview, preview);
+          else job.previews.push(preview);
+        } else if (progress.stage === "assembling") {
+          job.previewWarning = true;
+        }
+      };
+      const runExport = dependencies.runExportJob || runProposalExportJob;
+      Promise.resolve()
+        .then(() => runExport({ job, manifest, outputFolder, report }))
+        .then((result) => {
+          Object.assign(job, result);
+          job.expiresAt = Date.now() + EXPORT_JOB_TTL_MS;
+          clearTimeout(job.expiryTimer);
+          scheduleExportJobCleanup(job, jobs);
+        })
+        .catch((error) => {
+          job.status = "failed";
+          job.error = error instanceof Error ? error.message : "Proposal export failed.";
+          job.expiresAt = Date.now() + EXPORT_JOB_TTL_MS;
+          clearTimeout(job.expiryTimer);
+          scheduleExportJobCleanup(job, jobs);
+        });
+      sendJson(response, 202, { jobId: id });
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/property-decks/export-jobs") {
+      const id = url.searchParams.get("id") || "";
+      if (!/^[a-f0-9-]{36}$/i.test(id)) {
+        sendJson(response, 400, { error: "Export job is invalid or expired." });
+        return;
+      }
+      const jobs = dependencies.exportJobs || exportJobs;
+      await removeExpiredExportJobs(jobs);
+      const job = jobs.get(id);
+      if (!job) {
+        sendJson(response, 404, { error: "Export job is invalid or expired." });
+        return;
+      }
+      sendJson(response, 200, publicExportJob(job));
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/property-decks/export-preview") {
+      const id = url.searchParams.get("id") || "";
+      const slide = Number(url.searchParams.get("slide"));
+      if (!/^[a-f0-9-]{36}$/i.test(id) || !Number.isSafeInteger(slide) || slide < 1) {
+        sendJson(response, 400, { error: "Export preview is invalid or expired." });
+        return;
+      }
+      const jobs = dependencies.exportJobs || exportJobs;
+      await removeExpiredExportJobs(jobs);
+      const filePath = jobs.get(id)?.previewFiles.get(slide);
+      if (!filePath || !fs.existsSync(filePath)) {
+        sendJson(response, 404, { error: "The slide preview is not available." });
+        return;
+      }
+      const extension = path.extname(filePath).toLowerCase();
+      if (extension !== ".png" && extension !== ".jpg" && extension !== ".jpeg") {
+        sendJson(response, 415, { error: "The slide preview format is unsupported." });
+        return;
+      }
+      response.writeHead(200, { "Content-Type": extension === ".png" ? "image/png" : "image/jpeg", "Cache-Control": "no-store" });
       response.end(await fs.promises.readFile(filePath));
       return;
     }

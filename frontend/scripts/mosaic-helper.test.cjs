@@ -9,6 +9,7 @@ const JSZip = require("jszip");
 process.env.VITEST = "true";
 const { handleRequest } = require("./mosaic-helper.cjs");
 const { compilePropertyDeck } = require("../src/lib/property-decks-server.ts");
+const { getOrderedSlidePathsFromZip } = require("../src/lib/property-decks.ts");
 
 const allowedOrigin = "https://mosaic-workspace.online";
 let tempDir;
@@ -45,10 +46,12 @@ describe("Mosaic Helper local HTTP boundary", () => {
     await fs.mkdir(sourceDir, { recursive: true });
     const zip = new JSZip();
     zip.file("ppt/slides/slide1.xml", `<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:p><a:t>TEST PROPERTY</a:t></a:p><a:p><a:t>Location: Test City</a:t></a:p></p:sld>`);
-    zip.file("[Content_Types].xml", `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/></Types>`);
+    zip.file("[Content_Types].xml", `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/><Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/></Types>`);
     zip.file("_rels/.rels", `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/></Relationships>`);
     zip.file("ppt/presentation.xml", `<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:sldIdLst><p:sldId id="256" r:id="rId1"/></p:sldIdLst></p:presentation>`);
     zip.file("ppt/_rels/presentation.xml.rels", `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/></Relationships>`);
+    zip.file("ppt/slides/_rels/slide1.xml.rels", `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdLayout" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/></Relationships>`);
+    zip.file("ppt/slideLayouts/slideLayout1.xml", `<p:sldLayout xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" type="blank"><p:cSld name="Blank"><p:spTree/></p:cSld></p:sldLayout>`);
     await fs.writeFile(path.join(sourceDir, "test-property.pptx"), await zip.generateAsync({ type: "nodebuffer" }));
   });
 
@@ -155,6 +158,89 @@ describe("Mosaic Helper local HTTP boundary", () => {
     assert.match(JSON.parse(failed.body).error, /Explorer launch failed/);
   });
 
+  it("reports an in-progress export job and serves its slide thumbnail before completion", async () => {
+    const previewPath = path.join(tempDir, "export-preview.png");
+    await fs.writeFile(previewPath, Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+    const jobs = new Map();
+    let releaseExport;
+    const exportCanFinish = new Promise((resolve) => { releaseExport = resolve; });
+    const catalog = {
+      slides: [{
+        id: "deck:slide:1", deckId: "deck", deckFileName: "deck.pptx", deckFilePath: "C:/decks/deck.pptx",
+        slideNumber: 1, slideRole: "property", title: "Test City Warehouse", rawText: "Test City Warehouse",
+        thumbnailUrl: "", specs: { propertyName: "Test City Warehouse", location: "Test City", gla: "1,000 sqm", ceilingHeight: "10 m", leaseRate: "Php 300/sqm", powerSupply: "", loadingBays: "", notes: "" },
+      }],
+    };
+    const compileResponse = response();
+    await handleRequest(jsonRequest("POST", "/api/property-decks/export-jobs", {
+      selectedSlideIds: ["deck:slide:1"], outputFolder: tempDir, proposal: { clientName: "Client", date: "2026-10-23" },
+    }), compileResponse, {
+      exportJobs: jobs,
+      readCachedCatalog: async () => catalog,
+      runExportJob: async ({ report }) => {
+        report({ stage: "assembling", currentSlide: 1, totalSlides: 3, title: "Cover", previewPath });
+        report({ stage: "assembling", currentSlide: 2, totalSlides: 3, title: "Divider" });
+        await exportCanFinish;
+        return { status: "ready", progress: { stage: "ready", currentSlide: 3, totalSlides: 3, title: "CTA" } };
+      },
+    });
+
+    assert.equal(compileResponse.status, 202);
+    const { jobId } = JSON.parse(compileResponse.body);
+    assert.match(jobId, /^[a-f0-9-]{36}$/i);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const statusResponse = response();
+    await handleRequest(request("GET", `/api/property-decks/export-jobs?id=${jobId}`, { origin: allowedOrigin }), statusResponse, { exportJobs: jobs });
+    assert.equal(statusResponse.status, 200);
+    const status = JSON.parse(statusResponse.body);
+    assert.equal(status.status, "assembling");
+    assert.deepEqual(status.progress, { stage: "assembling", currentSlide: 2, totalSlides: 3, title: "Divider" });
+    assert.equal(status.previews[0].title, "Cover");
+    assert.equal(status.previewWarning, true);
+
+    const previewResponse = response();
+    await handleRequest(request("GET", `/api/property-decks/export-preview?id=${jobId}&slide=1`, { origin: allowedOrigin }), previewResponse, { exportJobs: jobs });
+    assert.equal(previewResponse.status, 200);
+    assert.equal(previewResponse.headers["content-type"], "image/png");
+    assert.deepEqual(previewResponse.body, await fs.readFile(previewPath));
+
+    releaseExport();
+    await new Promise((resolve) => setImmediate(resolve));
+    const readyResponse = response();
+    await handleRequest(request("GET", `/api/property-decks/export-jobs?id=${jobId}`, { origin: allowedOrigin }), readyResponse, { exportJobs: jobs });
+    assert.equal(JSON.parse(readyResponse.body).status, "ready");
+  });
+
+  it("marks a failed export job unavailable for downloads", async () => {
+    const jobs = new Map();
+    const catalog = {
+      slides: [{
+        id: "deck:slide:1", deckId: "deck", deckFileName: "deck.pptx", deckFilePath: "C:/decks/deck.pptx",
+        slideNumber: 1, slideRole: "property", title: "Test Warehouse", rawText: "Test City Warehouse",
+        specs: { propertyName: "Test Warehouse", location: "Test City", gla: "1,000 sqm", ceilingHeight: "10 m", leaseRate: "Php 300/sqm", powerSupply: "", loadingBays: "", notes: "" },
+      }],
+    };
+    const startResponse = response();
+    await handleRequest(jsonRequest("POST", "/api/property-decks/export-jobs", {
+      selectedSlideIds: ["deck:slide:1"], outputFolder: tempDir, proposal: { clientName: "Client" },
+    }), startResponse, {
+      exportJobs: jobs,
+      readCachedCatalog: async () => catalog,
+      runExportJob: async () => { throw new Error("PDF validation failed: unreadable PDF."); },
+    });
+    const { jobId } = JSON.parse(startResponse.body);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const statusResponse = response();
+    await handleRequest(request("GET", "/api/property-decks/export-jobs?id=" + jobId, { origin: allowedOrigin }), statusResponse, { exportJobs: jobs });
+    const status = JSON.parse(statusResponse.body);
+    assert.equal(status.status, "failed");
+    assert.match(status.error, /PDF validation failed/);
+    assert.equal(status.result, null);
+    assert.equal("downloadId" in status, false);
+  });
+
   it("indexes a local folder and exports the selected slide as a downloadable PPTX", async () => {
     const sourceFolder = path.join(tempDir, "source");
     const outputFolder = path.join(tempDir, "output");
@@ -184,7 +270,7 @@ describe("Mosaic Helper local HTTP boundary", () => {
     });
     assert.equal(compileResponse.status, 200, compileResponse.body);
     const compiled = JSON.parse(compileResponse.body);
-    assert.equal(compiled.slideCount, 1);
+    assert.equal(compiled.slideCount, 4);
     assert.deepEqual(compiled.manifest.proposal.ctaContacts, [{
       id: "sondi",
       name: "Sondi Tuazon",
@@ -193,7 +279,9 @@ describe("Mosaic Helper local HTTP boundary", () => {
       email: "sondi@primephilippines.com",
     }]);
     const exported = await JSZip.loadAsync(await fs.readFile(compiled.outputPath));
-    assert.match(await exported.file("ppt/slides/slide1.xml").async("string"), /TEST PROPERTY/);
+    const exportedSlidePaths = await getOrderedSlidePathsFromZip(exported);
+    assert.equal(exportedSlidePaths.length, 4);
+    assert.match(await exported.file(exportedSlidePaths[2]).async("string"), /TEST PROPERTY/);
 
     const downloadResponse = response();
     await handleRequest(request("GET", `/api/property-decks/compile?id=${compiled.downloadId}&format=pptx`, { origin: allowedOrigin }), downloadResponse);

@@ -9,7 +9,7 @@ import { isIndustrialFacilityProposalSlide, type CompilationManifest } from "./p
 const execFile = promisify(nodeExecFile);
 
 export const POWERPOINT_ASSEMBLY_SCRIPT = [
-  "param([string]$ManifestPath, [string]$StagingPath)",
+  "param([string]$ManifestPath, [string]$StagingPath, [string]$PreviewDirectory, [string]$ProgressPath)",
   "$ErrorActionPreference = 'Stop'",
   "$items = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json",
   "function Invoke-ComWithRetry([scriptblock]$Operation) {",
@@ -29,6 +29,12 @@ export const POWERPOINT_ASSEMBLY_SCRIPT = [
   "  $picture.Left = $left + (($boxWidth - $picture.Width) / 2)",
   "  $picture.Top = $top + (($boxHeight - $picture.Height) / 2)",
   "  return $picture",
+  "}",
+  "function Publish-SlidePreview($slide, $stage, $total, $title) {",
+  "  $current = [int]$slide.SlideIndex; $previewPath = Join-Path $PreviewDirectory ('slide-' + $current + '.png')",
+  "  try { $slide.Export($previewPath, 'PNG'); $preview = $previewPath } catch { $preview = $null }",
+  "  $event = @{ stage = $stage; currentSlide = $current; totalSlides = $total; title = $title }; if ($preview) { $event.previewPath = $preview }",
+  "  Add-Content -LiteralPath $ProgressPath -Value ($event | ConvertTo-Json -Compress) -Encoding UTF8",
   "}",
   "function Set-CoverDetails($slide, $proposal) {",
   "  foreach ($shape in $slide.Shapes) {",
@@ -52,33 +58,30 @@ export const POWERPOINT_ASSEMBLY_SCRIPT = [
   "    $shape.TextFrame.TextRange.Text = $text",
   "  }",
   "}",
+  "function Add-GeneratedDivider($presentation, $location) {",
+  "  $slide = $presentation.Slides.Add($presentation.Slides.Count + 1, 12); $slide.Name = 'Mosaic Industrial Location Divider ' + [string]$slide.SlideIndex; $slide.FollowMasterBackground = $false; $slide.Background.Fill.Solid(); $slide.Background.Fill.ForeColor.RGB = 4004354",
+  "  $width = [double]$presentation.PageSetup.SlideWidth; $height = [double]$presentation.PageSetup.SlideHeight",
+  "  $title = $slide.Shapes.AddTextbox(1, 74, ($height * 0.43), ($width - 150), 55); $title.TextFrame.TextRange.Text = '2. Industrial Facility Proposal'; $title.TextFrame.TextRange.Font.Name = 'Georgia'; $title.TextFrame.TextRange.Font.Size = 30; $title.TextFrame.TextRange.Font.Color.RGB = 16777215",
+  "  $city = $slide.Shapes.AddTextbox(1, 74, ($height * 0.56), ($width - 150), 45); $city.TextFrame.TextRange.Text = [string]$location; $city.TextFrame.TextRange.Font.Name = 'Georgia'; $city.TextFrame.TextRange.Font.Size = 24; $city.TextFrame.TextRange.Font.Italic = -1; $city.TextFrame.TextRange.Font.Color.RGB = 5023945",
+  "  $chevron1 = $slide.Shapes.AddShape(52, ($width - 120), ($height - 78), 34, 52); $chevron1.Fill.ForeColor.RGB = 11842740; $chevron1.Line.Visible = 0",
+  "  $chevron2 = $slide.Shapes.AddShape(52, ($width - 88), ($height - 78), 34, 52); $chevron2.Fill.ForeColor.RGB = 5023945; $chevron2.Line.Visible = 0",
+  "  return $slide",
+  "}",
   "function Add-ProposalCover($presentation, $proposal) {",
   "  $slide = $presentation.Slides.Add(1, 12)",
   "  $slide.Name = 'Mosaic Proposal Cover'",
   "  $slide.FollowMasterBackground = $false",
   "  $slide.Background.Fill.Solid()",
-  "  $slide.Background.Fill.ForeColor.RGB = 4004354",
-  "  $width = [double]$presentation.PageSetup.SlideWidth; $margin = 54",
-  "  $accent = $slide.Shapes.AddShape(1, 28, 62, 4, 340)",
-  "  $accent.Fill.ForeColor.RGB = 5023945; $accent.Line.Visible = 0",
-  "  $eyebrow = $slide.Shapes.AddTextbox(1, $margin, 54, $width - 108, 24)",
-  "  $eyebrow.TextFrame.TextRange.Text = 'PRIME PHILIPPINES  |  INDUSTRIAL & LOGISTICS ADVISORY'",
-  "  $eyebrow.TextFrame.TextRange.Font.Name = 'Arial'; $eyebrow.TextFrame.TextRange.Font.Size = 10; $eyebrow.TextFrame.TextRange.Font.Bold = -1; $eyebrow.TextFrame.TextRange.Font.Color.RGB = 5023945",
-  "  $title = $slide.Shapes.AddTextbox(1, $margin, 130, $width - 108, 78)",
-  "  $coverTitle = if ($proposal.projectTitle) { [string]$proposal.projectTitle } else { 'Industrial Facility Proposal' }; $title.TextFrame.TextRange.Text = $coverTitle",
-  "  $title.TextFrame.WordWrap = -1; $title.TextFrame.TextRange.Font.Name = 'Georgia'; $title.TextFrame.TextRange.Font.Size = 34; $title.TextFrame.TextRange.Font.Color.RGB = 16777215",
-  "  $preparedFor = $slide.Shapes.AddTextbox(1, $margin, 230, $width - 108, 22)",
-  "  $preparedFor.TextFrame.TextRange.Text = 'PREPARED EXCLUSIVELY FOR'; $preparedFor.TextFrame.TextRange.Font.Name = 'Arial'; $preparedFor.TextFrame.TextRange.Font.Size = 10; $preparedFor.TextFrame.TextRange.Font.Bold = -1; $preparedFor.TextFrame.TextRange.Font.Color.RGB = 5023945",
-  "  $client = $slide.Shapes.AddTextbox(1, $margin, 260, $width - 108, 72)",
-  "  $coverClient = if ($proposal.clientName) { [string]$proposal.clientName } else { 'Valued Client' }; $client.TextFrame.TextRange.Text = $coverClient; $client.TextFrame.TextRange.Font.Name = 'Arial'; $client.TextFrame.TextRange.Font.Size = 24; $client.TextFrame.TextRange.Font.Bold = -1; $client.TextFrame.TextRange.Font.Color.RGB = 16777215",
-  "  $clientDetails = @([string]$proposal.clientDesignation, [string]$proposal.clientCompany) | Where-Object { $_ }",
-  "  if ($clientDetails.Count -gt 0) { $details = $slide.Shapes.AddTextbox(1, $margin, 322, $width - 108, 36); $details.TextFrame.TextRange.Text = $clientDetails -join ' · '; $details.TextFrame.TextRange.Font.Name = 'Arial'; $details.TextFrame.TextRange.Font.Size = 14; $details.TextFrame.TextRange.Font.Color.RGB = 14145495 }",
-  "  $prepared = $slide.Shapes.AddTextbox(1, $margin, 388, $width - 108, 62)",
-  "  $prepared.TextFrame.TextRange.Text = ('PREPARED BY  ' + $(if ($proposal.preparedByName) { $proposal.preparedByName } else { 'PRIME Philippines' }) + [Environment]::NewLine + ((@([string]$proposal.preparedByDesignation, [string]$proposal.preparedByCompany, [string]$proposal.date) | Where-Object { $_ }) -join '  ·  '))",
-  "  $prepared.TextFrame.TextRange.Font.Name = 'Arial'; $prepared.TextFrame.TextRange.Font.Size = 12; $prepared.TextFrame.TextRange.Font.Color.RGB = 16777215",
-  "  if ($proposal.clientLogoPath -and (Test-Path -LiteralPath $proposal.clientLogoPath)) {",
-  "    $null = Add-PictureFit $slide $proposal.clientLogoPath ($width - $margin - 180) 54 180 90",
-  "  }",
+  "  $slide.Background.Fill.ForeColor.RGB = 16777215",
+  "  $width = [double]$presentation.PageSetup.SlideWidth; $margin = 42",
+  "  if ($proposal.primeLogoPath -and (Test-Path -LiteralPath $proposal.primeLogoPath)) { $null = Add-PictureFit $slide $proposal.primeLogoPath (($width - 170) / 2) 20 170 45 }",
+  "  $eyebrow = $slide.Shapes.AddTextbox(1, $margin, 78, $width - 84, 38); $eyebrow.TextFrame.TextRange.Text = 'W A R E H O U S E   F A C I L I T I E S   F O R' + [Environment]::NewLine + 'L E A S E   F O R'; $eyebrow.TextFrame.TextRange.Font.Name = 'Arial'; $eyebrow.TextFrame.TextRange.Font.Size = 10; $eyebrow.TextFrame.TextRange.Font.Color.RGB = 1973790; $eyebrow.TextFrame.TextRange.ParagraphFormat.Alignment = 2",
+  "  if ($proposal.clientLogoPath -and (Test-Path -LiteralPath $proposal.clientLogoPath)) { $null = Add-PictureFit $slide $proposal.clientLogoPath (($width - 340) / 2) 138 340 90 } else { $clientLogo = $slide.Shapes.AddTextbox(1, $margin, 155, $width - 84, 60); $clientLogo.TextFrame.TextRange.Text = if ($proposal.clientCompany) { [string]$proposal.clientCompany } else { [string]$proposal.clientName }; $clientLogo.TextFrame.TextRange.Font.Name = 'Georgia'; $clientLogo.TextFrame.TextRange.Font.Size = 29; $clientLogo.TextFrame.TextRange.Font.Bold = -1; $clientLogo.TextFrame.TextRange.Font.Color.RGB = 255; $clientLogo.TextFrame.TextRange.ParagraphFormat.Alignment = 2 }",
+  "  $title = $slide.Shapes.AddTextbox(1, $margin, 254, $width - 84, 32); $title.TextFrame.TextRange.Text = 'P R O P E R T Y   D E C K   P R E S E N T A T I O N'; $title.TextFrame.TextRange.Font.Name = 'Arial'; $title.TextFrame.TextRange.Font.Size = 10; $title.TextFrame.TextRange.Font.Color.RGB = 1973790; $title.TextFrame.TextRange.ParagraphFormat.Alignment = 2",
+  "  $rule = $slide.Shapes.AddShape(1, 32, 290, $width - 64, 1); $rule.Fill.ForeColor.RGB = 3368601; $rule.Line.Visible = 0",
+  "  $prepared = $slide.Shapes.AddTextbox(1, 42, 306, ($width - 102) / 2, 100); $prepared.TextFrame.TextRange.Text = ('P R E P A R E D   B Y:' + [Environment]::NewLine + [string]$proposal.preparedByName + [Environment]::NewLine + [string]$proposal.preparedByDesignation + ' – PRIME Philippines' + [Environment]::NewLine + [string]$proposal.preparedByCompany); $prepared.TextFrame.TextRange.Font.Name = 'Arial'; $prepared.TextFrame.TextRange.Font.Size = 11; $prepared.TextFrame.TextRange.Font.Color.RGB = 1973790",
+  "  $client = $slide.Shapes.AddTextbox(1, ($width / 2) + 10, 306, ($width - 102) / 2, 100); $client.TextFrame.TextRange.Text = ('P R E P A R E D   F O R:' + [Environment]::NewLine + [string]$proposal.clientName + [Environment]::NewLine + [string]$proposal.clientDesignation + [Environment]::NewLine + [string]$proposal.clientCompany); $client.TextFrame.TextRange.Font.Name = 'Arial'; $client.TextFrame.TextRange.Font.Size = 11; $client.TextFrame.TextRange.Font.Color.RGB = 1973790",
+  "  return $slide",
   "}",
   "function Set-PropertySlideLocation($slide, $originalLocation, $proposalLocation) {",
   "  if (-not $originalLocation -or -not $proposalLocation -or $originalLocation -eq $proposalLocation) { return }",
@@ -149,6 +152,11 @@ export const POWERPOINT_ASSEMBLY_SCRIPT = [
   "    $details.TextFrame.TextRange.Font.Name = 'Arial'; $details.TextFrame.TextRange.Font.Size = 11; $details.TextFrame.TextRange.Font.Color.RGB = 8083249",
   "    $details.TextFrame.WordWrap = -1",
   "  }",
+  "  $officeTop = $slideHeight - 74; $officeWidth = ($slideWidth - 108) / 3",
+  "  $officeTitle = $slide.Shapes.AddTextbox(1, 54, $officeTop, $slideWidth - 108, 12); $officeTitle.TextFrame.TextRange.Text = 'OUR OFFICES'; $officeTitle.TextFrame.TextRange.Font.Name = 'Arial'; $officeTitle.TextFrame.TextRange.Font.Size = 7; $officeTitle.TextFrame.TextRange.Font.Bold = -1; $officeTitle.TextFrame.TextRange.Font.Color.RGB = 5023945; $officeTitle.TextFrame.TextRange.ParagraphFormat.Alignment = 2",
+  "  $officeNames = @('MANILA', 'CEBU', 'DAVAO')",
+  "  for ($officeIndex = 0; $officeIndex -lt 3; $officeIndex++) { $officeBox = $slide.Shapes.AddTextbox(1, (54 + ($officeIndex * $officeWidth)), ($officeTop + 12), $officeWidth, 20); $officeBox.TextFrame.TextRange.Text = $officeNames[$officeIndex]; $officeBox.TextFrame.TextRange.Font.Name = 'Arial'; $officeBox.TextFrame.TextRange.Font.Size = 8; $officeBox.TextFrame.TextRange.Font.Color.RGB = 8083249; $officeBox.TextFrame.TextRange.ParagraphFormat.Alignment = 2 }",
+  "  return $slide",
   "}",
   "$powerPoint = $null",
   "$sourcePresentation = $null",
@@ -164,18 +172,21 @@ export const POWERPOINT_ASSEMBLY_SCRIPT = [
   "  Invoke-ComWithRetry { $sourcePresentation.Close() }",
   "  $sourcePresentation = $null",
   "  $presentation = $powerPoint.Presentations.Add()",
+  "  try { $powerPoint.ActiveWindow.WindowState = 2 } catch { }",
   "  Invoke-ComWithRetry { $presentation.PageSetup.SlideWidth = $slideWidth }",
   "  Invoke-ComWithRetry { $presentation.PageSetup.SlideHeight = $slideHeight }",
-  "  if ($items.generatedCover) { Invoke-ComWithRetry { Add-ProposalCover $presentation $items.proposal } }",
+  "  if ($items.generatedCover) { $cover = Invoke-ComWithRetry { Add-ProposalCover $presentation $items.proposal }; Publish-SlidePreview $cover 'assembling' $items.totalSlides 'Cover page' }",
   "  foreach ($item in $items.slides) {",
+  "    if ($item.isGeneratedDivider) { $generated = Invoke-ComWithRetry { Add-GeneratedDivider $presentation $item.proposalLocation }; Publish-SlidePreview $generated 'assembling' $items.totalSlides ([string]$item.proposalLocation + ' divider'); continue }",
   "    $slideCountBefore = $presentation.Slides.Count",
   "    Invoke-ComWithRetry { $null = $presentation.Slides.InsertFromFile($item.deckFilePath, $slideCountBefore, [int]$item.slideNumber, [int]$item.slideNumber) }",
   "    if ($presentation.Slides.Count -ne ($slideCountBefore + 1)) { throw 'PowerPoint did not import the selected source slide.' }",
   "    if ($item.slideRole -eq 'cover' -and -not $item.isIndustrialProposal) { $coverSlide = $presentation.Slides.Item($slideCountBefore + 1); $coverSlide.Name = 'Mosaic Proposal Cover'; Invoke-ComWithRetry { Set-CoverDetails $coverSlide $items.proposal } }",
   "    if ($item.isIndustrialProposal -and $item.proposalLocation) { Invoke-ComWithRetry { Set-IndustrialProposalLocation $presentation.Slides.Item($slideCountBefore + 1) $item.originalLocation $item.proposalLocation } }",
   "    if ($item.slideRole -eq 'property' -and $item.proposalLocation) { Invoke-ComWithRetry { Set-PropertySlideLocation $presentation.Slides.Item($slideCountBefore + 1) $item.originalLocation $item.proposalLocation } }",
+  "    Publish-SlidePreview $presentation.Slides.Item($slideCountBefore + 1) 'assembling' $items.totalSlides ([string]$item.title)",
   "  }",
-  "  Invoke-ComWithRetry { Set-ContactSlide $presentation $items.proposal.ctaContacts }",
+  "  $cta = Invoke-ComWithRetry { Set-ContactSlide $presentation $items.proposal.ctaContacts }; Publish-SlidePreview $cta 'assembling' $items.totalSlides 'Contact page'",
   "  $expectedSlideCount = $items.slides.Count + [int]$items.generatedCover + 1",
   "  if ($presentation.Slides.Count -ne $expectedSlideCount) { throw 'PowerPoint imported an unexpected number of slides.' }",
   "  Invoke-ComWithRetry { $presentation.SaveAs($StagingPath, 24) }",
@@ -199,6 +210,7 @@ export const POWERPOINT_ASSEMBLY_SCRIPT = [
 export async function assemblePropertyDeckWithPowerPoint(
   manifest: CompilationManifest,
   outputPath: string,
+  options: { previewDirectory?: string; onProgress?: (progress: { stage: string; currentSlide: number; totalSlides: number; title: string; previewPath?: string }) => void } = {},
 ): Promise<void> {
   if (process.platform !== "win32") {
     throw new Error("PowerPoint slide assembly requires Mosaic Helper to run on Windows.");
@@ -206,8 +218,11 @@ export async function assemblePropertyDeckWithPowerPoint(
   if (!manifest.slides.length) throw new Error("Select at least one slide to export.");
 
   const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "mosaic-pptx-assemble-"));
+  const previewDirectory = options.previewDirectory || path.join(temporaryDirectory, "previews");
+  await fs.mkdir(previewDirectory, { recursive: true });
   const manifestPath = path.join(temporaryDirectory, "selected-slides.json");
   const scriptPath = path.join(temporaryDirectory, "assemble-pptx.ps1");
+  const progressPath = path.join(temporaryDirectory, "progress.json");
   const stagingPath = path.join(
     path.dirname(outputPath),
     `.${path.basename(outputPath, ".pptx")}.${randomUUID()}.tmp.pptx`,
@@ -227,6 +242,7 @@ export async function assemblePropertyDeckWithPowerPoint(
       slideRole: slide.slideRole,
       title: slide.title,
       isIndustrialProposal: isIndustrialFacilityProposalSlide(slide),
+      isGeneratedDivider: Boolean(slide.isGeneratedDivider),
       originalLocation: slide.sourceLocation || slide.specs.location,
       proposalLocation: slide.proposalLocation || (slide.slideRole === "property" ? slide.specs.location : undefined),
     }));
@@ -238,18 +254,24 @@ export async function assemblePropertyDeckWithPowerPoint(
       await fs.writeFile(photoPath, Buffer.from(imageMatch[2], "base64"));
       return { ...contact, photoDataUrl: undefined, photoPath };
     }));
-    const proposalDetails = { ...manifest.proposal, ctaContacts: contacts };
+    const proposalDetails: Record<string, unknown> = { ...manifest.proposal, ctaContacts: contacts };
+    proposalDetails.primeLogoPath = path.resolve(__dirname, "../../public/forms/prime-philippines-logo-blue.png");
     delete proposalDetails.clientLogoDataUrl;
+    const generatedCover = manifest.generatedCover ?? !manifest.slides.some(
+      (slide) => slide.slideRole === "cover" && !isIndustrialFacilityProposalSlide(slide),
+    );
+    const totalSlides = manifest.slides.length + Number(generatedCover) + 1;
     const items = {
       slides: selectedSlides,
-      generatedCover: manifest.generatedCover ?? !manifest.slides.some((slide) => slide.slideRole === "cover" && !isIndustrialFacilityProposalSlide(slide)),
+      generatedCover,
+      totalSlides,
       proposal: { ...proposalDetails, clientLogoPath },
     };
     await Promise.all([
       fs.writeFile(manifestPath, JSON.stringify(items), "utf8"),
       fs.writeFile(scriptPath, POWERPOINT_ASSEMBLY_SCRIPT, "utf8"),
     ]);
-    await execFile("powershell.exe", [
+    const args = [
       "-NoProfile",
       "-NonInteractive",
       "-ExecutionPolicy",
@@ -258,7 +280,34 @@ export async function assemblePropertyDeckWithPowerPoint(
       scriptPath,
       manifestPath,
       stagingPath,
-    ], { windowsHide: true, timeout: 180_000, maxBuffer: 1024 * 1024 });
+      previewDirectory,
+      progressPath,
+    ];
+    let settled = false;
+    let commandError: Error | null = null;
+    const command = execFile("powershell.exe", args, {
+      windowsHide: true,
+      timeout: 180_000,
+      maxBuffer: 1024 * 1024,
+    }).then(() => { settled = true; }, (error: unknown) => {
+      commandError = error instanceof Error ? error : new Error("PowerShell assembly failed.");
+      settled = true;
+    });
+    let readProgressEvents = 0;
+    while (!settled) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      try {
+        const raw = await fs.readFile(progressPath, "utf8");
+        const events = raw.replace(/^\uFEFF/, "").split(/\r?\n/).filter(Boolean);
+        for (const event of events.slice(readProgressEvents)) {
+          const progress = JSON.parse(event);
+          if (typeof progress.stage === "string" && Number.isInteger(progress.currentSlide)) options.onProgress?.(progress);
+        }
+        readProgressEvents = events.length;
+      } catch { /* preview progress is best-effort; validation is separate */ }
+    }
+    await command;
+    if (commandError) throw commandError;
     const file = await fs.stat(stagingPath);
     if (file.size === 0) throw new Error("PowerPoint created an empty proposal file.");
     await fs.rename(stagingPath, outputPath);
