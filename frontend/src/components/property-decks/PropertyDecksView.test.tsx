@@ -155,6 +155,36 @@ describe("PropertyDecksView component", () => {
     expect(fetchMock).toHaveBeenCalledWith(`${helperUrl}/api/property-decks`, expect.objectContaining({ method: "POST" }));
   });
 
+  it("opens folder settings when restart finds the saved source path is missing", async () => {
+    const staleSource = "C:\\Users\\PRIME_Dave\\OneDrive - Jet Innovisions\\Sondi Tuazon's files - CRD 2026 COMPILED ONE DRIVE\\Industrial\\Property Deck\\Converted";
+    localStorage.setItem(
+      "mosaic_property_decks_config_v1",
+      JSON.stringify({ sourceFolder: staleSource, outputFolder: `${staleSource}\\Compiled Proposals` }),
+    );
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === `${helperUrl}/health`) return new Response(JSON.stringify({ ok: true, pid: 202 }), { status: 200 });
+      if (url === `${helperUrl}/api/property-decks/helper/restart`) {
+        return new Response(JSON.stringify({ restarting: true, pid: 101 }), { status: 202 });
+      }
+      if (url === `${helperUrl}/api/property-decks` && init?.method === "POST") {
+        return new Response(JSON.stringify({ error: `Source folder not found: "${staleSource}"` }), { status: 400 });
+      }
+      if (url === `${helperUrl}/api/property-decks`) return new Response(JSON.stringify({ catalog: mockCatalog }), { status: 200 });
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", withExportJobProtocol(fetchMock));
+    render(<PropertyDecksView />);
+    const helperControl = await screen.findByRole("button", { name: "Mosaic Helper connected. Restart helper" });
+
+    fireEvent.click(helperControl);
+
+    expect((await screen.findByRole("alert")).textContent).toMatch(/source folder not found/i);
+    const folderDialog = await screen.findByRole("dialog", { name: "Set source and output folders" });
+    expect(within(folderDialog).getByRole("status").textContent).toMatch(/OneDrive folder names may include extra spaces/i);
+    expect((within(folderDialog).getByDisplayValue(staleSource) as HTMLInputElement).value).toBe(staleSource);
+  });
+
   it("explains how to start the helper when the local process is offline", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("Failed to fetch"); }));
     render(<PropertyDecksView />);

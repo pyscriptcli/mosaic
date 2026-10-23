@@ -341,7 +341,13 @@ export function PropertyDecksView() {
         );
         return true;
       } catch (err) {
-        setError(helperRequestError(err, "Unable to index the local folder."));
+        const message = helperRequestError(err, "Unable to index the local folder.");
+        setError(message);
+        if (/source folder not found/i.test(message)) {
+          setDraftSourceFolder(targetSource);
+          setDraftOutputFolder(targetOutput);
+          setFolderModalOpen(true);
+        }
         return false;
       } finally {
         setIndexing(false);
@@ -1628,6 +1634,11 @@ export function PropertyDecksView() {
             </header>
 
             <div className="mt-4 space-y-3">
+              {error && /source folder not found/i.test(error) && (
+                <p role="status" className="border border-amber-300 bg-[#FBF7E9] px-3 py-2 text-xs text-[#735600]">
+                  The saved source folder could not be found. Check the path below; OneDrive folder names may include extra spaces.
+                </p>
+              )}
               <label className="block text-xs font-semibold text-[#003366]">
                 Source decks folder path
                 <input
