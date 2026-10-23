@@ -504,7 +504,7 @@ describe("PropertyDecksView component", () => {
       return new Response(JSON.stringify({ ok: true }), { status: 200 });
     });
     vi.stubGlobal("fetch", withExportJobProtocol(fetchMock, (url) => url.startsWith(helperUrl + "/api/property-decks/export-jobs?id=")
-      ? new Response(JSON.stringify({ status: "failed", error: "PDF validation failed: the exported file could not be opened.", progress: { stage: "validating", currentSlide: 4, totalSlides: 4, title: "Checking PDF" }, previews: [], checklist: [{ id: "pdf", label: "PDF opens", status: "failed" }] }), { status: 200 })
+      ? new Response(JSON.stringify({ status: "failed", error: "PDF validation failed: the exported file could not be opened.", progress: { stage: "validating", currentSlide: 4, totalSlides: 4, title: "Checking PDF" }, previews: [], checklist: [{ id: "pdf", label: "PDF opens", status: "failed", detail: "PDF validation failed: the exported file could not be opened." }] }), { status: 200 })
       : null));
 
     render(<PropertyDecksView />);
@@ -513,6 +513,9 @@ describe("PropertyDecksView component", () => {
     fireEvent.click(screen.getByRole("button", { name: "Export Proposal" }));
 
     expect((await screen.findByText("Required export checks failed. Downloads are blocked.")).getAttribute("role")).toBe("alert");
+    const checklist = await screen.findByRole("list", { name: "Export validation checklist" });
+    expect(within(checklist).getByText(/PDF opens/)).toBeDefined();
+    expect(within(checklist).getByText(/exported file could not be opened/)).toBeDefined();
     expect(screen.queryByRole("button", { name: "Download PPTX" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Download PDF" })).toBeNull();
   });

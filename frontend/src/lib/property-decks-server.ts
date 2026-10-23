@@ -9,6 +9,7 @@ import { assemblePropertyDeckWithPowerPoint } from "./property-deck-powerpoint";
 import { convertPptxToPdf } from "./property-deck-pdf";
 import {
   enrichDeckSlidesWithSharedWarehouseSpecs,
+  cityNameFromLocation,
   extractSpecsFromSlideText,
   extractTextFromSlideXml,
   getOrderedSlidePathsFromZip,
@@ -370,20 +371,89 @@ export async function convertPropertyDeckPdf(pptxPath: string): Promise<{ pdfPat
   return { pdfPath, pdfFileName: path.basename(pdfPath) };
 }
 
-export async function verifyProposalPdfExport(pdfBytes: Uint8Array, expectedPageCount: number): Promise<void> {
+export async function verifyProposalPdfExport(
+  pdfBytes: Uint8Array,
+  expectedPageCount: number,
+  manifest?: CompilationManifest,
+): Promise<void> {
   if (!pdfBytes.byteLength) throw new Error("PDF validation failed: the exported file is empty.");
   let loadingTask: ReturnType<typeof getDocument> | undefined;
   try {
-    loadingTask = getDocument({ data: pdfBytes.slice() });
+    loadingTask = getDocument({ data: pdfBytes.slice(), useSystemFonts: true });
     const document = await loadingTask.promise;
     if (document.numPages !== expectedPageCount) {
       throw new Error(`PDF validation failed: expected ${expectedPageCount} pages but found ${document.numPages}.`);
     }
-    const finalPage = await document.getPage(document.numPages);
-    const textContent = await finalPage.getTextContent();
-    const finalPageText = textContent.items.map((item) => "str" in item ? item.str : "").join(" ");
-    if (!/schedule\s+a\s+viewing|contact\s+us/i.test(finalPageText)) {
-      throw new Error("PDF validation failed: the final CTA page is missing its viewing contact prompt.");
+    const pageTexts: string[] = [];
+    for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
+      const page = await document.getPage(pageNumber);
+      const textContent = await page.getTextContent();
+      pageTexts.push(textContent.items.map((item) => "str" in item ? item.str : "").join(" "));
+    }
+    const ctaPageIndexes = pageTexts.flatMap((text, index) => /for\s+more\s+information\s+and\s+to\s+schedule\s+a\s+viewing|contact\s+us/i.test(text) ? [index] : []);
+    if (ctaPageIndexes.length !== 1 || ctaPageIndexes[0] !== pageTexts.length - 1) {
+      throw new Error(`PDF validation failed: expected exactly one CTA page at the end, found ${ctaPageIndexes.length}.`);
+    }
+    const finalPageText = pageTexts.at(-1) || "";
+    if (manifest) {
+      const generatedCover = manifest.generatedCover ?? !manifest.slides.some(
+        (slide) => slide.slideRole === "cover" && !isIndustrialFacilityProposalSlide(slide),
+      );
+      const manifestPageCount = manifest.slides.length + Number(generatedCover) + 1;
+      if (document.numPages !== manifestPageCount) {
+        throw new Error(`PDF validation failed: expected ${manifestPageCount} pages for the selected proposal but found ${document.numPages}.`);
+      }
+      const normalize = (value: string) => value.normalize("NFKC").replace(/\s+/g, " ").trim().toLocaleLowerCase();
+      const requireText = (pageIndex: number, expected: string | undefined, description: string) => {
+        if (!expected?.trim()) return;
+        if (!normalize(pageTexts[pageIndex] || "").includes(normalize(expected))) {
+          throw new Error(`PDF validation failed: ${description} is missing from page ${pageIndex + 1} (expected “${expected}”).`);
+        }
+      };
+      const coverPage = pageTexts[0] || "";
+      for (const [value, description] of [
+        [manifest.proposal.clientName, "client name"],
+        [manifest.proposal.clientDesignation, "client designation"],
+        [manifest.proposal.clientCompany, "client company"],
+        [manifest.proposal.preparedByName, "prepared-by name"],
+        [manifest.proposal.preparedByDesignation, "prepared-by designation"],
+        [manifest.proposal.preparedByCompany, "prepared-by company"],
+      ] as Array<[string | undefined, string]>) {
+        if (value?.trim() && !normalize(coverPage).includes(normalize(value))) {
+          throw new Error(`PDF validation failed: ${description} “${value}” is missing from the cover page.`);
+        }
+      }
+
+      const generatedCoverOffset = Number(generatedCover);
+      for (const [index, slide] of manifest.slides.entries()) {
+        const pageIndex = generatedCoverOffset + index;
+        if (slide.slideRole === "property") {
+          requireText(pageIndex, slide.title, `selected property slide “${slide.title}”`);
+          const city = cityNameFromLocation(slide.specs.location);
+          requireText(pageIndex, city, `city-only location “${city}”`);
+          const sourceLocation = slide.sourceLocation?.trim();
+          if (sourceLocation && normalize(sourceLocation) !== normalize(city) && normalize(pageTexts[pageIndex] || "").includes(normalize(sourceLocation))) {
+            throw new Error(`PDF validation failed: property slide “${slide.title}” still shows the full location “${sourceLocation}” instead of city-only “${city}”.`);
+          }
+        }
+        if (isIndustrialFacilityProposalSlide(slide)) {
+          requireText(pageIndex, "Industrial Facility Proposal", "industrial facility divider title");
+          requireText(pageIndex, slide.proposalLocation || cityNameFromLocation(slide.specs.location), "industrial facility divider city");
+        }
+      }
+
+      for (const contact of manifest.proposal.ctaContacts || []) {
+        for (const [value, description] of [
+          [contact.name, "name"],
+          [contact.title, "title"],
+          [contact.phone, "phone"],
+          [contact.email, "email"],
+        ] as Array<[string, string]>) {
+          if (value.trim() && !normalize(finalPageText).includes(normalize(value))) {
+            throw new Error(`PDF validation failed: CTA contact ${description} “${value}” is missing from the final page.`);
+          }
+        }
+      }
     }
   } catch (error) {
     if (error instanceof Error && /PDF validation failed/.test(error.message)) throw error;

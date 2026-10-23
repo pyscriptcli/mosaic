@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import JSZip from "jszip";
-import { cityNameFromLocation, extractTextFromSlideXml, getOrderedSlidePathsFromZip, isIndustrialFacilityProposalSlide, type CompilationManifest, type ProposalContact, type PptxSourceFile } from "@/lib/property-decks";
+import { cityNameFromLocation, extractTextFromSlideXml, getOrderedSlidePathsFromZip, isIndustrialFacilityProposalSlide, type CompilationManifest, type PropertySlideItem, type ProposalContact, type PptxSourceFile } from "@/lib/property-decks";
 
 const REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships";
 
@@ -239,10 +239,6 @@ export async function appendProposalContactsToPptx(buffer: Uint8Array, contacts:
   return output.generateAsync({ type: "uint8array" });
 }
 
-function replacePlaceholder(xml: string, placeholder: string, value: string | undefined): string {
-  return value ? xml.replaceAll(placeholder, escapeXml(value)) : xml;
-}
-
 function markProposalPage(xml: string, pageName: "Mosaic Proposal Cover" | "Mosaic Proposal CTA"): string {
   return xml.replace(/<p:cSld\b([^>]*)>/i, (_tag, attributes: string) => {
     const named = /\bname="[^"]*"/i.test(attributes)
@@ -250,6 +246,34 @@ function markProposalPage(xml: string, pageName: "Mosaic Proposal Cover" | "Mosa
       : `${attributes} name="${pageName}"`;
     return `<p:cSld${named}>`;
   });
+}
+
+async function ensureUniqueSlideNames(output: JSZip): Promise<void> {
+  const slidePaths = await getOrderedSlidePathsFromZip(output);
+  const usedNames = new Set<string>();
+  for (const [index, slidePath] of slidePaths.entries()) {
+    const slideXml = await output.file(slidePath)?.async("string");
+    if (!slideXml) throw new Error(`Cannot assign a name to missing slide ${slidePath}.`);
+    const cSld = slideXml.match(/<p:cSld\b([^>]*)>/i);
+    if (!cSld) throw new Error(`Cannot assign a name to slide ${slidePath}: its slide properties are missing.`);
+    const originalName = cSld[1].match(/\bname="([^"]*)"/i)?.[1]?.trim() || `Mosaic Slide ${index + 1}`;
+    let candidate = originalName;
+    let suffix = 2;
+    while (usedNames.has(candidate.toLocaleLowerCase())) {
+      candidate = `${originalName} ${suffix++}`;
+    }
+    usedNames.add(candidate.toLocaleLowerCase());
+    if (candidate !== originalName || !cSld[1].match(/\bname="([^"]*)"/i)) {
+      const escapedName = escapeXmlAttribute(candidate);
+      const updated = slideXml.replace(/<p:cSld\b([^>]*)>/i, (_tag, attributes: string) => {
+        const namedAttributes = /\bname="[^"]*"/i.test(attributes)
+          ? attributes.replace(/\bname="[^"]*"/i, `name="${escapedName}"`)
+          : `${attributes} name="${escapedName}"`;
+        return `<p:cSld${namedAttributes}>`;
+      });
+      output.file(slidePath, updated);
+    }
+  }
 }
 
 function personalizeIndustrialProposalLocation(xml: string, originalLocation: string, location: string): string {
@@ -378,7 +402,6 @@ async function prependGeneratedCoverSlide(output: JSZip, proposal: CompilationMa
   if (!layoutTarget) throw new Error("The first exported slide has no layout relationship for the generated cover.");
 
   const slideWidth = Number(presentationXml.match(/<p:presentation\b[^>]*>[\s\S]*?<p:sldSz\b[^>]*\bcx="(\d+)"/)?.[1] || 12192000);
-  const slideHeight = Number(presentationXml.match(/<p:presentation\b[^>]*>[\s\S]*?<p:sldSz\b[^>]*\bcy="(\d+)"/)?.[1] || 6858000);
   const coverPath = "ppt/slides/mosaic-generated-cover.xml";
   const coverRelsPath = relationshipsPath(coverPath);
   const margin = 700000;
@@ -465,7 +488,8 @@ async function personalizeCoverSlide(
   }
 
   if (!logo) {
-    return personalizedXml.replaceAll("[ INSERT CLIENT LOGO OR PROJECT TITLE ]", escapeXml(proposal.clientCompany || proposal.clientName || ""));
+    const coverWithoutLogo = personalizedXml.replaceAll("[ INSERT CLIENT LOGO OR PROJECT TITLE ]", escapeXml(proposal.clientCompany || proposal.clientName || ""));
+    return appendMissingCoverClientDetails(output, coverWithoutLogo, proposal);
   }
 
   let logoShapeFound = false;
@@ -494,7 +518,8 @@ async function personalizeCoverSlide(
   });
 
   if (!logoShapeFound) {
-    return personalizedXml.replaceAll("[ INSERT CLIENT LOGO OR PROJECT TITLE ]", escapeXml(proposal.clientCompany || proposal.clientName || ""));
+    const coverWithoutLogoSlot = personalizedXml.replaceAll("[ INSERT CLIENT LOGO OR PROJECT TITLE ]", escapeXml(proposal.clientCompany || proposal.clientName || ""));
+    return appendMissingCoverClientDetails(output, coverWithoutLogoSlot, proposal);
   }
 
   const slideDirectory = packageDirectory(destinationSlidePath);
@@ -510,7 +535,42 @@ async function personalizeCoverSlide(
 
   const contentTypes = await output.file("[Content_Types].xml")?.async("string") || "";
   output.file("[Content_Types].xml", ensureContentType(contentTypes, assetPath, logo.contentType));
-  return personalizedXml;
+  return appendMissingCoverClientDetails(output, personalizedXml, proposal);
+}
+
+async function appendMissingCoverClientDetails(
+  output: JSZip,
+  slideXml: string,
+  proposal: CompilationManifest["proposal"],
+): Promise<string> {
+  const currentText = extractTextFromSlideXml(slideXml).normalize("NFKC").replace(/\s+/g, " ").toLocaleLowerCase();
+  const fields = [
+    ["Contact person", proposal.clientName],
+    ["Job title", proposal.clientDesignation],
+    ["Company", proposal.clientCompany],
+    ["Prepared by", proposal.preparedByName],
+    ["Prepared-by designation", proposal.preparedByDesignation],
+    ["Prepared-by company", proposal.preparedByCompany],
+  ] as Array<[string, string | undefined]>;
+  const missing = fields.filter(([, value]) => value?.trim() && !currentText.includes(value.normalize("NFKC").replace(/\s+/g, " ").trim().toLocaleLowerCase()));
+  if (!missing.length) return slideXml;
+
+  const presentationXml = await output.file("ppt/presentation.xml")?.async("string");
+  const slideWidth = Number(presentationXml?.match(/<p:presentation\b[^>]*>[\s\S]*?<p:sldSz\b[^>]*\bcx="(\d+)"/)?.[1] || 12192000);
+  const slideHeight = Number(presentationXml?.match(/<p:presentation\b[^>]*>[\s\S]*?<p:sldSz\b[^>]*\bcy="(\d+)"/)?.[1] || 6858000);
+  const maxShapeId = Math.max(1, ...[...slideXml.matchAll(/<p:cNvPr\b[^>]*\bid="(\d+)"/gi)].map((match) => Number(match[1])));
+  const details = contactTextShape(
+    maxShapeId + 1,
+    Math.floor(slideWidth * 0.54),
+    Math.floor(slideHeight * 0.60),
+    Math.floor(slideWidth * 0.40),
+    Math.floor(slideHeight * 0.20),
+    [
+      { text: "PREPARED FOR:", size: 1100, color: "181D1E" },
+      ...missing.map(([label, value]) => ({ text: `${label}: ${value}`, size: 1000, color: "181D1E" })),
+    ],
+  );
+  return slideXml.replace(/<\/p:spTree>/i, `${details}</p:spTree>`);
 }
 
 async function copySlideParts(
@@ -692,6 +752,7 @@ async function makeCopiedSlideDeck(
   const generatedCover = needsGeneratedCover(manifest);
   if (generatedCover) await prependGeneratedCoverSlide(output, manifest.proposal);
   await appendContactSlide(output, manifest.proposal.ctaContacts || []);
+  await ensureUniqueSlideNames(output);
 
   const safeClient = (manifest.proposal.clientName || "Client")
     .replace(/[^a-zA-Z0-9_-]+/g, "_")
@@ -731,6 +792,11 @@ export async function verifyProposalExport(buffer: Uint8Array, manifest: Compila
     if (!xml) throw new Error(`Export verification failed: ${slidePath} is missing.`);
     return xml;
   }));
+  const slideTexts = slideXmls.map(extractTextFromSlideXml);
+  const slideNames = slideXmls.map((xml) => xml.match(/<p:cSld\b[^>]*\bname="([^"]+)"/i)?.[1]?.trim());
+  if (slideNames.some((name) => !name) || new Set(slideNames.map((name) => name!.toLocaleLowerCase())).size !== slideNames.length) {
+    throw new Error("Export verification failed: all PowerPoint slide names must be present and unique.");
+  }
   const coverIndexes = slideXmls.flatMap((xml, index) => /<p:cSld\b[^>]*\bname="Mosaic Proposal Cover"/i.test(xml) ? [index] : []);
   const ctaIndexes = slideXmls.flatMap((xml, index) => /<p:cSld\b[^>]*\bname="Mosaic Proposal CTA"/i.test(xml) ? [index] : []);
   if (coverIndexes.length !== 1 || coverIndexes[0] !== 0) {
@@ -739,16 +805,85 @@ export async function verifyProposalExport(buffer: Uint8Array, manifest: Compila
   if (ctaIndexes.length !== 1 || ctaIndexes[0] !== slidePaths.length - 1) {
     throw new Error(`Export verification failed: expected one generated CTA page at the end, found ${ctaIndexes.length}.`);
   }
-  const ctaText = extractTextFromSlideXml(slideXmls.at(-1) || "");
+  const ctaPromptIndexes = slideTexts.flatMap((text, index) => /for\s+more\s+information\s+and\s+to\s+schedule\s+a\s+viewing|contact\s+us/i.test(text) ? [index] : []);
+  if (ctaPromptIndexes.length !== 1 || ctaPromptIndexes[0] !== slidePaths.length - 1) {
+    throw new Error(`Export verification failed: expected exactly one CTA page at the end, found ${ctaPromptIndexes.length}.`);
+  }
+  const normalizedText = (value: string) => value.normalize("NFKC").replace(/\s+/g, " ").trim().toLocaleLowerCase();
+  const requireSlideText = (slideIndex: number, expected: string | undefined, description: string) => {
+    if (!expected?.trim()) return;
+    if (!normalizedText(slideTexts[slideIndex] || "").includes(normalizedText(expected))) {
+      throw new Error(`Export verification failed: ${description} is missing from slide ${slideIndex + 1} (expected “${expected}”).`);
+    }
+  };
+  const coverText = slideTexts[0] || "";
+  if (clientLogoAsset(manifest.proposal.clientLogoDataUrl) && !/\bp:cNvPicPr\b/i.test(slideXmls[0] || "")) {
+    throw new Error("Export verification failed: the uploaded client logo is missing from the cover page.");
+  }
+  for (const [value, description] of [
+    [manifest.proposal.clientName, "client name"],
+    [manifest.proposal.clientDesignation, "client designation"],
+    [manifest.proposal.clientCompany, "client company"],
+    [manifest.proposal.preparedByName, "prepared-by name"],
+    [manifest.proposal.preparedByDesignation, "prepared-by designation"],
+    [manifest.proposal.preparedByCompany, "prepared-by company"],
+  ] as Array<[string | undefined, string]>) {
+    if (value?.trim() && !normalizedText(coverText).includes(normalizedText(value))) {
+      throw new Error(`Export verification failed: ${description} “${value}” is missing from the cover page.`);
+    }
+  }
+
+  const dividerKey = (slide: PropertySlideItem) => `${slide.deckId}:${cityNameFromLocation(slide.proposalLocation || slide.specs.location).trim().toLocaleLowerCase()}`;
+  const requiredDividerKeys = new Set(manifest.slides
+    .filter((slide) => slide.slideRole === "property")
+    .map(dividerKey));
+  const actualDividerKeys = manifest.slides
+    .filter(isIndustrialFacilityProposalSlide)
+    .map(dividerKey);
+  if (new Set(actualDividerKeys).size !== actualDividerKeys.length) {
+    throw new Error("Export verification failed: duplicate industrial facility dividers were included for a source-deck city.");
+  }
+  for (const key of requiredDividerKeys) {
+    if (!actualDividerKeys.includes(key)) {
+      throw new Error(`Export verification failed: an industrial facility divider is missing for ${key.replace(/^.*:/, "")}.`);
+    }
+  }
+
+  const contentOffset = Number(generatedCover);
+  for (const [index, slide] of manifest.slides.entries()) {
+    const outputIndex = contentOffset + index;
+    if (slide.slideRole === "property") {
+      requireSlideText(outputIndex, slide.title, `selected property slide “${slide.title}”`);
+      const city = cityNameFromLocation(slide.specs.location);
+      requireSlideText(outputIndex, city, `city-only location “${city}”`);
+      const originalLocation = slide.sourceLocation?.trim();
+      if (originalLocation && normalizedText(originalLocation) !== normalizedText(city) && normalizedText(slideTexts[outputIndex] || "").includes(normalizedText(originalLocation))) {
+        throw new Error(`Export verification failed: property slide “${slide.title}” still shows the full location “${originalLocation}” instead of city-only “${city}”.`);
+      }
+    }
+    if (isIndustrialFacilityProposalSlide(slide)) {
+      requireSlideText(outputIndex, "Industrial Facility Proposal", "industrial facility divider title");
+      requireSlideText(outputIndex, slide.proposalLocation || cityNameFromLocation(slide.specs.location), "industrial facility divider city");
+      if (!slideXmls[outputIndex]?.includes('<a:srgbClr val="021A3D"/>')) {
+        throw new Error(`Export verification failed: the ${slide.proposalLocation || slide.specs.location} divider is not navy blue.`);
+      }
+    }
+  }
+
+  const ctaText = slideTexts.at(-1) || "";
   if (!ctaText.includes("For more information and to schedule a viewing")) {
     throw new Error("Export verification failed: the CTA page is missing its viewing prompt.");
   }
-  const contentOffset = Number(generatedCover);
-  for (const [index, slide] of manifest.slides.entries()) {
-    if (!isIndustrialFacilityProposalSlide(slide)) continue;
-    const dividerXml = slideXmls[contentOffset + index];
-    if (!dividerXml?.includes('<a:srgbClr val="021A3D"/>')) {
-      throw new Error(`Export verification failed: the ${slide.proposalLocation || slide.specs.location} divider is not navy blue.`);
+  for (const contact of manifest.proposal.ctaContacts || []) {
+    for (const [value, description] of [
+      [contact.name, "name"],
+      [contact.title, "title"],
+      [contact.phone, "phone"],
+      [contact.email, "email"],
+    ] as Array<[string, string]>) {
+      if (value.trim() && !normalizedText(ctaText).includes(normalizedText(value))) {
+        throw new Error(`Export verification failed: CTA contact ${description} “${value}” is missing from the final slide.`);
+      }
     }
   }
 }

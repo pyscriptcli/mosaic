@@ -298,9 +298,24 @@ describe("Property Decks filtering, overrides, and cart sequencing", () => {
       title: "Industrial Facility Proposal",
       rawText: "Industrial Facility Proposal\nPasig City",
     };
+    const secondDeckProperty = {
+      ...pasigProperty,
+      id: "second-pasig-deck:property:1",
+      deckId: "second-pasig-deck",
+      deckFileName: "Second_Pasig_Options.pptx",
+      deckFilePath: "C:/OneDrive/Second_Pasig_Options.pptx",
+    };
+    const secondDeckDivider = {
+      ...secondDeckProperty,
+      id: "second-pasig-deck:divider:pasig",
+      slideNumber: 2,
+      slideRole: "cover" as const,
+      title: "Industrial Facility Proposal",
+      rawText: "Industrial Facility Proposal\nPasig City",
+    };
     const manifest = buildCompilationManifest({
-      selectedSlideIds: [pasigProperty.id, sandovalProperty.id],
-      catalogSlides: [pasigDivider, pasigProperty, sandovalProperty],
+      selectedSlideIds: [pasigProperty.id, sandovalProperty.id, secondDeckProperty.id],
+      catalogSlides: [pasigDivider, pasigProperty, sandovalProperty, secondDeckDivider, secondDeckProperty],
       proposal: {
         clientName: "Client",
         projectTitle: "",
@@ -312,10 +327,11 @@ describe("Property Decks filtering, overrides, and cart sequencing", () => {
       },
     });
 
-    expect(manifest.slides.filter(isIndustrialFacilityProposalSlide)).toHaveLength(1);
+    expect(manifest.slides.filter(isIndustrialFacilityProposalSlide)).toHaveLength(2);
     expect(manifest.slides.filter((slide) => slide.slideRole === "property").map((slide) => slide.id)).toEqual([
       pasigProperty.id,
       sandovalProperty.id,
+      secondDeckProperty.id,
     ]);
   });
 
@@ -555,6 +571,9 @@ describe("Property Decks filtering, overrides, and cart sequencing", () => {
     const logoRelXml = await output.file("ppt/slides/_rels/slide1.xml.rels")!.async("string");
 
     expect(coverXml).toContain("Charlene Magnaye");
+    expect(coverXml).toContain("Job title: Business Development");
+    expect(coverXml).toContain("Company: MSCS PrimeGoods Inc.");
+    expect(coverXml).toContain("Prepared-by designation: Sr. Leasing Advisor");
     expect(coverXml).toContain("Cedtrix Rena");
     expect(coverXml).not.toContain("Broker Name(s)");
     expect(coverXml).not.toContain("INSERT CLIENT LOGO");
@@ -618,7 +637,7 @@ describe("Property Decks filtering, overrides, and cart sequencing", () => {
     source.file("ppt/_rels/presentation.xml.rels", '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/></Relationships>');
     source.file("ppt/slides/_rels/slide1.xml.rels", '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdLayout" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/></Relationships>');
     source.file("ppt/slideLayouts/slideLayout1.xml", '<p:sldLayout xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" type="blank"><p:cSld name="Blank"><p:spTree/></p:cSld></p:sldLayout>');
-    source.file("ppt/slides/slide1.xml", '<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>Sandoval Ave., Pasig City</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>');
+    source.file("ppt/slides/slide1.xml", '<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>MSCS Pasig Distribution Center</a:t></a:r></a:p><a:p><a:r><a:t>Sandoval Ave., Pasig City</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>');
     const property: PropertySlideItem = {
       ...sampleSlides[1],
       slideRole: "property",
@@ -633,12 +652,24 @@ describe("Property Decks filtering, overrides, and cart sequencing", () => {
       proposal: { clientName: "Client", projectTitle: "", brokerName: "", brokerEmail: "", brokerPhone: "", date: "2026-10-22", mode: "standard" as const },
       includeSummaryTable: false,
       includeCredentials: false,
-      slides: [property],
+      slides: [
+        {
+          ...property,
+          id: `${property.id}:generated-divider`,
+          slideRole: "cover" as const,
+          title: "Industrial Facility Proposal",
+          rawText: "Industrial Facility Proposal\nPasig",
+          proposalLocation: "Pasig",
+          isGeneratedDivider: true,
+        },
+        property,
+      ],
       comparisonRows: [],
     };
     const compiled = await compileCopiedPptx(manifest, new Map([[property.deckFilePath, { name: property.deckFileName, relativePath: property.deckFilePath, data: await source.generateAsync({ type: "uint8array" }) }]]));
     const output = await JSZip.loadAsync(compiled.buffer);
-    const slideXml = await output.file("ppt/slides/slide1.xml")!.async("string");
+    const orderedSlides = await getOrderedSlidePathsFromZip(output);
+    const slideXml = await output.file(orderedSlides[2])!.async("string");
     expect(slideXml).toContain("Pasig");
     expect(slideXml).not.toContain("Sandoval Ave.");
     expect(slideXml).not.toContain("Pasig City");
@@ -803,8 +834,8 @@ describe("Property Decks filtering, overrides, and cart sequencing", () => {
         data: await source.generateAsync({ type: "uint8array" }),
       };
     };
-    const originalOne = `<p:sld><a:t>FIRST SELECTED SOURCE SLIDE</a:t></p:sld>`;
-    const originalTwo = `<p:sld><a:t>SECOND SELECTED SOURCE SLIDE</a:t></p:sld>`;
+    const originalOne = `<p:sld><p:cSld name="Duplicate Source"><a:t>Cabuyao Cold Storage &amp; Dry Hub</a:t><a:t>Cabuyao</a:t><a:t>FIRST SELECTED SOURCE SLIDE</a:t></p:cSld></p:sld>`;
+    const originalTwo = `<p:sld><p:cSld name="Duplicate Source"><a:t>MSCS Pasig Distribution Center</a:t><a:t>Pasig</a:t><a:t>SECOND SELECTED SOURCE SLIDE</a:t></p:cSld></p:sld>`;
     const sourceFiles = new Map([
       [sampleSlides[0].deckFilePath, await makeSourceDeck(sampleSlides[0].deckFileName, 2, originalOne)],
       [sampleSlides[1].deckFilePath, await makeSourceDeck(sampleSlides[1].deckFileName, 3, originalTwo)],
@@ -823,12 +854,15 @@ describe("Property Decks filtering, overrides, and cart sequencing", () => {
     expect(loadedZip.file("ppt/slides/slide7.xml")).toBeNull();
     expect(await loadedZip.file(orderedOutputSlides[0])!.async("string")).toContain("Mosaic Proposal Cover");
     expect(await loadedZip.file(orderedOutputSlides[1])!.async("string")).toContain("Industrial Facility Proposal");
-    expect(await loadedZip.file(orderedOutputSlides[2])!.async("string")).toBe(originalOne);
+    expect(await loadedZip.file(orderedOutputSlides[2])!.async("string")).toContain("FIRST SELECTED SOURCE SLIDE");
     expect(await loadedZip.file(orderedOutputSlides[3])!.async("string")).toContain("Industrial Facility Proposal");
-    expect(await loadedZip.file(orderedOutputSlides[4])!.async("string")).toBe(originalTwo);
+    expect(await loadedZip.file(orderedOutputSlides[4])!.async("string")).toContain("SECOND SELECTED SOURCE SLIDE");
     const exportedSlideXml = await Promise.all(orderedOutputSlides.map((slidePath) => loadedZip.file(slidePath)!.async("string")));
     expect(exportedSlideXml.filter((xml) => xml.includes('name="Mosaic Proposal Cover"'))).toHaveLength(1);
     expect(exportedSlideXml.filter((xml) => xml.includes('name="Mosaic Proposal CTA"'))).toHaveLength(1);
+    const slideNames = exportedSlideXml.map((xml) => xml.match(/<p:cSld\b[^>]*\bname="([^"]+)"/i)?.[1]);
+    expect(slideNames).toHaveLength(exportedSlideXml.length);
+    expect(new Set(slideNames).size).toBe(exportedSlideXml.length);
     const slideRelsPath = orderedOutputSlides[2].replace("ppt/slides/", "ppt/slides/_rels/") + ".rels";
     const slideRels = await loadedZip.file(slideRelsPath)!.async("string");
     expect(slideRels).toContain("../selected/slide2/assets/0-photo.jpg");

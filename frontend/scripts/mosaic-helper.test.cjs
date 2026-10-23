@@ -45,7 +45,7 @@ describe("Mosaic Helper local HTTP boundary", () => {
     const sourceDir = path.join(tempDir, "source");
     await fs.mkdir(sourceDir, { recursive: true });
     const zip = new JSZip();
-    zip.file("ppt/slides/slide1.xml", `<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:p><a:t>TEST PROPERTY</a:t></a:p><a:p><a:t>Location: Test City</a:t></a:p></p:sld>`);
+    zip.file("ppt/slides/slide1.xml", `<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld name="Duplicate Source"><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/><p:sp><p:nvSpPr><p:cNvPr id="2" name="Property"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr><p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>TEST PROPERTY</a:t></a:r></a:p><a:p><a:r><a:t>Location: Test City</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>`);
     zip.file("[Content_Types].xml", `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/><Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/></Types>`);
     zip.file("_rels/.rels", `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/></Relationships>`);
     zip.file("ppt/presentation.xml", `<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:sldIdLst><p:sldId id="256" r:id="rId1"/></p:sldIdLst></p:presentation>`);
@@ -212,6 +212,29 @@ describe("Mosaic Helper local HTTP boundary", () => {
     assert.equal(JSON.parse(readyResponse.body).status, "ready");
   });
 
+  it("removes expired export jobs and their temporary preview files", async () => {
+    const previewDirectory = path.join(tempDir, "expired-export-previews");
+    await fs.mkdir(previewDirectory, { recursive: true });
+    const previewPath = path.join(previewDirectory, "slide-1.png");
+    await fs.writeFile(previewPath, Buffer.from([137, 80, 78, 71]));
+    const jobId = "92d1bcf1-24c2-46e7-b32f-a91e0438f851";
+    const jobs = new Map([[jobId, {
+      id: jobId,
+      expiresAt: Date.now() - 1,
+      previewDirectory,
+      previewFiles: new Map([[1, previewPath]]),
+      previews: [],
+      checklist: [],
+    }]]);
+    const res = response();
+
+    await handleRequest(request("GET", `/api/property-decks/export-jobs?id=${jobId}`, { origin: allowedOrigin }), res, { exportJobs: jobs });
+
+    assert.equal(res.status, 404);
+    assert.equal(jobs.has(jobId), false);
+    assert.equal(await fs.access(previewDirectory).then(() => true, () => false), false);
+  });
+
   it("marks a failed export job unavailable for downloads", async () => {
     const jobs = new Map();
     const catalog = {
@@ -237,6 +260,9 @@ describe("Mosaic Helper local HTTP boundary", () => {
     const status = JSON.parse(statusResponse.body);
     assert.equal(status.status, "failed");
     assert.match(status.error, /PDF validation failed/);
+    assert.equal(status.checklist[0].status, "failed");
+    assert.equal(status.checklist[0].id, "pdf");
+    assert.match(status.checklist[0].detail, /unreadable PDF/);
     assert.equal(status.result, null);
     assert.equal("downloadId" in status, false);
   });

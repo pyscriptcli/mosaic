@@ -1428,7 +1428,12 @@ export function PropertyDecksView() {
           {exportStage === "failed" && <p role="alert" className="text-[11px] text-red-700">Required export checks failed. Downloads are blocked.</p>}
           {exportStage === "ready" && exportChecklist.length > 0 && (
             <ul aria-label="Export validation checklist" className="mt-2 space-y-1 border-l-2 border-green-600 bg-green-50 px-3 py-2 text-[10px]">
-              {exportChecklist.map((item) => <li key={item.id} className="text-green-800">✓ {item.label}</li>)}
+              {exportChecklist.map((item) => <li key={item.id} className={item.status === "passed" ? "text-green-800" : "text-red-700"}>{item.status === "passed" ? "✓" : "✕"} {item.label}{item.detail ? ` — ${item.detail}` : ""}</li>)}
+            </ul>
+          )}
+          {exportStage === "failed" && exportChecklist.length > 0 && (
+            <ul aria-label="Export validation checklist" className="mt-2 space-y-1 border-l-2 border-red-600 bg-red-50 px-3 py-2 text-[10px]">
+              {exportChecklist.map((item) => <li key={item.id} className={item.status === "passed" ? "text-green-800" : "text-red-700"}>{item.status === "passed" ? "✓" : "✕"} {item.label}{item.detail ? ` — ${item.detail}` : ""}</li>)}
             </ul>
           )}
           {exportStage === "ready" && previewWarning && <p role="status" className="mt-2 text-[10px] text-amber-700">Some thumbnails could not render; the validated PPTX and PDF are still available.</p>}

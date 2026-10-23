@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 const http = require("node:http");
 const { execFile, spawn } = require("node:child_process");
 const { randomUUID } = require("node:crypto");
@@ -194,21 +195,36 @@ async function runProposalExportJob({ job, manifest, outputFolder, report }) {
     previewDirectory: job.previewDirectory,
     onProgress: report,
   });
+  job.checklist = [
+    { id: "pptx", label: `PPTX opens and contains ${result.slideCount} slides in proposal order`, status: "passed" },
+    { id: "cover", label: "One selected cover includes the client and prepared-by details", status: "passed" },
+    { id: "properties", label: "Selected property pages and city-only locations match the proposal", status: "passed" },
+    { id: "dividers", label: "One navy facility divider per source-deck city", status: "passed" },
+    { id: "cta", label: `One final CTA includes ${manifest.proposal.ctaContacts?.length || 0} selected contact${manifest.proposal.ctaContacts?.length === 1 ? "" : "s"}`, status: "passed" },
+  ];
   job.status = "validating";
   job.progress = { stage: "validating", currentSlide: result.slideCount, totalSlides: result.slideCount, title: "Checking exported files" };
   report(job.progress);
   const pdf = await convertPropertyDeckPdf(result.outputPath);
   const pdfBytes = new Uint8Array(await fs.promises.readFile(pdf.pdfPath));
-  await verifyProposalPdfExport(pdfBytes, result.slideCount);
+  try {
+    await verifyProposalPdfExport(pdfBytes, result.slideCount, manifest);
+  } catch (error) {
+    job.checklist.push({
+      id: "pdf",
+      label: "PDF opens, matches the proposal pages, and includes required content",
+      status: "failed",
+      detail: error instanceof Error ? error.message : "PDF validation failed.",
+    });
+    throw error;
+  }
   const downloadId = registerPropertyDeckExport(result.outputPath, pdf.pdfPath);
   return {
     status: "ready",
     progress: { stage: "ready", currentSlide: result.slideCount, totalSlides: result.slideCount, title: "Export verified" },
     checklist: [
-      { id: "pptx", label: "PPTX structure and slide order", status: "passed" },
-      { id: "cover-cta", label: "One cover and one final CTA", status: "passed" },
-      { id: "dividers", label: "City dividers included", status: "passed" },
-      { id: "pdf", label: "PDF opens and matches the slide count", status: "passed" },
+      ...job.checklist,
+      { id: "pdf", label: "PDF opens, matches the proposal pages, and includes required content", status: "passed" },
     ],
     result: { ...result, pdfFileName: pdf.pdfFileName, downloadId },
   };
@@ -341,6 +357,15 @@ async function handleRequest(request, response, dependencies = {}) {
         .catch((error) => {
           job.status = "failed";
           job.error = error instanceof Error ? error.message : "Proposal export failed.";
+          if (!job.checklist.some((item) => item.status === "failed")) {
+            const pdfFailure = /PDF validation failed|PDF conversion failed|PPTX was created, but PDF/i.test(job.error);
+            job.checklist.push({
+              id: pdfFailure ? "pdf" : "pptx",
+              label: pdfFailure ? "PDF opens, matches the proposal pages, and includes required content" : "PPTX opens and matches the selected slides and proposal details",
+              status: "failed",
+              detail: job.error,
+            });
+          }
           job.expiresAt = Date.now() + EXPORT_JOB_TTL_MS;
           clearTimeout(job.expiryTimer);
           scheduleExportJobCleanup(job, jobs);

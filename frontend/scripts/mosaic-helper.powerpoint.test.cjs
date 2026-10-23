@@ -68,6 +68,8 @@ test("one export returns a PowerPoint-openable selected-slide deck and its PDF",
       "    $slide = $presentation.Slides.Add($presentation.Slides.Count + 1, 12)",
       "    $shape = $slide.Shapes.AddTextbox(1, 20, 20, 600, 100)",
       "    $shape.TextFrame.TextRange.Text = \"Selected source slide $index\"",
+      "    $location = $slide.Shapes.AddTextbox(1, 20, 140, 600, 50)",
+      "    $location.TextFrame.TextRange.Text = 'Location: Metro Manila / Luzon'",
       "  }",
       "  $presentation.SaveAs($Path, 24)",
       "} finally {",
@@ -103,7 +105,7 @@ test("one export returns a PowerPoint-openable selected-slide deck and its PDF",
     });
     assert.equal(compile.status, 200, compile.body.toString());
     const exported = JSON.parse(compile.body.toString());
-    assert.equal(exported.slideCount, 3);
+    assert.equal(exported.slideCount, 5);
 
     const pptxDownload = await callHelper(
       "GET",
@@ -126,27 +128,46 @@ test("one export returns a PowerPoint-openable selected-slide deck and its PDF",
     assert.equal(pdfBytes.subarray(0, 5).toString(), "%PDF-");
     const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
     const pdfDocument = await pdfjs.getDocument({ data: new Uint8Array(pdfBytes) }).promise;
-    assert.equal(pdfDocument.numPages, 3);
+    assert.equal(pdfDocument.numPages, 5);
     const firstPdfPage = await pdfDocument.getPage(1);
     const secondPdfPage = await pdfDocument.getPage(2);
+    const thirdPdfPage = await pdfDocument.getPage(3);
+    const fourthPdfPage = await pdfDocument.getPage(4);
     const firstPdfText = (await firstPdfPage.getTextContent()).items.map((item) => item.str).join(" ");
     const secondPdfText = (await secondPdfPage.getTextContent()).items.map((item) => item.str).join(" ");
-    const thirdPdfText = (await pdfDocument.getPage(3).then((page) => page.getTextContent())).items
+    const thirdPdfText = (await thirdPdfPage.getTextContent()).items.map((item) => item.str).join(" ");
+    const fourthPdfText = (await fourthPdfPage.getTextContent()).items.map((item) => item.str).join(" ");
+    const fifthPdfText = (await pdfDocument.getPage(5).then((page) => page.getTextContent())).items
       .map((item) => item.str).join(" ");
-    assert.match(firstPdfText, /Selected source slide 3/);
-    assert.match(secondPdfText, /Selected source slide 1/);
-    assert.match(thirdPdfText, /Integration Contact/);
-    assert.match(thirdPdfText, /integration@example.com/);
+    assert.match(firstPdfText, /Mosaic Integration/);
+    assert.match(secondPdfText, /Industrial Facility Proposal/);
+    assert.match(secondPdfText, /Metro Manila \/ Luzon/);
+    assert.match(thirdPdfText, /Selected source slide 3/);
+    assert.match(thirdPdfText, /Metro Manila \/ Luzon/);
+    assert.match(fourthPdfText, /Selected source slide 1/);
+    assert.match(fourthPdfText, /Metro Manila \/ Luzon/);
+    assert.match(fifthPdfText, /Integration Contact/);
+    assert.match(fifthPdfText, /integration@example.com/);
     const deck = await JSZip.loadAsync(pptxDownload.body);
     const presentation = await deck.file("ppt/presentation.xml").async("string");
-    assert.equal((presentation.match(/<p:sldId\b/g) || []).length, 3);
+    assert.equal((presentation.match(/<p:sldId\b/g) || []).length, 5);
     const firstSlide = await deck.file("ppt/slides/slide1.xml").async("string");
     const secondSlide = await deck.file("ppt/slides/slide2.xml").async("string");
-    const contactSlide = await deck.file("ppt/slides/slide3.xml").async("string");
-    assert.match(firstSlide, /Selected source slide 3/);
-    assert.match(secondSlide, /Selected source slide 1/);
+    const thirdSlide = await deck.file("ppt/slides/slide3.xml").async("string");
+    const fourthSlide = await deck.file("ppt/slides/slide4.xml").async("string");
+    const contactSlide = await deck.file("ppt/slides/slide5.xml").async("string");
+    assert.match(firstSlide, /Mosaic Proposal Cover/);
+    assert.match(secondSlide, /Mosaic Industrial Location Divider/);
+    assert.match(thirdSlide, /Selected source slide 3/);
+    assert.match(fourthSlide, /Selected source slide 1/);
     assert.match(contactSlide, /Integration Contact/);
     assert.match(contactSlide, /integration@example\.com/);
+    const slideNames = [];
+    for (let slideNumber = 1; slideNumber <= 5; slideNumber += 1) {
+      const slideXml = await deck.file(`ppt/slides/slide${slideNumber}.xml`).async("string");
+      slideNames.push(slideXml.match(/<p:cSld\b[^>]*\bname="([^"]+)"/i)?.[1]);
+    }
+    assert.equal(new Set(slideNames).size, 5);
   } finally {
     await fs.rm(directory, { recursive: true, force: true });
   }
