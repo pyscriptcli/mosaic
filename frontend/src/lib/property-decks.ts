@@ -420,8 +420,7 @@ export function filterPropertySlides(
         return false;
       }
       if (locationFilter && locationFilter !== "all") {
-        const hay = `${slide.specs.location} ${slide.title} ${slide.deckFileName}`.toLowerCase();
-        if (!hay.includes(locationFilter)) return false;
+        if (cityNameFromLocation(slide.specs.location).toLowerCase() !== locationFilter) return false;
       }
       if (filters.minGla !== undefined || filters.maxGla !== undefined) {
         const glaVal = parseNumericGla(slide.specs.gla);

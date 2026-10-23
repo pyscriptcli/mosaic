@@ -25,8 +25,8 @@ import { rankDemandMatches, type DemandMatchCriteria } from "@/lib/property-deck
 import {
   applySlideOverrides,
   buildCompilationManifest,
+  cityNameFromLocation,
   filterPropertySlides,
-  groupPropertyLocationsByCity,
   isIndustrialFacilityProposalSlide,
   groupPropertySlidesByTitle,
   reorderSelectedSlides,
@@ -378,16 +378,17 @@ export function PropertyDecksView() {
   }, [allSlides]);
 
   const locationOptions = useMemo(() => {
-    const locs = new Set<string>();
+    const cities = new Set<string>();
     for (const slide of allSlides) {
       if (slide.slideRole !== "property") continue;
       const effective = applySlideOverrides(slide, overrides);
       const loc = effective.specs.location?.trim();
       if (loc && loc !== "Metro Manila / Luzon") {
-        locs.add(loc);
+        const city = cityNameFromLocation(loc);
+        if (city) cities.add(city);
       }
     }
-    return groupPropertyLocationsByCity(Array.from(locs));
+    return Array.from(cities).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
   }, [allSlides, overrides]);
 
   const filteredSlides = useMemo(() => {
@@ -820,21 +821,18 @@ export function PropertyDecksView() {
           </div>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2">
-          <span
-            role="status"
-            className={`inline-flex h-8 items-center gap-1.5 border px-2.5 text-[11px] font-semibold ${helperConnected ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-300 bg-[#FBF7E9] text-[#735600]"}`}
-          >
-            <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${helperConnected ? "bg-emerald-600" : "bg-amber-500"}`} />
-            {helperConnected ? "Mosaic Helper connected" : "Mosaic Helper offline"}
-          </span>
           <button
             type="button"
             onClick={() => void restartHelper()}
             disabled={restartingHelper}
-            className="inline-flex h-8 min-h-8 items-center justify-center gap-1.5 border border-slate-300 bg-white px-2.5 text-[11px] font-semibold text-[#003366] transition-colors hover:border-[#003366] disabled:cursor-wait disabled:opacity-60"
+            aria-label={`Mosaic Helper ${helperConnected ? "connected. Restart helper" : "offline. Start or restart helper"}`}
+            className={`inline-flex h-8 min-h-8 items-center justify-center gap-1.5 border px-2.5 text-[11px] font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#C9A84C] disabled:cursor-wait disabled:opacity-60 ${helperConnected ? "border-emerald-200 bg-emerald-50 text-emerald-800 hover:border-emerald-400" : "border-amber-300 bg-[#FBF7E9] text-[#735600] hover:border-amber-500"}`}
           >
+            <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${helperConnected ? "bg-emerald-600" : "bg-amber-500"}`} />
+            <span aria-live="polite">Mosaic Helper {helperConnected ? "connected" : "offline"}</span>
+            <span aria-hidden="true" className="mx-0.5 h-4 border-l border-current/25" />
             <RefreshCw aria-hidden="true" className={`h-3.5 w-3.5 ${restartingHelper ? "animate-spin" : ""}`} />
-            {restartingHelper ? "Restarting…" : helperConnected ? "Restart Helper" : "Start / Restart Helper"}
+            {restartingHelper ? "Restarting…" : helperConnected ? "Restart" : "Start / Restart"}
           </button>
           <button
             type="button"
@@ -901,14 +899,10 @@ export function PropertyDecksView() {
                 className="h-9 w-full border border-slate-300 bg-white px-2.5 text-xs text-[#003366] focus:border-[#003366] focus:outline-none"
               >
                 <option value="all">All locations</option>
-                {locationOptions.map((group) => (
-                  <optgroup key={group.city} label={group.city}>
-                    {group.locations.map((location) => (
-                      <option key={location} value={location}>
-                        {location}
-                      </option>
-                    ))}
-                  </optgroup>
+                {locationOptions.map((city) => (
+                  <option key={city} value={city}>
+                    {city}
+                  </option>
                 ))}
               </select>
 
@@ -992,7 +986,7 @@ export function PropertyDecksView() {
                         <ChevronDown aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-slate-500 transition-transform group-open:rotate-180" />
                       </summary>
                       <div className="absolute left-0 top-full z-20 mt-1 max-h-56 w-full max-w-sm overflow-y-auto border border-slate-300 bg-white p-1.5 shadow-md">
-                        {locationOptions.map(({ city }) => (
+                        {locationOptions.map((city) => (
                           <label key={city} className="flex min-h-8 cursor-pointer items-center gap-2 px-2 text-xs text-[#003366] hover:bg-slate-50">
                             <input type="checkbox" aria-label={`Prefer ${city}`} checked={demandCriteria.locations.includes(city)} onChange={() => toggleDemandLocation(city)} className="accent-[#003366]" />
                             {city}

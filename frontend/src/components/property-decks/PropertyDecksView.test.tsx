@@ -108,9 +108,13 @@ describe("PropertyDecksView component", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     render(<PropertyDecksView />);
-    await waitFor(() => expect(screen.getByRole("button", { name: "Restart Helper" })).toBeDefined());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Mosaic Helper connected. Restart helper" })).toBeDefined());
+    const helperControl = screen.getByRole("button", { name: "Mosaic Helper connected. Restart helper" });
+    expect(helperControl.textContent).toContain("Mosaic Helper connected");
+    expect(helperControl.textContent).toContain("Restart");
+    expect(screen.getAllByText("Mosaic Helper connected")).toHaveLength(1);
 
-    fireEvent.click(screen.getByRole("button", { name: "Restart Helper" }));
+    fireEvent.click(helperControl);
 
     await waitFor(() => expect(screen.getByText("Mosaic Helper restarted and catalog refreshed.")).toBeDefined());
     expect(fetchMock).toHaveBeenCalledWith(`${helperUrl}/api/property-decks/helper/restart`, expect.objectContaining({ method: "POST" }));
@@ -120,11 +124,34 @@ describe("PropertyDecksView component", () => {
   it("explains how to start the helper when the local process is offline", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("Failed to fetch"); }));
     render(<PropertyDecksView />);
-    await waitFor(() => expect(screen.getByRole("button", { name: "Start / Restart Helper" })).toBeDefined());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Mosaic Helper offline. Start or restart helper" })).toBeDefined());
 
-    fireEvent.click(screen.getByRole("button", { name: "Start / Restart Helper" }));
+    fireEvent.click(screen.getByRole("button", { name: "Mosaic Helper offline. Start or restart helper" }));
 
     await waitFor(() => expect(screen.getByText(/Start it and allow this site to access your local network/)).toBeDefined());
+  });
+
+  it("shows city names only in the location filter and filters properties by city", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === `${helperUrl}/health`) return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      if (url === `${helperUrl}/api/property-decks`) return new Response(JSON.stringify({ catalog: mockCatalog }), { status: 200 });
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }));
+    render(<PropertyDecksView />);
+    await waitFor(() => expect(screen.getByText("Biñan Logistics Center — Warehouse 4")).toBeDefined());
+
+    const locationFilter = screen.getByRole("combobox", { name: "Filter by location" }) as HTMLSelectElement;
+    expect(Array.from(locationFilter.options).map((option) => option.textContent?.trim())).toEqual([
+      "All locations",
+      "Biñan",
+      "Pasig",
+    ]);
+    expect(locationFilter.querySelector("optgroup")).toBeNull();
+
+    fireEvent.change(locationFilter, { target: { value: "Biñan" } });
+    expect(screen.getByText("Biñan Logistics Center — Warehouse 4")).toBeDefined();
+    expect(screen.queryByText("MSCS Pasig Distribution Hub")).toBeNull();
   });
 
   it("selects CTA contacts in order and includes custom contact details and photo in the export request", async () => {
@@ -657,9 +684,13 @@ describe("PropertyDecksView component", () => {
     fireEvent.click(screen.getByRole("button", { name: "Edit details" }));
     expect((screen.getByLabelText("Prepared by name") as HTMLInputElement).value).toBe("Sondi Tuazon");
 
-    const locations = screen.getByLabelText(/filter by location/i);
-    expect(within(locations).getByRole("group", { name: "Biñan" })).toBeDefined();
-    expect(within(locations).getByRole("group", { name: "Pasig" })).toBeDefined();
+    const locations = screen.getByRole("combobox", { name: "Filter by location" }) as HTMLSelectElement;
+    expect(Array.from(locations.options).map((option) => option.textContent?.trim())).toEqual([
+      "All locations",
+      "Biñan",
+      "Pasig",
+    ]);
+    expect(locations.querySelector("optgroup")).toBeNull();
   });
 
   it("keeps property order and selection when moving between tabs", async () => {
