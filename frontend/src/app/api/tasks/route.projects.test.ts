@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   fetch: vi.fn(),
   fetchAllTasks: vi.fn(),
   readSnapshot: vi.fn(),
+  readTaskSyncStatus: vi.fn(),
   queueSync: vi.fn(),
   readStaged: vi.fn(),
   findStaged: vi.fn(),
@@ -30,6 +31,7 @@ vi.mock("@/lib/clickupCalendarApi", () => ({
 vi.mock("@/lib/clickupReadStore", () => ({
   clickUpScope: () => "scope",
   readClickUpTaskSnapshot: mocks.readSnapshot,
+  readClickUpTaskListSyncStatus: mocks.readTaskSyncStatus,
   queueClickUpSync: mocks.queueSync,
 }));
 vi.mock("@/lib/mosaicWriteStore", () => ({
@@ -80,6 +82,38 @@ describe("Projects task reads", () => {
     expect(payload.source).toBe("snapshot");
     expect(mocks.fetchAllTasks).not.toHaveBeenCalled();
     expect(mocks.queueSync).not.toHaveBeenCalled();
+  });
+
+  it("returns the last successful snapshot timestamp and refresh error when a stale snapshot is retained", async () => {
+    const syncedAt = new Date(Date.now() - 7 * 60_000).toISOString();
+    mocks.readSnapshot.mockResolvedValue({
+      tasks: [{ id: "task-1", name: "Cached milestone", list: { id: "123456" } }],
+      syncedAt,
+      syncState: "failed",
+      lastError: "ClickUp rate limit exceeded.",
+    });
+    mocks.queueSync.mockResolvedValue(true);
+
+    const response = await GET(request());
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.tasks).toMatchObject([{ id: "task-1", name: "Cached milestone" }]);
+    expect(payload).toMatchObject({ syncState: "error", stale: true, syncedAt, lastError: "ClickUp rate limit exceeded." });
+  });
+
+  it("serves task sync status from the durable store without loading task data", async () => {
+    const syncedAt = new Date(Date.now() - 8 * 60_000).toISOString();
+    mocks.readTaskSyncStatus.mockResolvedValue({ state: "failed", syncedAt, lastError: "ClickUp is temporarily unavailable.", nextAttemptAt: null });
+    const response = await GET(new NextRequest("http://localhost/api/tasks?action=project-task-sync-status&folderId=111111&listId=123456", {
+      headers: { cookie: "echo_clickup_token=clickup-token" },
+    }));
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({ syncState: "error", stale: true, syncedAt, lastError: "ClickUp is temporarily unavailable." });
+    expect(mocks.fetchAllTasks).not.toHaveBeenCalled();
+    expect(mocks.readSnapshot).not.toHaveBeenCalled();
   });
 
   it("stages a task move from the fresh snapshot without reading the task from ClickUp", async () => {

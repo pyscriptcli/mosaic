@@ -328,7 +328,7 @@ export async function readClickUpTaskSnapshot(scope: string, listId: string, max
   const client = db();
   if (!client) return null;
   const cutoff = Date.now() - maxAgeMs;
-  const { data: job } = await client.from("echo_clickup_sync_jobs").select("last_synced_at,state").eq("scope_key", scope).eq("list_id", listId).maybeSingle();
+  const { data: job } = await client.from("echo_clickup_sync_jobs").select("last_synced_at,state,last_error").eq("scope_key", scope).eq("list_id", listId).maybeSingle();
   if (!job?.last_synced_at || !USABLE_SNAPSHOT_STATES.has(job.state) || Date.parse(job.last_synced_at) < cutoff) return null;
   const records: Array<{ payload: Record<string, unknown> }> = [];
   const pageSize = 500;
@@ -338,7 +338,20 @@ export async function readClickUpTaskSnapshot(scope: string, listId: string, max
     records.push(...data as Array<{ payload: Record<string, unknown> }>);
     if (data.length < pageSize) break;
   }
-  return { tasks: records.map((record) => record.payload), syncedAt: job.last_synced_at, syncState: job.state };
+  return { tasks: records.map((record) => record.payload), syncedAt: job.last_synced_at, syncState: job.state, lastError: job.last_error || null };
+}
+
+export async function readClickUpTaskListSyncStatus(scope: string, listId: string) {
+  const client = db();
+  if (!client) return null;
+  const { data, error } = await client.from("echo_clickup_sync_jobs").select("state,last_synced_at,last_error,next_attempt_at").eq("scope_key", scope).eq("list_id", listId).maybeSingle();
+  if (error) return null;
+  return {
+    state: String(data?.state || "missing"),
+    syncedAt: data?.last_synced_at || null,
+    lastError: data?.last_error || null,
+    nextAttemptAt: data?.next_attempt_at || null,
+  };
 }
 
 export async function loadClickUpTaskSnapshot(input: { token: string; userId?: string; listId: string; freshForMs?: number; retainForMs?: number }) {

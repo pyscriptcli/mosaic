@@ -5,6 +5,8 @@ alter table public.mosaic_staged_records
 alter table public.mosaic_sync_outbox
   add column if not exists http_method text not null default 'POST';
 alter table public.mosaic_sync_outbox
+  add column if not exists coalesced_count integer not null default 0;
+alter table public.mosaic_sync_outbox
   drop constraint if exists mosaic_sync_outbox_resource_path_check;
 alter table public.mosaic_sync_outbox
   add constraint mosaic_sync_outbox_resource_path_check
@@ -32,6 +34,26 @@ begin
   on conflict(scope_key,domain,record_id) do update set owner_user_id=excluded.owner_user_id,
     list_id=coalesce(excluded.list_id,public.mosaic_staged_records.list_id),record_data=excluded.record_data,
     sync_state='pending',is_deleted=excluded.is_deleted,last_sync_error=null,updated_at=now();
+
+  -- Retrying the same request is idempotent even if another newer request has
+  -- already coalesced into the task's queued row.
+  select id into staged_job_id from public.mosaic_sync_outbox where request_id=p_request_id;
+  if staged_job_id is not null then return staged_job_id; end if;
+
+  -- A queued write has not reached ClickUp yet, so replace its payload with the
+  -- latest intent. Running and retry rows remain intact as sync history.
+  with candidate as (
+    select id from public.mosaic_sync_outbox
+    where scope_key=p_scope_key and domain=p_domain and record_id=p_record_id
+      and state='queued' and attempts=0
+    order by id desc for update skip locked limit 1
+  )
+  update public.mosaic_sync_outbox q set request_id=p_request_id,owner_user_id=p_owner_user_id,
+    operation=p_operation,http_method=p_http_method,resource_path=p_resource_path,
+    request_body=coalesce(p_request_body,'{}'::jsonb),next_attempt_at=now(),last_error=null,
+    coalesced_count=q.coalesced_count+1,updated_at=now()
+  from candidate where q.id=candidate.id returning q.id into staged_job_id;
+  if staged_job_id is not null then return staged_job_id; end if;
 
   insert into public.mosaic_sync_outbox(request_id,owner_user_id,scope_key,domain,record_id,operation,http_method,resource_path,request_body,state,next_attempt_at)
   values (p_request_id,p_owner_user_id,p_scope_key,p_domain,p_record_id,p_operation,p_http_method,p_resource_path,coalesce(p_request_body,'{}'::jsonb),'queued',now())

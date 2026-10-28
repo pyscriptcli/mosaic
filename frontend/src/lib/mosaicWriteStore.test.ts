@@ -30,7 +30,7 @@ describe("mergeStagedClickUpTasks", () => {
       }],
     );
 
-    expect(tasks).toEqual([{ id: "cu-1", name: "New title", status: { status: "in progress" }, list: { id: "123" } }]);
+    expect(tasks).toMatchObject([{ id: "cu-1", name: "New title", status: { status: "in progress" }, list: { id: "123" }, _mosaicSyncState: "pending" }]);
   });
 
   it("includes a staged create with its local id", () => {
@@ -42,7 +42,7 @@ describe("mergeStagedClickUpTasks", () => {
       record_data: { id: "local-1", name: "New task" },
     }]);
 
-    expect(tasks).toEqual([{ id: "local-1", name: "New task" }]);
+    expect(tasks).toMatchObject([{ id: "local-1", name: "New task", _mosaicSyncState: "pending" }]);
   });
 
   it("hides a staged delete immediately", () => {

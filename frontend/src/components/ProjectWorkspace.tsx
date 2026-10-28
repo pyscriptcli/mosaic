@@ -78,12 +78,14 @@ interface ProjectData {
   lists: ProjectList[];
   tasks: ProjectTask[];
   loadedTaskListIds?: string[];
+  taskSyncByList?: Record<string, { state: "synced" | "stale" | "syncing" | "error"; syncedAt: string | null; lastError: string | null }>;
   members: ProjectMember[];
   defaultAssignees: Record<string, string[]>;
   currentUserId?: string;
   isProjectAdmin?: boolean;
   accessByListId?: Record<string, { leadId: string; isAdmin: boolean; canEdit: boolean }>;
 }
+type ProjectTaskSyncStatus = NonNullable<ProjectData["taskSyncByList"]>[string];
 
 interface ProjectCardData {
   id: string;
@@ -339,7 +341,7 @@ export function CalendarView({ folderId, tasks, lists, members, defaultAssignees
   const [editAssignees, setEditAssignees] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const pendingMoveVersions = useRef(new Map<string, { version: number; previousTask: ProjectTask }>());
+  const pendingMoveVersions = useRef(new Map<string, { version: number; previousTask: ProjectTask; timer?: ReturnType<typeof setTimeout>; resolve?: () => void; reject?: (reason: unknown) => void }>());
   const createStatusOptions = projectStatusOptions(lists.find((list) => list.id === taskListId)?.statuses || []);
   const editStatusOptions = projectStatusOptions(lists.find((list) => list.id === modal?.task?.listId)?.statuses || tasks.filter((task) => task.listId === modal?.task?.listId).map((task) => task.status));
   const editMembers = modal?.task
@@ -402,29 +404,39 @@ export function CalendarView({ folderId, tasks, lists, members, defaultAssignees
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Calendar change failed."); }
     finally { setBusy(false); }
   };
-  const changeDate = async (task: ProjectTask, date: string) => {
-    if (!canEdit) return;
+  const changeDate = (task: ProjectTask, date: string) => {
+    if (!canEdit) return Promise.resolve();
     const prior = pendingMoveVersions.current.get(task.id);
+    if (prior?.timer) clearTimeout(prior.timer);
+    prior?.resolve?.();
     const version = (prior?.version || 0) + 1;
     const previousTask = prior?.previousTask || task;
-    pendingMoveVersions.current.set(task.id, { version, previousTask });
     const optimisticTask = { ...task, dueDate: new Date(`${date}T00:00:00`).toISOString(), syncState: "pending" as const, syncError: undefined };
     onTaskChange(optimisticTask);
     const currentList = lists.find((list) => list.id === task.listId);
-    try {
-      const response = await fetch("/api/tasks?action=project-task-update", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ folderId, listId: task.listId, listName: currentList?.name, taskId: task.id, taskName: task.name, previous: { status: task.status, description: task.description || "", dueDate: task.dueDate }, dueDate: date }) });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Unable to reschedule task.");
-      const pending = pendingMoveVersions.current.get(task.id);
-      if (pending?.version === version) pendingMoveVersions.current.delete(task.id);
-    } catch (caught) {
-      const pending = pendingMoveVersions.current.get(task.id);
-      if (pending?.version === version) {
-        pendingMoveVersions.current.delete(task.id);
-        onTaskChange({ ...pending.previousTask, syncState: undefined, syncError: undefined });
-      }
-      throw caught;
-    }
+    return new Promise<void>((resolve, reject) => {
+      const pendingMove = { version, previousTask, resolve, reject } as { version: number; previousTask: ProjectTask; timer?: ReturnType<typeof setTimeout>; resolve?: () => void; reject?: (reason: unknown) => void };
+      pendingMove.timer = setTimeout(() => {
+        void (async () => {
+          try {
+            const response = await fetch("/api/tasks?action=project-task-update", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ folderId, listId: task.listId, listName: currentList?.name, taskId: task.id, taskName: task.name, previous: { status: task.status, description: task.description || "", dueDate: previousTask.dueDate }, dueDate: date }) });
+            const payload = await response.json();
+            if (!response.ok) throw new Error(payload.error || "Unable to reschedule task.");
+            const latest = pendingMoveVersions.current.get(task.id);
+            if (latest?.version === version) pendingMoveVersions.current.delete(task.id);
+            resolve();
+          } catch (caught) {
+            const latest = pendingMoveVersions.current.get(task.id);
+            if (latest?.version === version) {
+              pendingMoveVersions.current.delete(task.id);
+              onTaskChange({ ...previousTask, syncState: undefined, syncError: undefined });
+              reject(caught);
+            } else resolve();
+          }
+        })();
+      }, 250);
+      pendingMoveVersions.current.set(task.id, pendingMove);
+    });
   };
 
   return <section className="border border-slate-200 bg-white" aria-label="Project calendar">
@@ -770,7 +782,7 @@ function SubprojectStatusCards({ folderId, listId, tasks, tasksLoading, onTaskCh
   </section>;
 }
 
-function SubprojectWorkspace({ folderId, folderUrl, list, tasks, members, defaultAssignees, canEdit, canManageLead, onAssign, savingAssignees, assigneeSyncMessage, onBack, onRefresh, tasksLoading, onTaskChange, basePath, initialView, initialReviewId, userId }: {
+function SubprojectWorkspace({ folderId, folderUrl, list, tasks, members, defaultAssignees, canEdit, canManageLead, onAssign, savingAssignees, assigneeSyncMessage, onBack, onRefresh, tasksLoading, onTaskChange, basePath, initialView, initialReviewId, userId, taskSyncStatus }: {
   folderId: string;
   folderUrl: string;
   list: ProjectList;
@@ -790,6 +802,7 @@ function SubprojectWorkspace({ folderId, folderUrl, list, tasks, members, defaul
   initialView: "dashboard" | "tasks" | "calendar" | "contract-review" | "sites" | "documentation";
   initialReviewId?: string;
   userId?: string;
+  taskSyncStatus?: ProjectTaskSyncStatus;
 }) {
   const router = useRouter();
   const [view, setView] = useState<"dashboard" | "tasks" | "calendar" | "contract-review" | "sites" | "documentation">(initialView);
@@ -836,6 +849,7 @@ function SubprojectWorkspace({ folderId, folderUrl, list, tasks, members, defaul
       <ProjectActionButton onClick={onRefresh} disabled={savingAssignees} label="Refresh subproject"><RefreshCw aria-hidden="true" className="h-4 w-4" /></ProjectActionButton>
       <ClickUpLink href={list.url || folderUrl} label="Open subproject in ClickUp" />    </>} />
     {assigneeSyncMessage && <p role="status" className="border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">{assigneeSyncMessage}</p>}
+    {taskSyncStatus && (taskSyncStatus.state !== "synced" || taskSyncStatus.lastError) && <p role={taskSyncStatus.state === "error" ? "alert" : "status"} className="flex flex-wrap items-center justify-between gap-2 border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900"><span>{taskSyncStatus.state === "syncing" ? "Refreshing subproject tasks…" : `Showing saved tasks${taskSyncStatus.syncedAt ? ` · last successful sync ${new Date(taskSyncStatus.syncedAt).toLocaleString()}` : " · no successful sync recorded"}${taskSyncStatus.lastError ? ` · ${taskSyncStatus.lastError}` : " · data may be stale"}`}</span>{taskSyncStatus.state === "error" && <button type="button" onClick={onRefresh} className="min-h-8 border border-amber-500 px-2 font-semibold hover:bg-white">Retry refresh</button>}</p>}
     {!canEdit && view !== "sites" && <p role="note" className="border-l-2 border-[#C9A84C] bg-[#F7FAFC] px-3 py-2 text-xs text-slate-700">View only. The assigned subproject lead or Mosaic admin can make changes.</p>}
     <div role="tablist" aria-label={`${list.name} workspace views`} className="flex border-b border-slate-200">{tabs.map((tab) => <button key={tab.id} type="button" role="tab" aria-selected={view === tab.id} onClick={() => selectTab(tab.id)} className={`min-h-11 border-b-2 px-4 text-xs font-semibold ${view === tab.id ? "border-[#C9A84C] text-[#003366]" : "border-transparent text-slate-500 hover:text-[#003366]"}`}>{tab.label}</button>)}</div>
     {view === "dashboard" ? <div className="space-y-5"><SubprojectStatusCards folderId={folderId} listId={list.id} tasks={tasks} tasksLoading={tasksLoading} onTaskChange={onTaskChange} canEdit={canEdit} /><ProjectActivityFeed folderId={folderId} lists={[list]} fixedListId={list.id} userId={userId} /></div>
@@ -1349,7 +1363,7 @@ export function ProjectWorkspace({ userId }: { userId?: string }) {
             const response = await fetch(`/api/tasks?action=project-list-tasks&folderId=${encodeURIComponent(folderId)}&listId=${encodeURIComponent(subproject.id)}`, { cache: "no-store" });
             const payload = await response.json().catch(() => ({}));
             if (!response.ok) throw new Error(payload.error || "Unable to load subproject tasks.");
-            projectData = { ...projectData, tasks: [...projectData.tasks.filter((task) => task.listId !== subproject.id), ...(payload.tasks as ProjectTask[])], loadedTaskListIds: [...(projectData.loadedTaskListIds || []), subproject.id] };
+            projectData = { ...projectData, tasks: [...projectData.tasks.filter((task) => task.listId !== subproject.id), ...(payload.tasks as ProjectTask[])], loadedTaskListIds: [...(projectData.loadedTaskListIds || []), subproject.id], taskSyncByList: { ...projectData.taskSyncByList, [subproject.id]: { state: payload.syncState || "stale", syncedAt: payload.syncedAt || null, lastError: payload.lastError || null } } };
             projectClientCache.set(projectCacheId(userId, folderId), { data: projectData, updatedAt: Date.now() });
             if (userId) void writeBrowserPageCache(userId, `project:${folderId}`, projectData);
           }
@@ -1381,7 +1395,7 @@ export function ProjectWorkspace({ userId }: { userId?: string }) {
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(payload.error || "Unable to load project calendar tasks.");
         if (!active) return;
-        const nextData = { ...data, tasks: payload.tasks as ProjectTask[], loadedTaskListIds: listIds };
+        const nextData = { ...data, tasks: payload.tasks as ProjectTask[], loadedTaskListIds: listIds, taskSyncByList: Object.fromEntries(Object.entries(payload.syncStateByList || {}).map(([listId, status]) => [listId, { state: (status as { state?: string }).state || "stale", syncedAt: (status as { syncedAt?: string | null }).syncedAt || null, lastError: (status as { lastError?: string | null }).lastError || null }])) as ProjectData["taskSyncByList"] };
         setData(nextData);
         projectClientCache.set(projectCacheId(userId, data.folder.id), { data: nextData, updatedAt: Date.now() });
         if (userId) void writeBrowserPageCache(userId, `project:${data.folder.id}`, nextData);
@@ -1396,6 +1410,30 @@ export function ProjectWorkspace({ userId }: { userId?: string }) {
       if (userId) void writeBrowserPageCache(userId, `project:${data.folder.id}`, data);
     }
   }, [data, userId]);
+
+  const taskSyncPollKey = (data?.loadedTaskListIds || []).filter((listId) => {
+    const state = data?.taskSyncByList?.[listId]?.state;
+    return state === "stale" || state === "syncing";
+  }).sort().join(",");
+  useEffect(() => {
+    if (!activeFolderId || !taskSyncPollKey) return;
+    let active = true;
+    const poll = async () => {
+      const listIds = taskSyncPollKey.split(",").filter(Boolean);
+      const statuses = await Promise.all(listIds.map(async (listId) => {
+        const response = await fetch(`/api/tasks?action=project-task-sync-status&folderId=${encodeURIComponent(activeFolderId)}&listId=${encodeURIComponent(listId)}`, { cache: "no-store" });
+        if (!response.ok) return null;
+        const payload = await response.json().catch(() => null);
+        if (!payload || typeof payload.syncState !== "string") return null;
+        return [listId, { state: payload.syncState, syncedAt: payload.syncedAt || null, lastError: payload.lastError || null }] as const;
+      }));
+      if (!active) return;
+      const byList = Object.fromEntries(statuses.filter((item): item is NonNullable<typeof item> => Boolean(item)));
+      if (Object.keys(byList).length) setData((current) => current?.folder.id === activeFolderId ? { ...current, taskSyncByList: { ...current.taskSyncByList, ...byList } as ProjectData["taskSyncByList"] } : current);
+    };
+    const timer = window.setInterval(() => { void poll(); }, 5000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [activeFolderId, taskSyncPollKey]);
 
   const updateProjectTask = (changedTask: ProjectTask) => {
     setData((current) => {
@@ -1451,9 +1489,9 @@ export function ProjectWorkspace({ userId }: { userId?: string }) {
     if (!activeFolderId) return reloadGalleryData();
     if (!background || !data) setLoading(true);
     setError(null);
-    const loadedListIds = data?.loadedTaskListIds || [];
     fetchProject(activeFolderId, true)
       .then(async (freshData) => {
+        const loadedListIds = freshData.lists.map((list) => list.id);
         if (!loadedListIds.length) return freshData;
         let freshTasks: ProjectTask[] = [];
         if (loadedListIds.length >= freshData.lists.length) {
@@ -1461,11 +1499,13 @@ export function ProjectWorkspace({ userId }: { userId?: string }) {
           const payload = await response.json().catch(() => ({}));
           if (!response.ok) throw new Error(payload.error || "Unable to refresh project tasks.");
           freshTasks = payload.tasks as ProjectTask[];
+          freshData.taskSyncByList = Object.fromEntries(Object.entries(payload.syncStateByList || {}).map(([listId, status]) => [listId, { state: (status as { state?: string }).state || "stale", syncedAt: (status as { syncedAt?: string | null }).syncedAt || null, lastError: (status as { lastError?: string | null }).lastError || null }])) as ProjectData["taskSyncByList"];
         } else {
           const responses = await Promise.all(loadedListIds.map(async (listId) => {
             const response = await fetch(`/api/tasks?action=project-list-tasks&folderId=${encodeURIComponent(activeFolderId)}&listId=${encodeURIComponent(listId)}`, { cache: "no-store" });
             const payload = await response.json().catch(() => ({}));
             if (!response.ok) throw new Error(payload.error || "Unable to refresh subproject tasks.");
+            freshData.taskSyncByList = { ...freshData.taskSyncByList, [listId]: { state: payload.syncState || "stale", syncedAt: payload.syncedAt || null, lastError: payload.lastError || null } };
             return payload.tasks as ProjectTask[];
           }));
           freshTasks = responses.flat();
@@ -1578,7 +1618,7 @@ export function ProjectWorkspace({ userId }: { userId?: string }) {
     const access = data?.accessByListId?.[activeListId];
     const canManageLead = Boolean(data?.isProjectAdmin);
     const canEdit = Boolean(access?.canEdit);
-    if (data && activeList) return <SubprojectWorkspace folderId={data.folder.id} folderUrl={data.folder.url} list={activeList} tasks={tasksByList.get(activeList.id) || []} members={data.members} defaultAssignees={data.defaultAssignees[activeList.id] || []} canEdit={canEdit} canManageLead={canManageLead} onAssign={(ids) => void saveDefaultAssignees(activeList.id, ids)} savingAssignees={savingAssigneeListId === activeList.id} assigneeSyncMessage={assigneeSyncMessage} onBack={() => router.push(`/projects/${routeSegment(data.folder.name, data.folder.id)}`)} onRefresh={refreshProject} tasksLoading={tasksLoading} onTaskChange={updateProjectTask} basePath={basePath} initialView={initialView} initialReviewId={initialReviewId} userId={userId} />;
+    if (data && activeList) return <SubprojectWorkspace folderId={data.folder.id} folderUrl={data.folder.url} list={activeList} tasks={tasksByList.get(activeList.id) || []} members={data.members} defaultAssignees={data.defaultAssignees[activeList.id] || []} canEdit={canEdit} canManageLead={canManageLead} onAssign={(ids) => void saveDefaultAssignees(activeList.id, ids)} savingAssignees={savingAssigneeListId === activeList.id} assigneeSyncMessage={assigneeSyncMessage} onBack={() => router.push(`/projects/${routeSegment(data.folder.name, data.folder.id)}`)} onRefresh={refreshProject} tasksLoading={tasksLoading} onTaskChange={updateProjectTask} basePath={basePath} initialView={initialView} initialReviewId={initialReviewId} userId={userId} taskSyncStatus={data.taskSyncByList?.[activeList.id]} />;
     return <section className="mx-auto w-full max-w-[1440px] space-y-3 pb-8"><LoadingSkeleton variant="subproject" /></section>;
   }
 
@@ -1591,6 +1631,7 @@ export function ProjectWorkspace({ userId }: { userId?: string }) {
     {projectRefreshing && <p role="status" className="flex items-center gap-2 border border-[#C9A84C]/50 bg-[#FBF7E9] px-3 py-2 text-xs text-[#003366]"><RefreshCw aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />Refreshing project tasks and lists. You can keep working while this completes.</p>}
     {error && data && <p role="alert" className="flex flex-wrap items-center justify-between gap-2 border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">Showing the last available project data. Refresh failed: {error}<button type="button" onClick={refreshProject} className="min-h-8 border border-amber-500 px-2 font-semibold hover:bg-white">Retry refresh</button></p>}
     {data && (data.tasks.some((task) => task.syncState === "pending" || task.syncState === "failed")) && <p role="status" className="border border-slate-200 bg-[#F7FAFC] px-3 py-2 text-xs text-[#003366]">Task sync: {data.tasks.filter((task) => task.syncState === "pending").length} pending · {data.tasks.filter((task) => task.syncState === "failed").length} failed. Failed changes remain visible in Mosaic; retry them from the affected subproject task row.</p>}
+    {data && (() => { const statuses = Object.values(data.taskSyncByList || {}); const staleCount = statuses.filter((status) => status.state !== "synced").length; const latestSync = statuses.map((status) => status.syncedAt).filter((value): value is string => Boolean(value)).sort().at(-1); const lastError = statuses.find((status) => status.lastError)?.lastError; return staleCount ? <p role="status" className="flex flex-wrap items-center justify-between gap-2 border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900"><span>{staleCount} subproject{staleCount === 1 ? "" : "s"} {statuses.some((status) => status.state === "syncing") ? "refreshing" : "showing saved data"}{latestSync ? ` · last successful sync ${new Date(latestSync).toLocaleString()}` : " · no successful sync recorded"}{lastError ? ` · ${lastError}` : ""}</span>{lastError && <button type="button" onClick={refreshProject} className="min-h-8 border border-amber-500 px-2 font-semibold hover:bg-white">Retry refresh</button>}</p> : null; })()}
     {assigneeSyncMessage && <p role="status" className="border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">{assigneeSyncMessage}</p>}
       <div role="tablist" aria-label={`${data?.folder.name || "Project"} workspace views`} className="flex border-b border-slate-200">
     {([{ id: "overview", label: "Overview" }, { id: "calendar", label: "Calendar" }, { id: "activity", label: "Activity" }, { id: "map", label: "Map" }] as const).map((tab) => <button key={tab.id} type="button" role="tab" aria-selected={view === tab.id} onClick={() => setView(tab.id)} className={`inline-flex min-h-9 items-center gap-2 border-b-2 px-3 text-xs font-semibold ${view === tab.id ? "border-[#C9A84C] text-[#003366]" : "border-transparent text-slate-500 hover:text-[#003366]"}`}>{tab.id === "calendar" ? <CalendarDays aria-hidden="true" className="h-3.5 w-3.5" /> : tab.id === "map" ? <MapPin aria-hidden="true" className="h-3.5 w-3.5" /> : tab.id === "activity" ? <Activity aria-hidden="true" className="h-3.5 w-3.5" /> : null}{tab.label}</button>)}

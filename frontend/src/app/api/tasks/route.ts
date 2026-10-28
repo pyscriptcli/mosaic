@@ -8,7 +8,7 @@ import { recordProjectActivity } from "@/lib/projectActivity";
 import { after } from "next/server";
 import { recordTelemetry } from "@/lib/telemetry";
 import { getSubprojectAccess, getVerifiedClickUpUser, isSubprojectAdmin, requireManagedTaskEditor, requireSubprojectEditor } from "@/lib/project-permissions";
-import { clickUpScope, readClickUpTaskSnapshot, queueClickUpSync } from "@/lib/clickupReadStore";
+import { clickUpScope, readClickUpTaskListSyncStatus, readClickUpTaskSnapshot, queueClickUpSync } from "@/lib/clickupReadStore";
 import { findStagedMosaicRecord, mergeStagedClickUpTasks, readStagedMosaicRecords, retryFailedMosaicWrite, scheduleMosaicWriteSync, stageMosaicWrite } from "@/lib/mosaicWriteStore";
 import { randomUUID } from "node:crypto";
 
@@ -180,6 +180,19 @@ export async function GET(req: NextRequest) {
     const action = searchParams.get("action");
     const targetListId = searchParams.get("listId") || listId;
 
+    if (action === "project-task-sync-status") {
+      const projectToken = getTokenFromRequest(req);
+      const folderId = searchParams.get("folderId") || "";
+      const projectListId = searchParams.get("listId") || "";
+      if (!projectToken) return NextResponse.json({ error: "Sign in with ClickUp to view project sync status." }, { status: 401 });
+      if (!/^\d+$/.test(folderId) || !/^\d+$/.test(projectListId)) return NextResponse.json({ error: "A valid project and subproject are required." }, { status: 400 });
+      const status = await readClickUpTaskListSyncStatus(clickUpScope(projectToken), projectListId);
+      if (!status) return NextResponse.json({ error: "Project sync status is temporarily unavailable." }, { status: 503 });
+      const fresh = Boolean(status.syncedAt && status.state === "ready" && Date.now() - Date.parse(status.syncedAt) < 5 * 60_000);
+      const syncState = fresh ? "synced" : status.state === "failed" ? "error" : status.state === "queued" || status.state === "running" ? "syncing" : "stale";
+      return NextResponse.json({ syncState, stale: !fresh, syncedAt: status.syncedAt, lastError: status.lastError, nextAttemptAt: status.nextAttemptAt }, { headers: { "Cache-Control": "no-store" } });
+    }
+
     if (action === "project-gallery") {
       const projectToken = getTokenFromRequest(req);
       if (!projectToken) return NextResponse.json({ error: "Sign in with ClickUp to view projects.", needsAuth: true }, { status: 401, headers: { "Cache-Control": "no-store" } });
@@ -332,7 +345,7 @@ export async function GET(req: NextRequest) {
         const fetchedAt = new Date().toISOString();
         const syncState = isFresh ? "synced" : snapshot?.syncState === "failed" ? "error" : snapshot ? "stale" : "syncing";
         const syncedAt = snapshot?.syncedAt || fetchedAt;
-        return NextResponse.json({ tasks, syncState, stale: !isFresh && Boolean(snapshot), syncedAt, fetchedAt, source: snapshot ? "snapshot" : "clickup-live" }, { headers: { "Cache-Control": "no-store", "X-ClickUp-Data-Source": snapshot ? "snapshot" : "live", "X-Data-Synced-At": syncedAt } });
+        return NextResponse.json({ tasks, syncState, stale: !isFresh && Boolean(snapshot), syncedAt, lastError: snapshot?.lastError || null, fetchedAt, source: snapshot ? "snapshot" : "clickup-live" }, { headers: { "Cache-Control": "no-store", "X-ClickUp-Data-Source": snapshot ? "snapshot" : "live", "X-Data-Synced-At": syncedAt } });
       } catch (error) {
         return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to load subproject tasks." }, { status: 502 });
       }
@@ -381,6 +394,7 @@ export async function GET(req: NextRequest) {
         const syncStateByList = Object.fromEntries(groups.map(({ listId, snapshot, isFresh }) => [listId, {
           state: isFresh ? "synced" : snapshot?.syncState === "failed" ? "error" : snapshot ? "stale" : "syncing",
           syncedAt: snapshot?.syncedAt || null,
+          lastError: snapshot?.lastError || null,
         }]));
         const tasks = groups.flatMap(({ listId, tasks: listTasks, staged }) => {
           const merged = mergeStagedClickUpTasks(listTasks as unknown as Array<Record<string, unknown>>, staged);
