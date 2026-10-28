@@ -287,6 +287,23 @@ const galleryClientCache = new Map<string, { data: ProjectCardData[]; updatedAt:
 const projectCacheId = (ownerId: string | undefined, folderId: string) => `${ownerId || "anonymous"}:${folderId}`;
 const galleryCacheId = (ownerId: string | undefined) => `${ownerId || "anonymous"}:projects`;
 
+function mergeProjectMetadata(fresh: ProjectData, existing: ProjectData | null | undefined): ProjectData {
+  if (!existing || existing.folder.id !== fresh.folder.id) return fresh;
+  const loadedTaskListIds = new Set([...(existing.loadedTaskListIds || []), ...(fresh.loadedTaskListIds || [])]);
+  const tasksById = new Map<string, ProjectTask>();
+  for (const task of existing.tasks) if (loadedTaskListIds.has(task.listId)) tasksById.set(task.id, task);
+  for (const task of fresh.tasks) tasksById.set(task.id, task);
+  for (const task of existing.tasks) {
+    if (task.syncState === "pending" || task.syncState === "failed") tasksById.set(task.id, task);
+  }
+  return {
+    ...fresh,
+    tasks: [...tasksById.values()],
+    loadedTaskListIds: [...loadedTaskListIds],
+    taskSyncByList: { ...fresh.taskSyncByList, ...existing.taskSyncByList },
+  };
+}
+
 function matchRouteSegment<T extends { name: string; id: string }>(items: T[], segment: string) {
   return items.find((item) => segment === routeSlug(item.name) || segment === `${routeSlug(item.name)}-${item.id}`);
 }
@@ -1292,9 +1309,10 @@ export function ProjectWorkspace({ userId }: { userId?: string }) {
       projectClientCache.set(cacheId, { data: cached, updatedAt: Date.now() });
       void refreshBrowserPageQuery(ownerId, queryKey, load).then((fresh) => {
         if (!fresh) return;
-        projectClientCache.set(cacheId, { data: fresh, updatedAt: Date.now() });
-        void writeBrowserPageCache(ownerId, queryKey, fresh);
-        setData((current) => current?.folder.id === folderId ? fresh : current);
+        const merged = mergeProjectMetadata(fresh, projectClientCache.get(cacheId)?.data || cached);
+        projectClientCache.set(cacheId, { data: merged, updatedAt: Date.now() });
+        void writeBrowserPageCache(ownerId, queryKey, merged);
+        setData((current) => current?.folder.id === folderId ? mergeProjectMetadata(fresh, current) : current);
       }).catch(() => undefined);
       return cached;
     }
