@@ -290,6 +290,8 @@ export function mergeStagedClickUpTasks<T extends Record<string, unknown>>(
       ...(status ? { status } : {}),
       ...(priority ? { priority } : {}),
       ...(row.list_id ? { list: { id: row.list_id } } : {}),
+      _mosaicSyncState: row.sync_state,
+      _mosaicSyncError: row.last_sync_error,
     } as unknown as T;
     tasks.set(clickUpId, projected);
   }

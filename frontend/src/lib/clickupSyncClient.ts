@@ -40,15 +40,15 @@ function storedListId(key: string) {
 
 let activeCentralSync: Promise<ClickUpSyncResponse> | null = null;
 
-export function requestCentralClickUpSync(listIds: string[] = [], listLabels: Record<string, string> = {}) {
+export function requestCentralClickUpSync(listIds: string[] = [], listLabels: Record<string, string> = {}, options: { includeStoredLists?: boolean } = {}) {
   if (activeCentralSync) return activeCentralSync;
-  const request = performCentralClickUpSync(listIds, listLabels);
+  const request = performCentralClickUpSync(listIds, listLabels, options);
   activeCentralSync = request.finally(() => { activeCentralSync = null; });
   return activeCentralSync;
 }
 
-async function performCentralClickUpSync(listIds: string[], listLabels: Record<string, string>) {
-  const storedIds = typeof window === "undefined" ? [] : [
+async function performCentralClickUpSync(listIds: string[], listLabels: Record<string, string>, options: { includeStoredLists?: boolean }) {
+  const storedIds = options.includeStoredLists === false || typeof window === "undefined" ? [] : [
     storedListId("project_echo_clickup_list_id"),
     storedListId("project_echo_personal_list_id"),
     ...storedProjectListIds(),
@@ -75,6 +75,20 @@ async function performCentralClickUpSync(listIds: string[], listLabels: Record<s
   if (typeof window !== "undefined") {
     const responseData = data as ClickUpSyncResponse;
     window.dispatchEvent(new CustomEvent("mosaic-clickup-sync-requested", { detail: { runId: responseData.runId, live: true } }));
+    if (responseData.runId) {
+      const deadline = Date.now() + 55_000;
+      let completed = false;
+      while (Date.now() < deadline && !completed) {
+        await new Promise((resolve) => window.setTimeout(resolve, 1_000));
+        const statusResponse = await fetch(`/api/integrations/clickup/sync?runId=${encodeURIComponent(responseData.runId)}`, { cache: "no-store" });
+        const statusPayload = await statusResponse.json().catch(() => ({}));
+        if (!statusResponse.ok) throw new Error(statusPayload.error || "Project refresh status could not be loaded.");
+        const run = statusPayload.run as { state?: string; failed_targets?: number; finished_at?: string | null } | undefined;
+        completed = Boolean(run?.finished_at);
+        if (completed && Number(run?.failed_targets || 0) > 0) throw new Error("Some project task lists could not be refreshed. The last successful snapshot remains available.");
+      }
+      if (!completed) throw new Error("Project refresh is taking longer than expected. It will continue in the background.");
+    }
     const refreshes: Promise<unknown>[] = [];
     const targets: string[] = [];
     const targetRefreshes: Array<{ label: string; promise: Promise<unknown> }> = [];

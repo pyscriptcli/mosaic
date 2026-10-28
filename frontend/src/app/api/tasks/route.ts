@@ -8,7 +8,7 @@ import { recordProjectActivity } from "@/lib/projectActivity";
 import { after } from "next/server";
 import { recordTelemetry } from "@/lib/telemetry";
 import { getSubprojectAccess, getVerifiedClickUpUser, isSubprojectAdmin, requireManagedTaskEditor, requireSubprojectEditor } from "@/lib/project-permissions";
-import { clickUpScope } from "@/lib/clickupReadStore";
+import { clickUpScope, readClickUpTaskSnapshot, queueClickUpSync } from "@/lib/clickupReadStore";
 import { findStagedMosaicRecord, mergeStagedClickUpTasks, readStagedMosaicRecords, scheduleMosaicWriteSync, stageMosaicWrite } from "@/lib/mosaicWriteStore";
 import { randomUUID } from "node:crypto";
 
@@ -43,6 +43,8 @@ function serializeProjectTask(task: ClickUpProjectTask, listId: string): ClickUp
     parentId: task.parent ? String(task.parent) : null, listId,
     status: String(task.status?.status || "Open"), statusType: String(task.status?.type || ""), statusColor: typeof task.status?.color === "string" ? task.status.color : null,
     description: String(task.description_text || task.description || ""),
+    syncState: (task as ClickUpProjectTask & { _mosaicSyncState?: "pending" | "synced" | "failed" })._mosaicSyncState,
+    syncError: (task as ClickUpProjectTask & { _mosaicSyncError?: string })._mosaicSyncError || undefined,
     actionPlan: typeof actionPlanField?.value === "string" ? actionPlanField.value : "",
     actionPlanFieldAvailable: Boolean(actionPlanField?.id),
     dateCreated: clickUpDate(task.date_created), dateUpdated: clickUpDate(task.date_updated),
@@ -104,6 +106,8 @@ interface ClickUpProjectResponseTask {
   statusType: string;
   statusColor: string | null;
   description: string;
+  syncState?: "pending" | "synced" | "failed";
+  syncError?: string;
   actionPlan: string;
   actionPlanFieldAvailable: boolean;
   dateCreated: string | null;
@@ -294,18 +298,41 @@ export async function GET(req: NextRequest) {
       const belongsToFolder = ((folderListsPayload.lists || []) as ClickUpProjectList[]).some((list) => String(list.id) === projectListId);
       if (!belongsToFolder) return NextResponse.json({ error: "This subproject does not belong to the selected project." }, { status: 403 });
       try {
-        const baseTasks = (await fetchAllClickUpListTasks<ClickUpProjectTask>(projectToken, projectListId)).filter((task) => {
+        const scope = clickUpScope(projectToken);
+        const [snapshot, staged] = await Promise.all([
+          readClickUpTaskSnapshot(scope, projectListId, 30 * 24 * 60 * 60_000),
+          readStagedMosaicRecords(scope, "project_tasks", projectListId),
+        ]);
+        const isFresh = Boolean(snapshot && snapshot.syncState === "ready" && Date.now() - Date.parse(snapshot.syncedAt) < 5 * 60_000);
+        if (!isFresh) {
+          const userId = String(getUserFromRequest(req)?.id || "");
+          after(async () => {
+            try {
+              if (await queueClickUpSync(projectToken, userId, projectListId, snapshot?.syncState === "failed")) {
+                const { processClickUpSyncQueue } = await import("@/lib/clickupSync");
+                await processClickUpSyncQueue(1);
+              }
+            } catch (error) {
+              console.warn("[projects] background task refresh could not be queued", error instanceof Error ? error.message : "unknown error");
+            }
+          });
+        }
+        const sourceTasks = snapshot?.tasks
+          ? snapshot.tasks as unknown as ClickUpProjectTask[]
+          : await fetchAllClickUpListTasks<ClickUpProjectTask>(projectToken, projectListId);
+        const baseTasks = sourceTasks.filter((task) => {
           const description = task.description_text || task.description || "";
           return task.name?.trim().toLocaleLowerCase() !== "sites" && !description.includes("MOSAIC_SITES_STORAGE:") && !description.includes("MOSAIC_SITE_RECORD:");
         });
-        const staged = await readStagedMosaicRecords(clickUpScope(projectToken), "project_tasks", projectListId);
         const merged = mergeStagedClickUpTasks(baseTasks as unknown as Array<Record<string, unknown>>, staged);
         const tasks = merged.filter((task) => {
           const description = String(task.description_text || task.description || "");
           return String(task.name || "").trim().toLocaleLowerCase() !== "sites" && !description.includes("MOSAIC_SITES_STORAGE:") && !description.includes("MOSAIC_SITE_RECORD:");
         }).map((task) => serializeProjectTask(task as unknown as ClickUpProjectTask, projectListId));
         const fetchedAt = new Date().toISOString();
-        return NextResponse.json({ tasks, syncState: "synced", syncedAt: fetchedAt, fetchedAt, source: "clickup-live" }, { headers: { "Cache-Control": "no-store", "X-ClickUp-Data-Source": "live", "X-Data-Synced-At": fetchedAt } });
+        const syncState = isFresh ? "synced" : snapshot?.syncState === "failed" ? "error" : snapshot ? "stale" : "syncing";
+        const syncedAt = snapshot?.syncedAt || fetchedAt;
+        return NextResponse.json({ tasks, syncState, stale: !isFresh && Boolean(snapshot), syncedAt, fetchedAt, source: snapshot ? "snapshot" : "clickup-live" }, { headers: { "Cache-Control": "no-store", "X-ClickUp-Data-Source": snapshot ? "snapshot" : "live", "X-Data-Synced-At": syncedAt } });
       } catch (error) {
         return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to load subproject tasks." }, { status: 502 });
       }
@@ -323,14 +350,43 @@ export async function GET(req: NextRequest) {
         const lists = (listsPayload.lists || []) as ClickUpProjectList[];
         const groups = await Promise.all(lists.map(async (list) => {
           const listId = String(list.id);
-          const [tasks, staged] = await Promise.all([
-            fetchAllClickUpListTasks<ClickUpProjectTask>(projectToken, listId),
+          const [snapshot, staged] = await Promise.all([
+            readClickUpTaskSnapshot(clickUpScope(projectToken), listId, 30 * 24 * 60 * 60_000),
             readStagedMosaicRecords(clickUpScope(projectToken), "project_tasks", listId),
           ]);
-          const merged = mergeStagedClickUpTasks(tasks as unknown as Array<Record<string, unknown>>, staged);
-          return { listId, syncState: "synced", tasks: merged.map((task) => serializeProjectTask(task as unknown as ClickUpProjectTask, listId)) };
+          const isFresh = Boolean(snapshot && snapshot.syncState === "ready" && Date.now() - Date.parse(snapshot.syncedAt) < 5 * 60_000);
+          const tasks = snapshot?.tasks
+            ? snapshot.tasks as unknown as ClickUpProjectTask[]
+            : await fetchAllClickUpListTasks<ClickUpProjectTask>(projectToken, listId);
+          return { listId, snapshot, isFresh, tasks, staged };
         }));
-        return NextResponse.json({ tasks: groups.flatMap((group) => group.tasks), syncStateByList: Object.fromEntries(groups.map(({ listId, syncState }) => [listId, syncState])) }, { headers: { "Cache-Control": "no-store" } });
+        const staleListIds = groups.filter((group) => !group.isFresh).map((group) => group.listId);
+        if (staleListIds.length) {
+          const userId = String(getUserFromRequest(req)?.id || "");
+          after(async () => {
+            try {
+              const results = await Promise.all(staleListIds.map(async (listId) => {
+                const snapshot = groups.find((group) => group.listId === listId)?.snapshot;
+                return queueClickUpSync(projectToken, userId, listId, snapshot?.syncState === "failed");
+              }));
+              if (results.some(Boolean)) {
+                const { processClickUpSyncQueue } = await import("@/lib/clickupSync");
+                await processClickUpSyncQueue(5);
+              }
+            } catch (error) {
+              console.warn("[projects] background task refresh could not be queued", error instanceof Error ? error.message : "unknown error");
+            }
+          });
+        }
+        const syncStateByList = Object.fromEntries(groups.map(({ listId, snapshot, isFresh }) => [listId, {
+          state: isFresh ? "synced" : snapshot?.syncState === "failed" ? "error" : snapshot ? "stale" : "syncing",
+          syncedAt: snapshot?.syncedAt || null,
+        }]));
+        const tasks = groups.flatMap(({ listId, tasks: listTasks, staged }) => {
+          const merged = mergeStagedClickUpTasks(listTasks as unknown as Array<Record<string, unknown>>, staged);
+          return merged.map((task) => serializeProjectTask(task as unknown as ClickUpProjectTask, listId));
+        });
+        return NextResponse.json({ tasks, syncStateByList }, { headers: { "Cache-Control": "no-store" } });
       } catch (error) {
         return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to load project tasks." }, { status: 502 });
       }
@@ -798,9 +854,21 @@ export async function POST(req: NextRequest) {
           currentTask = (existingStaged.record_data || {}) as unknown as ClickUpProjectTask;
         } else {
           const remoteTaskId = String(existingStaged?.clickup_id || taskId);
-          const taskResponse = await clickUpCalendarFetch(projectToken, `https://api.clickup.com/api/v2/task/${encodeURIComponent(remoteTaskId)}`, undefined, undefined, { skipCache: true });
-          currentTask = await taskResponse.json().catch(() => ({})) as ClickUpProjectTask;
-          if (!taskResponse.ok) return NextResponse.json({ error: "Unable to verify this task." }, { status: taskResponse.status });
+          const snapshot = await readClickUpTaskSnapshot(clickUpScope(projectToken), subprojectListId, 30 * 24 * 60 * 60_000);
+          const snapshotIsFresh = Boolean(snapshot && snapshot.syncState === "ready" && Date.now() - Date.parse(snapshot.syncedAt) < 5 * 60_000);
+          const snapshotTask = snapshotIsFresh
+            ? snapshot?.tasks.find((task) => String(task.id || "") === remoteTaskId) as unknown as ClickUpProjectTask | undefined
+            : undefined;
+          if (snapshotTask) {
+            const stagedData = existingStaged?.record_data && typeof existingStaged.record_data === "object"
+              ? existingStaged.record_data as Record<string, unknown>
+              : {};
+            currentTask = { ...snapshotTask, ...stagedData } as ClickUpProjectTask;
+          } else {
+            const taskResponse = await clickUpCalendarFetch(projectToken, `https://api.clickup.com/api/v2/task/${encodeURIComponent(remoteTaskId)}`, undefined, undefined, { skipCache: true });
+            currentTask = await taskResponse.json().catch(() => ({})) as ClickUpProjectTask;
+            if (!taskResponse.ok) return NextResponse.json({ error: "Unable to verify this task." }, { status: taskResponse.status });
+          }
         }
         if (String(currentTask.list?.id || "") !== subprojectListId) return NextResponse.json({ error: "This task does not belong to the selected subproject." }, { status: 403 });
         const payload: Record<string, unknown> = {};

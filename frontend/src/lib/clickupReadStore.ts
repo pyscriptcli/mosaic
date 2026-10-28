@@ -130,6 +130,13 @@ export async function persistClickUpConnection(token: string, userId: string) {
   return true;
 }
 
+export async function readClickUpConnectionUserId(scope: string) {
+  const client = db();
+  if (!client) return null;
+  const { data, error } = await client.from("echo_clickup_connections").select("user_id").eq("scope_key", scope).maybeSingle();
+  return error || !data?.user_id ? null : String(data.user_id);
+}
+
 export async function isClickUpSyncStorageReady() {
   const client = db();
   if (!client || !process.env.CLICKUP_SYNC_ENCRYPTION_KEY) return false;

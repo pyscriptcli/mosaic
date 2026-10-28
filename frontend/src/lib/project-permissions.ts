@@ -22,7 +22,8 @@ export async function getVerifiedClickUpUser(token: string): Promise<VerifiedCli
     "https://api.clickup.com/api/v2/user",
     undefined,
     undefined,
-    { skipCache: true },
+    // Identity is stable for the short HTTP cache window. Avoid one ClickUp
+    // round trip on every staged task edit; token authentication still applies.
   );
   if (!response.ok) return null;
 
@@ -65,7 +66,8 @@ async function getSubprojectMemberAccess(request: NextRequest, folderId: string,
     `https://api.clickup.com/api/v2/list/${encodeURIComponent(listId)}`,
     undefined,
     undefined,
-    { skipCache: true },
+    // List membership is also cached briefly; fresh task membership is checked
+    // separately against the durable task snapshot by the move route.
   );
   const list = await listResponse.json().catch(() => ({}));
   if (!listResponse.ok) {
