@@ -559,6 +559,7 @@ function TaskHierarchy({ folderId, listName, tasks, statuses, members, teamLeadI
   const [assignees, setAssignees] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [retryingTaskId, setRetryingTaskId] = useState("");
   const availableMembers = editingTask
     ? [...members, ...editingTask.assignees.filter((assignee) => !members.some((member) => member.id === assignee.id))]
     : members;
@@ -583,10 +584,23 @@ function TaskHierarchy({ folderId, listName, tasks, statuses, members, teamLeadI
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Task changes could not be saved."); }
     finally { setSaving(false); }
   };
+  const retryTaskSync = async (task: ProjectTask) => {
+    setRetryingTaskId(task.id);
+    try {
+      const response = await fetch("/api/tasks?action=project-task-retry", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ folderId, listId: task.listId, taskId: task.id }) });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Task sync retry could not be queued.");
+      onTaskChange({ ...task, syncState: "pending", syncError: undefined });
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Task sync retry could not be queued.");
+    } finally {
+      setRetryingTaskId("");
+    }
+  };
   const toggle = (id: string) => setCollapsed((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   const renderNode = (node: TaskTreeNode, depth: number, phaseIndex: number): ReactNode => {
     const { task, children } = node;
-    if (!children.length) return <TaskRow key={task.id} task={task} depth={depth} onOpen={openTask} canEdit={canEdit} />;
+    if (!children.length) return <div key={task.id}><TaskRow task={task} depth={depth} onOpen={openTask} canEdit={canEdit} />{task.syncState && task.syncState !== "synced" && <div className={`flex flex-wrap items-center justify-between gap-2 border-b px-3 py-1.5 text-[10px] ${task.syncState === "failed" ? "border-red-100 bg-red-50 text-red-800" : "border-amber-100 bg-amber-50 text-amber-800"}`}><span>{task.syncState === "failed" ? `Sync failed${task.syncError ? `: ${task.syncError}` : "."}` : "Change saved in Mosaic · syncing to ClickUp"}</span>{task.syncState === "failed" && canEdit && <button type="button" disabled={retryingTaskId === task.id} onClick={() => void retryTaskSync(task)} className="min-h-7 px-2 font-semibold underline disabled:opacity-50">{retryingTaskId === task.id ? "Retrying…" : "Retry sync"}</button>}</div>}</div>;
     const phase = depth === 0, isCollapsed = collapsed.has(task.id);
     const descendants: ProjectTask[] = [];
     const collect = (child: TaskTreeNode) => { descendants.push(child.task); child.children.forEach(collect); };
@@ -1576,6 +1590,7 @@ export function ProjectWorkspace({ userId }: { userId?: string }) {
     </>} />
     {projectRefreshing && <p role="status" className="flex items-center gap-2 border border-[#C9A84C]/50 bg-[#FBF7E9] px-3 py-2 text-xs text-[#003366]"><RefreshCw aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />Refreshing project tasks and lists. You can keep working while this completes.</p>}
     {error && data && <p role="alert" className="flex flex-wrap items-center justify-between gap-2 border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">Showing the last available project data. Refresh failed: {error}<button type="button" onClick={refreshProject} className="min-h-8 border border-amber-500 px-2 font-semibold hover:bg-white">Retry refresh</button></p>}
+    {data && (data.tasks.some((task) => task.syncState === "pending" || task.syncState === "failed")) && <p role="status" className="border border-slate-200 bg-[#F7FAFC] px-3 py-2 text-xs text-[#003366]">Task sync: {data.tasks.filter((task) => task.syncState === "pending").length} pending · {data.tasks.filter((task) => task.syncState === "failed").length} failed. Failed changes remain visible in Mosaic; retry them from the affected subproject task row.</p>}
     {assigneeSyncMessage && <p role="status" className="border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">{assigneeSyncMessage}</p>}
       <div role="tablist" aria-label={`${data?.folder.name || "Project"} workspace views`} className="flex border-b border-slate-200">
     {([{ id: "overview", label: "Overview" }, { id: "calendar", label: "Calendar" }, { id: "activity", label: "Activity" }, { id: "map", label: "Map" }] as const).map((tab) => <button key={tab.id} type="button" role="tab" aria-selected={view === tab.id} onClick={() => setView(tab.id)} className={`inline-flex min-h-9 items-center gap-2 border-b-2 px-3 text-xs font-semibold ${view === tab.id ? "border-[#C9A84C] text-[#003366]" : "border-transparent text-slate-500 hover:text-[#003366]"}`}>{tab.id === "calendar" ? <CalendarDays aria-hidden="true" className="h-3.5 w-3.5" /> : tab.id === "map" ? <MapPin aria-hidden="true" className="h-3.5 w-3.5" /> : tab.id === "activity" ? <Activity aria-hidden="true" className="h-3.5 w-3.5" /> : null}{tab.label}</button>)}

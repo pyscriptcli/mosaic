@@ -320,6 +320,23 @@ export async function findStagedMosaicRecord(scopeKey: string, domain: string, r
   return byClickUpId.data || null;
 }
 
+export async function retryFailedMosaicWrite(input: { token: string; ownerUserId: string; domain: string; recordId: string }) {
+  const scopeKey = clickUpScope(input.token);
+  const staged = await findStagedMosaicRecord(scopeKey, input.domain, input.recordId);
+  if (!staged || staged.sync_state !== "failed" || !staged.list_id) return null;
+  const { data: failedJob, error } = await client().from("mosaic_sync_outbox")
+    .select("operation,http_method,resource_path,request_body")
+    .eq("scope_key", scopeKey).eq("domain", input.domain).eq("record_id", input.recordId).eq("state", "failed")
+    .order("id", { ascending: false }).limit(1).maybeSingle();
+  if (error || !failedJob) return null;
+  return stageMosaicWrite({
+    token: input.token, ownerUserId: input.ownerUserId, domain: input.domain, recordId: input.recordId,
+    listId: String(staged.list_id), recordData: staged.record_data || {},
+    operation: failedJob.operation, method: failedJob.http_method, resourcePath: failedJob.resource_path,
+    requestBody: failedJob.request_body || {},
+  });
+}
+
 export async function uploadStagedMosaicMedia(token: string, domain: string, recordId: string, files: File[]) {
   if (!files.length) return;
   const staged = await findStagedMosaicRecord(clickUpScope(token), domain, recordId);

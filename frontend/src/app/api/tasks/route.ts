@@ -9,7 +9,7 @@ import { after } from "next/server";
 import { recordTelemetry } from "@/lib/telemetry";
 import { getSubprojectAccess, getVerifiedClickUpUser, isSubprojectAdmin, requireManagedTaskEditor, requireSubprojectEditor } from "@/lib/project-permissions";
 import { clickUpScope, readClickUpTaskSnapshot, queueClickUpSync } from "@/lib/clickupReadStore";
-import { findStagedMosaicRecord, mergeStagedClickUpTasks, readStagedMosaicRecords, scheduleMosaicWriteSync, stageMosaicWrite } from "@/lib/mosaicWriteStore";
+import { findStagedMosaicRecord, mergeStagedClickUpTasks, readStagedMosaicRecords, retryFailedMosaicWrite, scheduleMosaicWriteSync, stageMosaicWrite } from "@/lib/mosaicWriteStore";
 import { randomUUID } from "node:crypto";
 
 export const maxDuration = 60;
@@ -837,6 +837,21 @@ export async function POST(req: NextRequest) {
         summary: `Updated the action plan for ${String(body.taskName || task.name || "a task")}`, details: { previous: previousActionPlan, current: actionPlan },
       });
       return NextResponse.json({ success: true, actionPlan, taskId });
+    }
+    if (action === "project-task-retry") {
+      if (!projectToken) return NextResponse.json({ error: "Sign in with ClickUp to retry this task." }, { status: 401 });
+      const folderId = String(body.folderId || "");
+      const listId = String(body.listId || "");
+      const taskId = String(body.taskId || "");
+      const access = await requireSubprojectEditor(req, folderId, listId);
+      if (!access.ok) return access.response;
+      const userId = String(getUserFromRequest(req)?.id || "");
+      const staged = await findStagedMosaicRecord(clickUpScope(projectToken), "project_tasks", taskId);
+      if (!staged || String(staged.list_id || "") !== listId || String(staged.owner_user_id || "") !== userId) return NextResponse.json({ error: "This failed task change is not available to your account." }, { status: 404 });
+      const retried = await retryFailedMosaicWrite({ token: projectToken, ownerUserId: userId, domain: "project_tasks", recordId: String(staged.record_id) });
+      if (!retried) return NextResponse.json({ error: "This task has no failed sync to retry." }, { status: 409 });
+      scheduleMosaicWriteSync();
+      return NextResponse.json({ success: true, pendingSync: true, taskId }, { status: 202 });
     }
     if (action === "project-task-update" || action === "project-task-create") {
       if (!projectToken) return NextResponse.json({ error: "Sign in with ClickUp to update this calendar." }, { status: 401 });
