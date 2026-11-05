@@ -48,7 +48,7 @@ interface FinalizeMeetingModalProps {
   onEmailPdf?: () => void;
   onExportRecording?: () => void;
   recordingName?: string | null;
-  onArchiveClickUp: (spaceId: string, options?: { listId?: string; isConfidential?: boolean }) => Promise<any>;
+  onArchiveClickUp: (spaceId: string, options?: { listId?: string; isConfidential?: boolean; idempotencyKey?: string }) => Promise<any>;
   archiveSpaces: Array<{ id: string; name: string; teamName: string }>;
   loadingArchiveSpaces: boolean;
   selectedSpaceId: string;
@@ -105,6 +105,7 @@ export function FinalizeMeetingModal({
     listName?: string;
     isConfidential?: boolean;
   } | null>(null);
+  const saveRequestId = useRef<string | null>(null);
 
   // Dynamic lists per space state
   const [spaceLists, setSpaceLists] = useState<Array<{ id: string; name: string }>>([]);
@@ -153,6 +154,7 @@ export function FinalizeMeetingModal({
   useEffect(() => {
     if (isOpen) {
       setSaveSuccess(null);
+      saveRequestId.current = null;
       setPersonalListError(null);
       const localId = typeof window !== "undefined" ? localStorage.getItem("project_echo_personal_list_id") || "" : "";
       const localName = typeof window !== "undefined" ? localStorage.getItem("project_echo_personal_list_name") || "" : "";
@@ -259,14 +261,15 @@ export function FinalizeMeetingModal({
 
   const handleArchiveClick = async () => {
     if (!validateTitle()) return;
+    if (!saveRequestId.current) saveRequestId.current = crypto.randomUUID();
     if (archiveDestination === "personal") {
       if (!personalListId) {
         setIsConfiguringPersonalList(true);
         setPersonalListError("Please configure your private ClickUp list first.");
         return;
       }
-      const result: any = await onArchiveClickUp("", { listId: personalListId, isConfidential: true });
-      if (result && result.clickup?.taskUrl) {
+      const result: any = await onArchiveClickUp("", { listId: personalListId, isConfidential: true, idempotencyKey: saveRequestId.current });
+      if (result?.status === "success") {
         setSaveSuccess({
           taskUrl: result.clickup.taskUrl,
           taskTitle: metadata.client_name,
@@ -279,8 +282,9 @@ export function FinalizeMeetingModal({
       const result: any = await onArchiveClickUp(selectedSpaceId, {
         listId: selectedTeamListId || undefined,
         isConfidential: false,
+        idempotencyKey: saveRequestId.current,
       });
-      if (result && result.clickup?.taskUrl) {
+      if (result?.status === "success") {
         setSaveSuccess({
           taskUrl: result.clickup.taskUrl,
           taskTitle: metadata.client_name,
@@ -598,8 +602,9 @@ export function FinalizeMeetingModal({
                       <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
                       <div>
                         <span className="text-xs font-bold">
-                          {saveSuccess.isConfidential ? "Meeting archived to Private list in ClickUp!" : "Meeting archived in ClickUp!"}
+                          {saveSuccess.isConfidential ? "Meeting saved successfully to your private archive." : "Meeting saved successfully."}
                         </span>
+                        <span className="block text-[11px] text-emerald-800">It is queued to sync with ClickUp.</span>
                         {saveSuccess.taskUrl && (
                           <a
                             href={saveSuccess.taskUrl}

@@ -1160,7 +1160,7 @@ export default function Home() {
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
-  const handleSaveToDb = async (overrideSpaceId?: string, options?: { listId?: string; isConfidential?: boolean }) => {
+  const handleSaveToDb = async (overrideSpaceId?: string, options?: { listId?: string; isConfidential?: boolean; idempotencyKey?: string }) => {
     const effectiveMeta = getEffectiveMetadata();
     if (!effectiveMeta.client_name?.trim()) {
       openFinalizeModal("archive");
@@ -1201,6 +1201,7 @@ export default function Home() {
         ...(finalDurationSeconds ? { duration_seconds: finalDurationSeconds } : {}),
         ...(spaceToUse ? { space_id: spaceToUse } : {}),
         ...(targetListId ? { list_id: targetListId } : {}),
+        ...(options?.idempotencyKey ? { idempotency_key: options.idempotencyKey } : {}),
         is_confidential: isConfidential,
       };
       const res = await saveMeeting(payloadMeta, momItems, actionItems, combinedMeetingSummary, otherDiscussions, transcript, additionalMeetingNotes);

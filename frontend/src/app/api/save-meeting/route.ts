@@ -3,7 +3,8 @@ import { getTokenFromRequest } from "@/lib/auth";
 import { clickUpFetch as fetch } from "@/lib/clickupCalendarApi";
 import { getUserFromRequest } from "@/lib/auth";
 import { randomUUID } from "node:crypto";
-import { scheduleMosaicWriteSync, stageMosaicWrite } from "@/lib/mosaicWriteStore";
+import { findStagedMosaicRecord, scheduleMosaicWriteSync, stageMosaicWrite } from "@/lib/mosaicWriteStore";
+import { clickUpScope } from "@/lib/clickupReadStore";
 import { serializeMeetingContent } from "@/lib/meetingArchive";
 
 export async function POST(req: NextRequest) {
@@ -119,7 +120,39 @@ export async function POST(req: NextRequest) {
 
     const userId = String(getUserFromRequest(req)?.id || "");
     if (!userId) return NextResponse.json({ error: "Your ClickUp profile is required to archive this meeting." }, { status: 401 });
-    const taskId = randomUUID();
+    const requestedIdempotencyKey = String(meeting_details.idempotency_key || "");
+    const taskId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestedIdempotencyKey)
+      ? requestedIdempotencyKey
+      : randomUUID();
+    const existingMeeting = requestedIdempotencyKey
+      ? await findStagedMosaicRecord(clickUpScope(token), "meetings", taskId)
+      : null;
+    if (existingMeeting) {
+      if (existingMeeting.owner_user_id !== userId || String(existingMeeting.list_id || "") !== String(list.id)) {
+        return NextResponse.json({ error: "This save request ID is already associated with another meeting." }, { status: 409 });
+      }
+      const existingClickUpId = String(existingMeeting.clickup_id || "");
+      const alreadySynced = existingMeeting.sync_state === "synced" && Boolean(existingClickUpId);
+      return NextResponse.json({
+        status: "success",
+        message: isConfidential ? "Meeting was already saved to your private archive." : "Meeting was already saved.",
+        meeting_id: taskId,
+        clickup: {
+          workspace: meeting_details.workspace || "Current workspace",
+          department: isConfidential ? "Private" : (meeting_details.department || "Unassigned"),
+          spaceId: String(spaceId || list?.space?.id || ""),
+          spaceName,
+          listName: list.name,
+          listId: list.id,
+          taskId: existingClickUpId || taskId,
+          taskUrl: existingClickUpId ? `https://app.clickup.com/t/${existingClickUpId}` : "",
+          archiveStatus: preferredStatus || "default",
+          isConfidential,
+        },
+        pendingSync: !alreadySynced,
+        idempotentReplay: true,
+      }, { status: alreadySynced ? 200 : 202 });
+    }
     const requestBody = { ...basePayload };
     const meetingRecord = {
       meeting_id: taskId,
