@@ -185,17 +185,13 @@ Run `supabase/forms_rbac.sql` against the project Supabase database before relyi
 The current fixed mappings are in `frontend/src/lib/ask-echo/clickup.ts`:
 
 - Notebook: `901418075633`
-- Demands: `901420989525`
-- Market Insights: `901420987429`
 - Tasks: the selected `echo_clickup_list_id` cookie
 - Forms: list ids configured in the admin mappings
 - Meetings: the configured archive/repository path, gated by page access
 
-The Demands page reads and writes structured `echoDemand` records in its mapped list using the signed-in user's OAuth token. Status and Action Taken are free-text fields. Do not add workspace-token fallbacks. Candidate-property scouting, geolocation photos, and scouting reports remain future scope.
-
 The standalone Contracts page compares Word documents in the browser and does not create workspaces or persist review history. Existing local files and saved review data are left untouched. Project contract reviews retain their existing history behavior.
 
-ClickUp reads route through `frontend/src/lib/clickupCalendarApi.ts` for per-token cache, bounded concurrency, rate-limit handling, and performance logs. Apply `supabase/clickup_read_model.sql` and set the ClickUp sync variables documented in `frontend/README.md` before relying on multi-instance cache sharing, periodic reconciliation, encrypted connections, or task snapshots. Only recent snapshots with a fresh per-user list access check may be served. ClickUp list webhooks are registered after authorized Tasks, Demands, and project subproject reads. Tasks list discovery is on demand and caches its result per signed-in browser user.
+ClickUp reads route through `frontend/src/lib/clickupCalendarApi.ts` for per-token cache, bounded concurrency, rate-limit handling, and performance logs. Apply `supabase/clickup_read_model.sql` and set the ClickUp sync variables documented in `frontend/README.md` before relying on multi-instance cache sharing, periodic reconciliation, encrypted connections, or task snapshots. Only recent snapshots with a fresh per-user list access check may be served. ClickUp list webhooks are registered after authorized Tasks and project subproject reads. Tasks list discovery is on demand and caches its result per signed-in browser user.
 
 ### Browser page cache
 
@@ -223,7 +219,6 @@ This is not yet a general workspace-wide ClickUp Docs/comments/MCP search. The d
 - `frontend/src/lib/ask-echo/provider.ts` — model prompt and server-side provider call.
 - `frontend/src/lib/ask-echo/store.ts` — config, meetings, usage, and Supabase access.
 - `frontend/src/lib/ask-echo/limits.ts` — approved models and AI policy limits.
-- `frontend/src/components/DemandsView.tsx` and `frontend/src/app/api/demands/route.ts` — demand monitoring UI and per-user connected-list access.
 - `frontend/src/app/api/auth/login/route.ts` — starts per-user OAuth; do not add shared-token fallback.
 - `frontend/src/app/api/auth/callback/route.ts` — exchanges OAuth code and sets session cookies.
 - `frontend/src/lib/auth.ts` — cookie names, profile types, allowed-domain check, session helpers.

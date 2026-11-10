@@ -27,7 +27,7 @@ export async function loadAiPolicy(): Promise<AiPolicy> {
 
 export async function loadEchoConfiguration(): Promise<EchoConfiguration> {
   const client = db();
-  const fallback: EchoConfiguration = { aiPolicy: DEFAULT_AI_POLICY, defaultPageAccess: ["forms", "market-insights", "demands"], pagePermissions: [], admins: [], mappings: [] };
+  const fallback: EchoConfiguration = { aiPolicy: DEFAULT_AI_POLICY, defaultPageAccess: ["forms"], pagePermissions: [], admins: [], mappings: [] };
   if (!client) return fallback;
   const { data } = await client.from("echo_forms_config").select("config").eq("id", "global").maybeSingle();
   if (!data?.config) return fallback;

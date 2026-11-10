@@ -14,20 +14,13 @@ import {
   LogOut,
   Settings,
   NotebookTabs,
-  ClipboardCheck,
-  ChartNoAxesColumnIncreasing,
   BriefcaseBusiness,
-  Gauge,
-  Globe,
   Wrench,
   Map as MapIcon,
-  FileSpreadsheet,
-  BookOpenText,
-  Megaphone,
   Presentation,
 } from "lucide-react";
 
-export type NavView = "dashboard" | "project" | "tasks" | "notebook" | "reports" | "market-insights" | "demands" | "meetings" | "minutes" | "maps" | "bsc" | "property-decks" | "forms" | "delta" | "business-analysis" | "forms-admin" | "performance-marketing" | "google-ads";
+export type NavView = "dashboard" | "project" | "tasks" | "notebook" | "meetings" | "minutes" | "maps" | "property-decks" | "forms" | "delta" | "business-analysis" | "forms-admin";
 
 interface SidebarProps {
   currentView: NavView;
@@ -66,10 +59,7 @@ export function Sidebar({
   const [expandedSections, setExpandedSections] = React.useState({
     personal: true,
     workspaces: true,
-    monitoring: true,
     tools: true,
-    knowledgeCenter: true,
-    performanceMarketing: true,
   });
   const [isProfileMenuOpen, setIsProfileMenuOpen] = React.useState(false);
   const profileButtonRef = React.useRef<HTMLButtonElement | null>(null);
@@ -144,14 +134,6 @@ export function Sidebar({
       icon: FileText,
       badge: null
     },
-    { id: "demands" as NavView, label: "Demands", icon: ClipboardCheck, badge: null },
-    { id: "reports" as NavView, label: "Reports", icon: ChartNoAxesColumnIncreasing, badge: null },
-    {
-      id: "market-insights" as NavView,
-      label: "Market Insights",
-      icon: Globe,
-      badge: null
-    },
     {
       id: "meetings" as NavView,
       label: "Meetings",
@@ -159,7 +141,6 @@ export function Sidebar({
       badge: null
     },
     { id: "maps" as NavView, label: "Maps", icon: MapIcon, badge: null },
-    { id: "bsc" as NavView, label: "BSC", icon: FileSpreadsheet, badge: null },
     { id: "property-decks" as NavView, label: "Property Decks", icon: Presentation, badge: null },
     {
       id: "notebook" as NavView,
@@ -167,8 +148,6 @@ export function Sidebar({
       icon: NotebookTabs,
       badge: null
     },
-    { id: "performance-marketing" as NavView, label: "Performance Marketing", icon: Megaphone, badge: null },
-    { id: "google-ads" as NavView, label: "Google Ads", icon: BookOpenText, badge: null },
   ];
 
   const normalizedSidebarOrder = [...(sidebarOrder || [])];
@@ -182,7 +161,6 @@ export function Sidebar({
     return (orderIndex.get(a.id) ?? fallback) - (orderIndex.get(b.id) ?? fallback);
   }).filter((item) => Boolean(
     item.id === "maps" ||
-    item.id === "bsc" ||
     item.id === "property-decks" ||
     allowedPages?.includes(item.id) ||
     (item.id === "notebook" && allowedPages?.includes("tasks")) ||
@@ -194,8 +172,6 @@ export function Sidebar({
   const sidebarGroups = [
     { id: "personal" as const, label: "Personal Workspace", icon: BriefcaseBusiness, itemIds: ["business-analysis"] as NavView[] },
     { id: "workspaces" as const, label: "Workspaces", icon: LayoutGrid, itemIds: ["dashboard", "project", "delta", "notebook"] as NavView[] },
-    { id: "monitoring" as const, label: "Monitoring", icon: Gauge, itemIds: ["demands", "reports"] as NavView[] },
-    { id: "knowledgeCenter" as const, label: "Knowledge Center", icon: BookOpenText, itemIds: ["market-insights", "performance-marketing", "google-ads"] as NavView[] },
   ].map((group) => ({
     ...group,
     items: group.itemIds
@@ -205,10 +181,9 @@ export function Sidebar({
   })).filter((group) => group.items.length > 0);
   const meetingsItem = navById.get("meetings");
   const mapsItem = navById.get("maps");
-  const bscItem = navById.get("bsc");
   const propertyDecksItem = navById.get("property-decks");
-  const hasToolsItems = Boolean(meetingsItem || mapsItem || bscItem || propertyDecksItem);
-  const toolsItems = [meetingsItem, mapsItem, bscItem, propertyDecksItem]
+  const hasToolsItems = Boolean(meetingsItem || mapsItem || propertyDecksItem);
+  const toolsItems = [meetingsItem, mapsItem, propertyDecksItem]
     .filter((item): item is (typeof navItems)[number] => Boolean(item))
     .sort((a, b) => (orderIndex.get(a.id) ?? allNavItems.length) - (orderIndex.get(b.id) ?? allNavItems.length));
   const collapsedGroups = [
@@ -238,59 +213,10 @@ export function Sidebar({
         } focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#FFBF00] ${effectiveCollapsed ? "justify-center !ml-0 !w-full !px-0 !border-l-0" : ""}`}
       >
         <Icon size={18} className={`shrink-0 ${isActive ? "text-[#C9A84C]" : "text-[#D7E3EF]"}`} />
-        {!effectiveCollapsed && <span className={item.id === "performance-marketing" ? "min-w-0 flex-1 whitespace-normal text-left leading-tight" : "truncate"}>{item.label}</span>}
+        {!effectiveCollapsed && <span className="truncate">{item.label}</span>}
       </button>
     );
   };
-
-  const renderDisclosureItem = (
-    item: (typeof navItems)[number],
-    section: "performanceMarketing",
-    children: (typeof navItems)[number][],
-  ) => (
-    <div key={item.id}>
-      <div className="flex items-center gap-1">
-        {renderNavItem(item, false, true)}
-        <button
-          type="button"
-          aria-expanded={expandedSections[section]}
-          aria-label={`${expandedSections[section] ? "Collapse" : "Expand"} ${item.label}`}
-          onClick={() => setExpandedSections((sections) => ({ ...sections, [section]: !sections[section] }))}
-          className="shrink-0 p-2 text-[#9FB8CE] hover:text-[#FFFCFB] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#FFBF00]"
-        >
-          {expandedSections[section] ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-        </button>
-      </div>
-      {expandedSections[section] && children.length > 0 && (
-        <div className="ml-3 border-l border-[#31577D]">
-          {children.map((child) => renderNavItem(child, true))}
-        </div>
-      )}
-    </div>
-  );
-
-  const renderDisclosureGroup = (
-    label: string,
-    section: "performanceMarketing",
-    children: (typeof navItems)[number][],
-  ) => (
-    <div key={`group-${section}`}>
-      <button
-        type="button"
-        aria-expanded={expandedSections[section]}
-        onClick={() => setExpandedSections((sections) => ({ ...sections, [section]: !sections[section] }))}
-        className="flex min-h-9 w-full items-center justify-between px-2.5 py-1.5 text-xs text-[#E5EDF4] hover:bg-[#174778] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#FFBF00]"
-      >
-        <span>{label}</span>
-        {expandedSections[section] ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-      </button>
-      {expandedSections[section] && (
-        <div className="ml-3 border-l border-[#31577D]">
-          {children.map((child) => renderNavItem(child, true))}
-        </div>
-      )}
-    </div>
-  );
 
   const isGroupActive = (group: (typeof collapsedGroups)[number]) => (
     (group.id === "tools" && currentView === "forms-admin")
@@ -358,37 +284,24 @@ export function Sidebar({
               </div>
             ) : (
               <>
-                {sidebarGroups.map((group) => {
-                  const googleAds = group.id === "knowledgeCenter" ? navById.get("google-ads") : undefined;
-                  return (
-                    <section id={`sidebar-group-${group.id}`} key={group.id}>
-                      <button
-                        type="button"
-                        aria-expanded={expandedSections[group.id]}
-                        onClick={() => setExpandedSections((sections) => ({ ...sections, [group.id]: !sections[group.id] }))}
-                        className="flex min-h-9 w-full items-center justify-between px-2.5 pt-2.5 pb-1 text-left text-[11px] font-bold uppercase tracking-[0.14em] text-[#9FB8CE] hover:text-[#FFFCFB] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#FFBF00]"
-                      >
-                        <span className="flex-1 text-left">{group.label}</span>
-                        {expandedSections[group.id] ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-                      </button>
-                      {expandedSections[group.id] && (
-                        <div className="space-y-0.5">
-                          {group.items.map((item) => {
-                            if (item.id === "google-ads") {
-                              return navById.has("performance-marketing")
-                                ? null
-                                : renderDisclosureGroup("Performance Marketing", "performanceMarketing", [item]);
-                            }
-                            if (item.id === "performance-marketing" && googleAds) {
-                              return renderDisclosureItem(item, "performanceMarketing", [googleAds]);
-                            }
-                            return renderNavItem(item);
-                          })}
-                        </div>
-                      )}
-                    </section>
-                  );
-                })}
+                {sidebarGroups.map((group) => (
+                  <section id={`sidebar-group-${group.id}`} key={group.id}>
+                    <button
+                      type="button"
+                      aria-expanded={expandedSections[group.id]}
+                      onClick={() => setExpandedSections((sections) => ({ ...sections, [group.id]: !sections[group.id] }))}
+                      className="flex min-h-9 w-full items-center justify-between px-2.5 pt-2.5 pb-1 text-left text-[11px] font-bold uppercase tracking-[0.14em] text-[#9FB8CE] hover:text-[#FFFCFB] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#FFBF00]"
+                    >
+                      <span className="flex-1 text-left">{group.label}</span>
+                      {expandedSections[group.id] ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                    </button>
+                    {expandedSections[group.id] && (
+                      <div className="space-y-0.5">
+                        {group.items.map((item) => renderNavItem(item))}
+                      </div>
+                    )}
+                  </section>
+                ))}
 
                 {hasToolsItems && (
                   <section id="sidebar-group-tools">
@@ -405,7 +318,6 @@ export function Sidebar({
                       <div className="space-y-0.5">
                         {meetingsItem && renderNavItem(meetingsItem)}
                         {mapsItem && renderNavItem(mapsItem)}
-                        {bscItem && renderNavItem(bscItem)}
                         {propertyDecksItem && renderNavItem(propertyDecksItem)}
                       </div>
                     )}

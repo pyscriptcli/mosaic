@@ -87,8 +87,7 @@ import {
   Tag,
   MessageCircle,
   Copy,
-  Check,
-  ChartNoAxesColumnIncreasing
+  Check
 } from "lucide-react";
 
 const PanelLoading = () => <section role="status" aria-live="polite" className="mx-auto w-full max-w-7xl border border-slate-200 bg-[#FFFCFB] p-4 text-xs text-slate-500">Opening workspace…</section>;
@@ -98,14 +97,10 @@ const ProjectWorkspace = dynamic(() => import("@/components/ProjectWorkspace").t
 const ContractsWorkspace = dynamic(() => import("@/components/ContractsWorkspace").then((module) => module.ContractsWorkspace), { loading: PanelLoading });
 const MeetingsView = dynamic(() => import("@/components/MeetingsView").then((module) => module.MeetingsView), { loading: PanelLoading });
 const TasksPageView = dynamic(() => import("@/components/TasksPageView"), { loading: PanelLoading });
-const MarketInsightsView = dynamic(() => import("@/components/MarketInsightsView").then((module) => module.MarketInsightsView), { loading: PanelLoading });
-const DemandsView = dynamic(() => import("@/components/DemandsView").then((module) => module.DemandsView), { loading: PanelLoading });
 const BusinessAnalysisView = dynamic(() => import("@/components/business-analysis/BusinessAnalysisView").then((module) => module.BusinessAnalysisView), { loading: PanelLoading });
 const FormsPortal = dynamic(() => import("@/components/forms/FormsPortal"), { loading: PanelLoading });
 const ProjectAtlasMapsPage = dynamic(() => import("@/components/ProjectAtlasMapsPage"), { loading: PanelLoading });
-const BscPortal = dynamic(() => import("@/components/BscPortal").then((module) => module.BscPortal), { loading: PanelLoading });
 const PropertyDecksView = dynamic(() => import("@/components/property-decks/PropertyDecksView").then((module) => module.PropertyDecksView), { loading: PanelLoading });
-const GoogleAdsKnowledgeCenter = dynamic(() => import("@/components/GoogleAdsKnowledgeCenter").then((module) => module.GoogleAdsKnowledgeCenter), { loading: PanelLoading });
 
 const VENUE_OPTIONS = [
   "GreatWork Mega Tower 32F - Secret Room",
@@ -461,7 +456,7 @@ export default function Home() {
   const [allowedPages, setAllowedPages] = useState<NavView[]>(warmGovernance?.allowedPages || []);
   const [governanceStatus, setGovernanceStatus] = useState<"loading" | "ready" | "error">(warmGovernance ? "ready" : "loading");
   const [sidebarOrder, setSidebarOrder] = useState<NavView[]>([
-    "dashboard", "business-analysis", "project", "notebook", "reports", "market-insights", "demands", "meetings", "minutes", "bsc", "property-decks", "forms", "delta",
+    "dashboard", "business-analysis", "project", "notebook", "meetings", "minutes", "property-decks", "forms", "delta",
   ]);
   const [isAdminUser, setIsAdminUser] = useState(warmGovernance?.isAdmin || false);
   const [askEchoEnabled, setAskEchoEnabled] = useState(warmGovernance?.askEchoEnabled || false);
@@ -547,7 +542,7 @@ export default function Home() {
         setAllowedFeatures(Array.isArray(data.allowedFeatures) ? data.allowedFeatures : []);
         setAllowedPages(pages);
         setCurrentView((prev) => {
-          if (prev === "forms-admin" || prev === "maps" || prev === "bsc" || prev === "property-decks" || hasFullPageAccess) return prev;
+          if (prev === "forms-admin" || prev === "maps" || prev === "property-decks" || hasFullPageAccess) return prev;
           if (prev === "project" && pages.includes("tasks")) return prev;
           if (prev === "delta" && (pages.includes("project") || pages.includes("tasks"))) return prev;
           if (!pages.includes(prev)) return pages[0] || "forms";
@@ -572,7 +567,6 @@ export default function Home() {
   const isPageAllowed = (view: NavView) => {
     if (view === "forms-admin") return false;
     if (view === "maps") return true;
-    if (view === "bsc") return true;
     if (view === "property-decks") return true;
     if (isAdminUser || authUser?.email?.toLowerCase().trim() === "admin@primephilippines.com") return true;
     if (view === "project") return allowedPages.includes("project") || allowedPages.includes("tasks");
@@ -1504,10 +1498,8 @@ export default function Home() {
 
             {currentView === "project" && <ProjectWorkspace userId={authUser?.id ? String(authUser.id) : undefined} />}
             {currentView === "maps" && <ProjectAtlasMapsPage />}
-            {currentView === "bsc" && <BscPortal />}
             {currentView === "property-decks" && <PropertyDecksView />}
             {currentView === "delta" && <ContractsWorkspace />}
-            {(currentView === "performance-marketing" || currentView === "google-ads") && <GoogleAdsKnowledgeCenter pathname={pathname || ""} userId={authUser?.id ? String(authUser.id) : undefined} />}
 
             {/* VIEW: TASKS (CLICKUP PORTAL) */}
             {(currentView === "tasks" || currentView === "notebook") && (
@@ -1531,20 +1523,6 @@ export default function Home() {
               />
             )}
 
-            {currentView === "reports" && (
-              <section className="mx-auto flex min-h-[60vh] w-full max-w-5xl items-center justify-center px-5 py-12">
-                <div className="w-full max-w-xl border border-slate-200 border-t-2 border-t-[#C9A84C] bg-[#FFFCFB] px-6 py-8 text-center shadow-sm">
-                  <ChartNoAxesColumnIncreasing aria-hidden="true" className="mx-auto h-8 w-8 text-[#003366]" />
-                  <h1 className="mt-4 font-serif text-2xl italic text-[#003366]">Reports</h1>
-                  <p className="mt-3 text-sm leading-6 text-slate-600">
-                    Under development. We’re exploring technology options and implementation approaches for this workspace.
-                  </p>
-                </div>
-              </section>
-            )}
-
-            {currentView === "market-insights" && <MarketInsightsView userId={authUser?.id ? String(authUser.id) : undefined} />}
-            {currentView === "demands" && <DemandsView userId={authUser?.id ? String(authUser.id) : undefined} sector={pathname?.startsWith("/demands/retail") ? "retail" : pathname?.startsWith("/demands/industrial") ? "industrial" : "all"} />}
             {currentView === "business-analysis" && <BusinessAnalysisView userId={authUser?.id ? String(authUser.id) : undefined} meetings={archivedMeetings} onLoadMeetings={async () => {
               const personalListId = typeof window !== "undefined" ? localStorage.getItem("project_echo_personal_list_id") || undefined : undefined;
               const result = await fetchMeetings(undefined, personalListId);
@@ -2078,7 +2056,7 @@ export default function Home() {
                     onOpenSource={(page, recordId, url) => {
                       if (page === "meetings") setSelectedMeetingId(recordId);
                       if (page === "tasks") setFocusedTaskId(recordId);
-                      if (["meetings", "tasks", "notebook", "forms", "demands", "market-insights"].includes(page)) setCurrentView(page as NavView);
+                      if (["meetings", "tasks", "notebook", "forms"].includes(page)) setCurrentView(page as NavView);
                       else if (url) window.open(url, "_blank", "noopener,noreferrer");
                     }}
                   />
@@ -2621,7 +2599,7 @@ export default function Home() {
         onOpenSource={(page, recordId, url) => {
           if (page === "meetings") setSelectedMeetingId(recordId);
           if (page === "tasks") setFocusedTaskId(recordId);
-          if (["meetings", "tasks", "notebook", "forms", "demands", "market-insights"].includes(page)) setCurrentView(page as NavView);
+          if (["meetings", "tasks", "notebook", "forms"].includes(page)) setCurrentView(page as NavView);
           else if (url) window.open(url, "_blank", "noopener,noreferrer");
           setIsUniversalEchoOpen(false);
         }}

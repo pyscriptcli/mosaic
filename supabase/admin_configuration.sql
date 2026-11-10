@@ -25,7 +25,6 @@ alter table public.echo_access_policies enable row level security;
 
 insert into public.echo_modules (key, label, display_order) values
   ('dashboard','Dashboard',10), ('tasks','Tasks',20), ('notebook','Notebook',30),
-  ('market-insights','Market Insights',40), ('demands','Demands',50),
   ('meetings','Meetings',60), ('minutes','Notetaker',70), ('forms','Forms',80),
   ('ask-echo','Ask Echo',90), ('email','Email & Notifications',100)
 on conflict (key) do nothing;

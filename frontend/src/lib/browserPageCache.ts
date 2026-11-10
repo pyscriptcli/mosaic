@@ -235,8 +235,6 @@ export function prefetchPageApis(ownerId: string, page: string) {
     ],
     tasks: [{ key: `tasks:${taskListId || "default"}`, url: tasksUrl, select: (data) => data }],
     notebook: [{ key: "notebook:current", url: "/api/notebook", select: (data) => data }],
-    demands: [{ key: "demands:all", url: "/api/demands", select: (data) => ({ demands: data.demands || [] }) }],
-    "market-insights": [{ key: "market-insights:all", url: "/api/market-insights", select: (data) => ({ articles: data.articles || [] }) }],
   };
   for (const { key, url, select } of apis[page] || []) {
     void prefetchBrowserPageQuery(ownerId, key, async () => {

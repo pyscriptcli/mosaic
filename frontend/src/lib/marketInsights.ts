@@ -1,1 +1,0 @@
-export const MARKET_INSIGHTS_LIST_ID = "901420987429";

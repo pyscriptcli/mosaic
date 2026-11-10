@@ -4,8 +4,6 @@ import { clickUpFetch, fetchAllClickUpListTasks } from "@/lib/clickupCalendarApi
 
 const PAGE_LISTS: Partial<Record<EchoSourcePage, string>> = {
   notebook: "901418075633",
-  demands: "901420989525",
-  "market-insights": "901420987429",
 };
 
 type Fetcher = typeof fetch;

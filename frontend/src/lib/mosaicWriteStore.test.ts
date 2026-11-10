@@ -3,10 +3,10 @@ import { addMosaicSyncMarker, mergeStagedClickUpTasks } from "@/lib/mosaicWriteS
 
 describe("addMosaicSyncMarker", () => {
   it("keeps JSON task descriptions parseable for existing record readers", () => {
-    const marked = addMosaicSyncMarker('{"echoDemand":{"client":"Northwind"}}', "request-1");
+    const marked = addMosaicSyncMarker('{"record":{"client":"Northwind"}}', "request-1");
 
     expect(JSON.parse(marked)).toMatchObject({
-      echoDemand: { client: "Northwind" },
+      record: { client: "Northwind" },
       _mosaicSyncRequest: "request-1",
     });
   });

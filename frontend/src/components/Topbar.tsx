@@ -16,9 +16,7 @@ import {
   ExternalLink,
   ClipboardList,
   NotebookTabs,
-  Newspaper,
   RefreshCw,
-  ClipboardCheck
 } from "lucide-react";
 import { ArchivedMeeting } from "@/types/meeting";
 import { ClickUpTask } from "./TasksView";
@@ -37,8 +35,8 @@ interface TopbarProps {
   onOpenStudio: () => void;
   onGoToNotetaker: () => void;
   showNewMeeting?: boolean;
-  onNavigateToPage?: (page: "dashboard" | "project" | "meetings" | "tasks" | "notebook" | "market-insights" | "demands" | "minutes" | "forms" | "forms-admin") => void;
-  allowedPages?: Array<"dashboard" | "project" | "meetings" | "tasks" | "notebook" | "market-insights" | "demands" | "minutes" | "forms">;
+  onNavigateToPage?: (page: "dashboard" | "project" | "meetings" | "tasks" | "notebook" | "minutes" | "forms" | "forms-admin") => void;
+  allowedPages?: Array<"dashboard" | "project" | "meetings" | "tasks" | "notebook" | "minutes" | "forms">;
   isAdmin?: boolean;
   askEchoEnabled?: boolean;
   allowedFeatures?: string[];
@@ -236,14 +234,12 @@ export function Topbar({
   const query = searchQuery.trim().toLowerCase();
 
   // 1. Navigation Pages
-  const APP_PAGES: Array<{ id: "dashboard" | "project" | "meetings" | "tasks" | "notebook" | "market-insights" | "demands" | "minutes" | "forms" | "forms-admin"; name: string; description: string; icon: any }> = [
+  const APP_PAGES: Array<{ id: "dashboard" | "project" | "meetings" | "tasks" | "notebook" | "minutes" | "forms" | "forms-admin"; name: string; description: string; icon: any }> = [
     { id: "dashboard", name: "Dashboard", description: "Executive overview & meeting metrics", icon: LayoutDashboard },
     { id: "project", name: "Project", description: "Focused project workspace", icon: FolderKanban },
     { id: "meetings", name: "Meetings Archives", description: "Review and edit meeting minutes", icon: Calendar },
     { id: "tasks", name: "Tasks Portal (ClickUp)", description: "Track & execute meeting action items", icon: CheckSquare },
     { id: "notebook", name: "Notebook", description: "Daily logs & team completeness", icon: NotebookTabs },
-    { id: "market-insights", name: "Market Insights", description: "Weekly market brief & source archive", icon: Newspaper },
-    { id: "demands", name: "Demands", description: "Demand pipeline, table & coverage", icon: ClipboardCheck },
     { id: "minutes", name: "Notetaker Studio", description: "Transcribe audio & synthesize notes", icon: Mic },
     { id: "forms", name: "Forms", description: "Submit, track & approve requests", icon: ClipboardList },
     { id: "forms-admin", name: "Settings", description: "Configure Ask Echo access and routing", icon: ClipboardList },
