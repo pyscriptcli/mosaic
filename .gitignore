@@ -5,6 +5,12 @@ node_modules/
 # Next.js build output
 frontend/.next/
 frontend/out/
+**/.next/
+**/out/
+**/dist/
+**/build/
+output/generated/
+outputs/generated/
 
 # Supabase CLI state
 supabase/.temp/
@@ -24,3 +30,6 @@ Thumbs.db
 .vscode/
 .idea/
 *.log
+*.key
+*.pem
+auth.json

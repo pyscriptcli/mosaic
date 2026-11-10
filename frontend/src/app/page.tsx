@@ -36,6 +36,7 @@ import {
   AudioTelemetry
 } from "@/lib/api";
 import { Sidebar, NavView } from "@/components/Sidebar";
+import { AutoResizeTextarea } from "@/components/notetaker/AutoResizeTextarea";
 import { Topbar } from "@/components/Topbar";
 import { DashboardView } from "@/components/DashboardView";
 import type { ClickUpTask } from "@/components/TasksView";
@@ -74,7 +75,6 @@ import {
   Maximize2,
   FileCheck,
   ArrowDownCircle,
-  Calendar,
   Users,
   CheckCircle,
   CheckCircle2,
@@ -130,112 +130,6 @@ function formatMeetingTime(value?: string) {
   const date = new Date();
   date.setHours(hour, minute, 0, 0);
   return date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-}
-
-function AutoResizeTextarea({
-  id,
-  value,
-  onChange,
-  placeholder,
-  className = "",
-  rows = 1,
-}: {
-  id?: string;
-  value: string;
-  onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
-  placeholder?: string;
-  className?: string;
-  rows?: number;
-}) {
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  const adjustHeight = () => {
-    const el = textareaRef.current;
-    if (el) {
-      el.style.height = "auto";
-      el.style.height = `${el.scrollHeight}px`;
-    }
-  };
-
-  useEffect(() => {
-    adjustHeight();
-  }, [value]);
-
-  return (
-    <textarea
-      ref={textareaRef}
-      id={id}
-      rows={rows}
-      value={value}
-      onChange={(e) => {
-        onChange(e);
-        adjustHeight();
-      }}
-      placeholder={placeholder}
-      className={`resize-none overflow-hidden ${className}`}
-    />
-  );
-}
-
-function DatePickerInput({
-  value,
-  onChange,
-  placeholder = "YYYY-MM-DD or TBD",
-}: {
-  value: string;
-  onChange: (val: string) => void;
-  placeholder?: string;
-}) {
-  const dateInputRef = useRef<HTMLInputElement>(null);
-
-  const handleIconClick = (e: React.MouseEvent) => {
-    e.preventDefault();
-    if (dateInputRef.current) {
-      try {
-        if (typeof dateInputRef.current.showPicker === "function") {
-          dateInputRef.current.showPicker();
-        } else {
-          dateInputRef.current.focus();
-        }
-      } catch {
-        dateInputRef.current.focus();
-      }
-    }
-  };
-
-  return (
-    <div className="relative flex items-center">
-      <input 
-        type="text" 
-        className="w-full border-b border-gray-300 py-1.5 pr-8 text-xs font-semibold text-gray-700 bg-transparent focus:outline-none focus:border-[#003366] transition-colors" 
-        value={value} 
-        placeholder={placeholder}
-        onChange={(e) => onChange(e.target.value)} 
-      />
-      <div className="relative flex items-center">
-        <button
-          type="button"
-          onClick={handleIconClick}
-          className="text-gray-400 hover:text-[#003366] p-1 transition-colors"
-          title="Open calendar date picker"
-        >
-          <Calendar size={15} />
-        </button>
-        <input 
-          ref={dateInputRef}
-          type="date" 
-          tabIndex={-1}
-          aria-hidden="true"
-          className="absolute right-0 top-0 w-4 h-4 opacity-0 pointer-events-none"
-          onChange={(e) => {
-            if (e.target.value) {
-              onChange(e.target.value);
-            }
-          }} 
-        />
-      </div>
-    </div>
-  );
 }
 
 export default function Home() {
