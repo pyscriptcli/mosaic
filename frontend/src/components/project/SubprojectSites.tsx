@@ -53,7 +53,7 @@ function sanitizeSiteNumber(value: string) {
   return decimalIndex < 0 ? numericValue : `${numericValue.slice(0, decimalIndex + 1)}${numericValue.slice(decimalIndex + 1).replace(/\./g, "")}`;
 }
 
-function SubprojectSites({ folderId, listId, listName, userId }: { folderId: string; listId: string; listName: string; userId?: string }) {
+export function SubprojectSites({ folderId, listId, listName, userId }: { folderId: string; listId: string; listName: string; userId?: string }) {
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState("");
   const [syncError, setSyncError] = useState("");
