@@ -1721,12 +1721,7 @@ export default function Home() {
                     onRecordingStart={handleRecordingStart}
                     onRecordingStop={handleRecordingStop}
                     meetingDetails={(
-                      <section className="border border-[#D9E1EA] border-t-2 border-t-[#C9A84C] bg-white shadow-2xs" aria-labelledby="meeting-information-heading">
-                        <div className="border-b border-slate-200 px-3 py-1.5 flex items-center justify-between">
-                          <h3 id="meeting-information-heading" className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#003366]">Meeting Details</h3>
-                          <span className="text-[9px] text-slate-400">Context for Minutes</span>
-                        </div>
-                        <div className="space-y-2 p-2.5">
+                      <div className="space-y-2 p-2.5">
                           {/* Row 1: Meeting Name */}
                           <div>
                             <label className="block text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-0.5">
@@ -1941,8 +1936,7 @@ export default function Home() {
                               </div>
                             </div>
                           </details>
-                        </div>
-                      </section>
+                      </div>
                     )}
                     onChangeMode={setStudioMode}
                     onClose={() => setIsStudioOpen(false)}

@@ -131,6 +131,7 @@ export function StudioPanel({
   const [isSendingBot, setIsSendingBot] = useState(false);
   const [captureMode, setCaptureMode] = useState<"meeting_link" | "device">("device");
   const [workspaceTab, setWorkspaceTab] = useState<"notes" | "echo" | "transcript">("echo");
+  const [mobilePanel, setMobilePanel] = useState<"capture" | "notes" | "assistant">("notes");
   const canAskEcho = askEchoEnabled && (!allowedFeatures || allowedFeatures.includes("ask-echo"));
   const canRecord = !allowedFeatures || allowedFeatures.includes("notetaker-record");
   React.useEffect(() => { if (!canAskEcho && workspaceTab === "echo") setWorkspaceTab("transcript"); }, [canAskEcho, workspaceTab]);
@@ -417,10 +418,30 @@ export function StudioPanel({
 
       <section aria-label="Recording Studio" className={panelClasses}>
         {/* ── Content ─────────────────────────────────────────────────── */}
-        <div className={`flex-1 min-h-0 overflow-hidden flex ${isFullscreen ? "flex-col lg:flex-row" : "flex-col"} bg-[#F3F6FA]`}>
+        <div className={`flex-1 min-h-0 overflow-hidden flex flex-col ${isFullscreen ? "lg:grid lg:grid-cols-[minmax(250px,0.88fr)_minmax(0,1.38fr)_minmax(280px,0.94fr)]" : ""} bg-[#F3F6FA]`}>
+
+          {isFullscreen && (
+            <div className="grid shrink-0 grid-cols-3 border-b border-slate-200 bg-white lg:hidden" role="group" aria-label="Meeting workspace panels">
+              {([
+                ["capture", "Capture"],
+                ["notes", "Notes"],
+                ["assistant", canAskEcho ? "Ask Echo" : "Transcript"],
+              ] as const).map(([panel, label]) => (
+                <button
+                  key={panel}
+                  type="button"
+                  aria-pressed={mobilePanel === panel}
+                  onClick={() => setMobilePanel(panel)}
+                  className={`border-b-2 px-2 py-2.5 text-xs font-semibold transition-colors ${mobilePanel === panel ? "border-[#C9A84C] text-[#003366]" : "border-transparent text-slate-500 hover:text-[#003366]"}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
 
           {/* ── Left / Top: Recording Controls ────────────────────────── */}
-          <div className={`${isFullscreen ? "w-full lg:w-1/3 lg:flex-1 min-w-0 lg:border-r border-[#D9E1EA]" : "w-full border-b border-[#D9E1EA]"} h-full min-h-0 flex flex-col bg-[#F3F6FA]`}>
+          <div id="meeting-capture-panel" role={isFullscreen ? "region" : undefined} aria-label={isFullscreen ? "Capture" : undefined} className={`${isFullscreen ? "w-full min-w-0 lg:border-r border-[#D9E1EA]" : "w-full border-b border-[#D9E1EA]"} ${isFullscreen && mobilePanel !== "capture" ? "hidden lg:flex" : "flex"} ${isFullscreen ? "min-h-0 flex-1 lg:h-full lg:flex-none" : "h-full min-h-0"} flex-col bg-[#F3F6FA]`}>
             {/* Header with live status badge matching Col 2 & 3 */}
             <div className="px-5 py-3.5 border-b border-slate-200 bg-white shrink-0 flex items-center justify-between min-h-[68px]">
               <div>
@@ -663,7 +684,17 @@ export function StudioPanel({
               </div>
             )}
 
-            {meetingDetails}
+            {meetingDetails && (
+              <details className="group border border-[#D9E1EA] border-t-2 border-t-[#C9A84C] bg-white shadow-2xs">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-[#003366] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#C9A84C] [&::-webkit-details-marker]:hidden">
+                  <span className="text-[10px] font-bold uppercase tracking-[0.14em]">Meeting details</span>
+                  <span className="flex items-center gap-2 text-[9px] text-slate-500">
+                    Context for minutes <ChevronDown size={13} aria-hidden="true" className="transition-transform group-open:rotate-180" />
+                  </span>
+                </summary>
+                {meetingDetails}
+              </details>
+            )}
 
             {/* Error display */}
             {recorder.error && (
@@ -723,7 +754,7 @@ export function StudioPanel({
           </div>
 
           {isFullscreen && (
-            <div className="w-full lg:w-1/3 lg:flex-1 min-w-0 h-full min-h-0 lg:border-r border-[#D9E1EA] bg-[#FFFCFB] flex flex-col">
+            <div id="meeting-notes-panel" role="region" aria-label="Notes" className={`w-full min-w-0 min-h-0 lg:h-full lg:flex-none lg:border-r border-[#D9E1EA] bg-[#FFFCFB] ${mobilePanel === "notes" ? "flex" : "hidden lg:flex"} flex-1 flex-col`}>
               <div className="px-5 py-3.5 border-b border-slate-200 bg-white shrink-0 flex items-center justify-between min-h-[68px]">
                 <div>
                   <h3 className="text-lg font-semibold tracking-tight text-[#003366]">User notes</h3>
@@ -869,7 +900,7 @@ export function StudioPanel({
           )}
 
           {/* ── Right / Bottom: Ask Echo ───────────────────────── */}
-          <div className={`${isFullscreen ? "w-full lg:w-1/3 lg:flex-1 min-w-0 h-full min-h-0" : "flex-1 border-t border-[#D9E1EA]"} flex flex-col min-h-0 bg-[#FFFCFB]`}>
+          <div id="meeting-assistant-panel" role={isFullscreen ? "region" : undefined} aria-label={isFullscreen ? "Assistant" : undefined} className={`${isFullscreen ? "w-full min-w-0 min-h-0 lg:h-full lg:flex-none" : "flex-1 border-t border-[#D9E1EA]"} ${isFullscreen && mobilePanel !== "assistant" ? "hidden lg:flex" : "flex"} flex-1 flex-col bg-[#FFFCFB]`}>
             <div className="px-5 py-3.5 shrink-0 bg-white border-b border-slate-200 flex items-center justify-between min-h-[68px]">
               <div className="flex items-center gap-3">
                 <div>
